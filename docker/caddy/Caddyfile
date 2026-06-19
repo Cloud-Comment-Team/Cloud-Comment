@@ -1,0 +1,7 @@
+:80 {
+	encode gzip
+
+	reverse_proxy /api/* backend:8080
+
+	respond / "CloudComment local MVP" 200
+}
