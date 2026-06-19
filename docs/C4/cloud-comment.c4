@@ -155,7 +155,7 @@ model {
   externalWebsite = externalSystem 'Сайт клиента' 'Любой внешний сайт, куда владелец вставляет embed-код CloudComment'
 
   cloudComment = system 'CloudComment' 'Облачная платформа комментариев для сайтов' {
-    reverseProxy = edge 'Nginx / Caddy reverse proxy' 'Единая точка входа для API, админки и статических файлов'
+    reverseProxy = edge 'Caddy reverse proxy' 'Единая локальная точка входа для API и будущих web-интерфейсов'
 
     adminWebApp = frontendApp 'Веб-интерфейс владельца сайта' 'Админ-панель для управления проектами, сайтами, кодом подключения и модерацией' {
       technology 'React, TypeScript, TanStack, Tailwind, Vite'
@@ -354,23 +354,9 @@ model {
 }
 
 deployment {
-  environment mvp 'MVP / demo environment' {
-    internet publicInternet 'Internet' {
-      externalHost customerHosting 'Хостинг сайта клиента' {
-        customerSite = instanceOf externalWebsite
-      }
-
-      browserNode visitorBrowser 'Браузер пользователя сайта' {
-        widgetInBrowser = instanceOf cloudComment.widgetRuntime
-      }
-
-      browserNode ownerBrowser 'Браузер владельца сайта' {
-        adminInBrowser = instanceOf cloudComment.adminWebApp
-      }
-    }
-
-    dockerHost cloudCommentHost 'Docker host / VPS' {
-      reverseProxyContainer = dockerContainer 'Reverse proxy container' {
+  environment localMvp 'Local MVP / Docker Compose' {
+    dockerHost cloudCommentHost 'Local Docker host' {
+      reverseProxyContainer = dockerContainer 'Caddy reverse proxy container' {
         instanceOf cloudComment.reverseProxy
       }
 
@@ -380,18 +366,6 @@ deployment {
 
       postgresContainer = dockerContainer 'PostgreSQL container' {
         instanceOf cloudComment.postgres
-      }
-
-      minioContainer = dockerContainer 'MinIO container' {
-        instanceOf cloudComment.minio
-      }
-
-      observabilityContainer = dockerContainer 'Observability containers' {
-        instanceOf cloudComment.observabilityStack
-      }
-
-      demoSiteContainer = dockerContainer 'Demo site container' {
-        instanceOf cloudComment.demoSite
       }
     }
   }
@@ -598,9 +572,9 @@ views {
   }
 
   deployment view deployment_mvp {
-    title 'Deployment. MVP окружение CloudComment'
+    title 'Deployment. Local Docker Compose MVP'
 
-    include mvp.**
+    include localMvp.**
 
     includeAncestors: true
 
