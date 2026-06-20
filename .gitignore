@@ -1,5 +1,7 @@
 .gradle/
 build/
+fronted/dist/
+fronted/node_modules/
 
 .env
 
