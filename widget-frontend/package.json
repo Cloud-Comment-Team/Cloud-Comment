@@ -1,0 +1,15 @@
+{
+  "name": "@cloud-comment/widget",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "build": "vite build --config vite.widget.config.ts",
+    "build:widget": "vite build --config vite.widget.config.ts",
+    "check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vite": "^7.2.7"
+  }
+}

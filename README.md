@@ -44,3 +44,43 @@ docker compose down
 ```sh
 docker compose down -v
 ```
+
+## Public widget bundle
+
+The comments widget is built as a separate frontend bundle:
+
+```sh
+cd widget-frontend
+npm install
+npm run build
+```
+
+The generated script is written to:
+
+```text
+widget-frontend/dist/widget/cloud-comment-widget.js
+```
+
+When Caddy is running from Docker Compose, the script is served at `/widget/cloud-comment-widget.js`:
+
+```html
+<script
+  src="http://localhost/widget/cloud-comment-widget.js"
+  data-site-id="demo-site"
+  data-api-base-url="http://localhost/api"
+></script>
+```
+
+The script auto-mounts the widget after the script tag. Manual mounting is also available:
+
+```html
+<div id="comments"></div>
+<script src="http://localhost/widget/cloud-comment-widget.js"></script>
+<script>
+  window.CloudCommentWidget.init({
+    siteId: "demo-site",
+    target: "#comments",
+    apiBaseUrl: "http://localhost/api"
+  });
+</script>
+```
