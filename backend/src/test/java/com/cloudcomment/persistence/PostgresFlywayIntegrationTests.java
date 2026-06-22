@@ -1,0 +1,47 @@
+package com.cloudcomment.persistence;
+
+import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+
+import javax.sql.DataSource;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+@SpringBootTest
+@Testcontainers(disabledWithoutDocker = true)
+class PostgresFlywayIntegrationTests {
+
+    @Container
+    @ServiceConnection
+    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:18-alpine");
+
+    @Autowired
+    DataSource dataSource;
+
+    @Autowired
+    Flyway flyway;
+
+    @Autowired
+    JdbcTemplate jdbcTemplate;
+
+    @Test
+    void applicationConnectsToPostgresAndFlywayCreatesSchemaHistory() {
+        assertThat(dataSource).isNotNull();
+        assertThat(flyway).isNotNull();
+
+        String databaseVersion = jdbcTemplate.queryForObject("select version()", String.class);
+        Integer schemaHistoryRows = jdbcTemplate.queryForObject("select count(*) from flyway_schema_history", Integer.class);
+        Integer smokeTableRows = jdbcTemplate.queryForObject("select count(*) from flyway_smoke_test", Integer.class);
+
+        assertThat(databaseVersion).contains("PostgreSQL");
+        assertThat(schemaHistoryRows).isOne();
+        assertThat(smokeTableRows).isZero();
+    }
+}

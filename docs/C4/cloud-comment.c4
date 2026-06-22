@@ -190,7 +190,7 @@ model {
     }
 
     backendApi = backendApp 'Backend API' 'Основное приложение CloudComment' {
-      technology 'Java 25, Spring Boot, Gradle'
+      technology 'Java 25, Spring Boot, JDBC, Flyway, Gradle'
 
       adminApiController = component 'Admin API Controller' 'REST API для веб-интерфейса владельца сайта'
 
@@ -268,7 +268,7 @@ model {
 
   cloudComment.widgetRuntime -[http]-> cloudComment.backendApi 'Вызывает public widget API'
 
-  cloudComment.backendApi -[stores]-> cloudComment.postgres 'Читает и записывает бизнес-данные'
+  cloudComment.backendApi -[stores]-> cloudComment.postgres 'Подключается через datasource, накатывает Flyway-миграции при старте и читает/записывает бизнес-данные'
 
   cloudComment.backendApi -[stores]-> cloudComment.minio 'Сохраняет файлы при необходимости'
 
