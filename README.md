@@ -50,7 +50,7 @@ docker compose down -v
 The comments widget is built as a separate frontend bundle:
 
 ```sh
-cd fronted
+cd widget-frontend
 npm install
 npm run build
 ```
@@ -58,7 +58,7 @@ npm run build
 The generated script is written to:
 
 ```text
-fronted/dist/widget/cloud-comment-widget.js
+widget-frontend/dist/widget/cloud-comment-widget.js
 ```
 
 When Caddy is running from Docker Compose, the script is served at `/widget/cloud-comment-widget.js`:

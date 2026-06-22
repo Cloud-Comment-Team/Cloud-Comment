@@ -4,7 +4,7 @@
 	reverse_proxy /api/* backend:8080
 
 	handle /widget/* {
-		root * /srv/fronted
+		root * /srv/widget-frontend
 		file_server
 	}
 

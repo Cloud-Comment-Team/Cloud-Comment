@@ -1,7 +1,7 @@
 .gradle/
 build/
-fronted/dist/
-fronted/node_modules/
+widget-frontend/dist/
+widget-frontend/node_modules/
 
 .env
 

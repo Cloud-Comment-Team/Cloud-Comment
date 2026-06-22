@@ -46,7 +46,7 @@ services:
       - "127.0.0.1:${HTTP_PORT:-80}:80"
     volumes:
       - ./docker/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./fronted/dist:/srv/fronted:ro
+      - ./widget-frontend/dist:/srv/widget-frontend:ro
 
 volumes:
   postgres_data:
