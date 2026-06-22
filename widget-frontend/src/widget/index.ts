@@ -58,7 +58,7 @@ function init(options: CloudCommentWidgetOptions): CloudCommentWidgetInstance {
 
   return {
     destroy: () => {
-      target.replaceChildren();
+      target.shadowRoot?.replaceChildren();
     }
   };
 }
