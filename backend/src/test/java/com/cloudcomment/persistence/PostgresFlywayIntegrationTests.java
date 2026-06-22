@@ -39,9 +39,24 @@ class PostgresFlywayIntegrationTests {
         String databaseVersion = jdbcTemplate.queryForObject("select version()", String.class);
         Integer schemaHistoryRows = jdbcTemplate.queryForObject("select count(*) from flyway_schema_history", Integer.class);
         Integer smokeTableRows = jdbcTemplate.queryForObject("select count(*) from flyway_smoke_test", Integer.class);
+        Integer coreTableRows = jdbcTemplate.queryForObject("""
+            select count(*)
+            from information_schema.tables
+            where table_schema = 'public'
+              and table_name in (
+                'app_users',
+                'user_roles',
+                'sites',
+                'site_allowed_origins',
+                'pages',
+                'comments',
+                'moderation_actions'
+              )
+            """, Integer.class);
 
         assertThat(databaseVersion).contains("PostgreSQL");
-        assertThat(schemaHistoryRows).isOne();
+        assertThat(schemaHistoryRows).isEqualTo(2);
         assertThat(smokeTableRows).isZero();
+        assertThat(coreTableRows).isEqualTo(7);
     }
 }
