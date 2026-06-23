@@ -1,5 +1,6 @@
 # Cloud-Comment
-Готовый сервис комментариев, который владельцы сайтов могут подключить несколькими строками кода. Предоставляет модерацию, авторизацию пользователей и централизованное управление обсуждениями.
+
+Готовый сервис комментариев, который владельцы сайтов могут подключить несколькими строками кода. Сервис предоставляет модерацию, авторизацию пользователей и централизованное управление обсуждениями.
 
 ## Локальный запуск MVP
 
@@ -45,9 +46,9 @@ docker compose down
 docker compose down -v
 ```
 
-## Public widget bundle
+## Публичный виджет
 
-The comments widget is built as a separate frontend bundle:
+Виджет комментариев собирается как отдельный frontend bundle:
 
 ```sh
 cd widget-frontend
@@ -55,13 +56,13 @@ npm install
 npm run build
 ```
 
-The generated script is written to:
+Готовый скрипт будет создан здесь:
 
 ```text
 widget-frontend/dist/widget/cloud-comment-widget.js
 ```
 
-When Caddy is running from Docker Compose, the script is served at `/widget/cloud-comment-widget.js`:
+Когда Caddy запущен через Docker Compose, скрипт доступен по адресу `/widget/cloud-comment-widget.js`:
 
 ```html
 <script
@@ -71,7 +72,7 @@ When Caddy is running from Docker Compose, the script is served at `/widget/clou
 ></script>
 ```
 
-The script auto-mounts the widget after the script tag. Manual mounting is also available:
+Скрипт автоматически монтирует виджет после тега `script`. Ручное подключение тоже доступно:
 
 ```html
 <div id="comments"></div>
@@ -83,4 +84,37 @@ The script auto-mounts the widget after the script tag. Manual mounting is also 
     apiBaseUrl: "http://localhost/api"
   });
 </script>
+```
+
+## Конфигурация окружений
+
+Корневой файл `.env` используется локально для Docker Compose и обоих Vite frontend-приложений.
+
+Для локальной разработки используйте `.env.example`:
+
+```sh
+cp .env.example .env
+```
+
+Файл `.env.production.example` служит production-like шаблоном. Production-профиль backend требует значения подключения к базе из переменных окружения и не подставляет локальные учетные данные по умолчанию.
+
+| Переменная | Где используется | Локальное значение |
+| --- | --- | --- |
+| `SPRING_PROFILES_ACTIVE` | backend | `local` |
+| `SERVER_PORT` | backend | `8080` |
+| `SPRING_DATASOURCE_URL` | backend | `jdbc:postgresql://localhost:5432/cloud_comment` |
+| `SPRING_DATASOURCE_USERNAME` | backend | `cloud_comment` |
+| `SPRING_DATASOURCE_PASSWORD` | backend | `cloud_comment` |
+| `HTTP_PORT` | Docker Compose / Caddy | `80` |
+| `POSTGRES_DB` | Docker Compose / PostgreSQL | `cloud_comment` |
+| `POSTGRES_USER` | Docker Compose / PostgreSQL | `cloud_comment` |
+| `POSTGRES_PASSWORD` | Docker Compose / PostgreSQL | `cloud_comment` |
+| `VITE_CLOUD_COMMENT_API_BASE_URL` | widget и admin frontend | `http://localhost/api` |
+
+Проверки сборки:
+
+```sh
+npm --prefix widget-frontend run check
+npm --prefix widget-frontend run build
+npm --prefix frontend/admin run build
 ```

@@ -22,6 +22,7 @@ services:
     image: cloud-comment-backend:local
     environment:
       SPRING_PROFILES_ACTIVE: local
+      SERVER_PORT: 8080
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-cloud_comment}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-cloud_comment}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-cloud_comment}
