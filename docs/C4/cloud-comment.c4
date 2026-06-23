@@ -227,7 +227,7 @@ model {
       observabilityModule = component 'Observability module' 'Структурные логи, метрики и технические события'
     }
 
-    postgres = database 'PostgreSQL' 'Основное хранилище пользователей, проектов, сайтов, страниц и комментариев' {
+    postgres = database 'PostgreSQL' 'Основное хранилище пользователей, ролей, проектов, сайтов, страниц и комментариев' {
       technology 'PostgreSQL, Flyway migrations'
     }
 

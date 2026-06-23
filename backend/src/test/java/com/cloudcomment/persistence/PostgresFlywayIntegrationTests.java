@@ -45,18 +45,25 @@ class PostgresFlywayIntegrationTests {
             where table_schema = 'public'
               and table_name in (
                 'app_users',
+                'roles',
                 'user_roles',
                 'sites',
                 'site_allowed_origins',
                 'pages',
                 'comments',
                 'moderation_actions'
-              )
+            )
+            """, Integer.class);
+        Integer roleRows = jdbcTemplate.queryForObject("""
+            select count(*)
+            from roles
+            where name in ('OWNER', 'COMMENTER', 'MODERATOR')
             """, Integer.class);
 
         assertThat(databaseVersion).contains("PostgreSQL");
-        assertThat(schemaHistoryRows).isEqualTo(2);
+        assertThat(schemaHistoryRows).isEqualTo(3);
         assertThat(smokeTableRows).isZero();
-        assertThat(coreTableRows).isEqualTo(7);
+        assertThat(coreTableRows).isEqualTo(8);
+        assertThat(roleRows).isEqualTo(3);
     }
 }
