@@ -1,0 +1,13 @@
+package com.cloudcomment.api.error;
+
+public enum ApiErrorCode {
+    BAD_REQUEST,
+    BUSINESS_ERROR,
+    INTERNAL_ERROR,
+    MALFORMED_JSON,
+    METHOD_NOT_ALLOWED,
+    NOT_FOUND,
+    TYPE_MISMATCH,
+    UNSUPPORTED_MEDIA_TYPE,
+    VALIDATION_FAILED
+}
