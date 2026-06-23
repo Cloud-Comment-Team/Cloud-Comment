@@ -80,6 +80,12 @@ create table comments (
     constraint chk_comments_author_email_not_blank check (author_email is null or btrim(author_email) <> '')
 );
 
+alter table comments
+    add constraint uq_comments_id_page_id unique (id, page_id),
+    add constraint fk_comments_parent_same_page foreign key (parent_id, page_id)
+        references comments (id, page_id)
+        on delete cascade;
+
 create table moderation_actions (
     id uuid primary key default gen_random_uuid(),
     comment_id uuid not null references comments (id) on delete cascade,
