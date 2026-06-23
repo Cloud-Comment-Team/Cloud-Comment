@@ -1,10 +1,11 @@
 spring:
   application:
     name: cloud-comment
-  datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/cloud_comment}
-    username: ${SPRING_DATASOURCE_USERNAME:cloud_comment}
-    password: ${SPRING_DATASOURCE_PASSWORD:cloud_comment}
+  profiles:
+    default: local
   flyway:
     enabled: true
     locations: classpath:db/migration
+
+server:
+  port: ${SERVER_PORT:8080}

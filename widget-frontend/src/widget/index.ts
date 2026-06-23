@@ -1,3 +1,4 @@
+import { DEFAULT_API_BASE_URL } from "./config";
 import { renderWidget } from "./render";
 import type {
   CloudCommentWidgetApi,
@@ -6,7 +7,6 @@ import type {
 } from "./types";
 
 const DEFAULT_TARGET_ID = "cloud-comment-widget";
-const DEFAULT_API_BASE_URL = "/api";
 
 function resolveTarget(target?: string | HTMLElement): HTMLElement {
   if (target instanceof HTMLElement) {
