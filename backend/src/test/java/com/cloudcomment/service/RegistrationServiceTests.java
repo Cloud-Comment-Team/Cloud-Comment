@@ -7,6 +7,7 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
 import java.time.Instant;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -74,6 +75,11 @@ class RegistrationServiceTests {
         }
 
         @Override
+        public Optional<UserCredentials> findCredentialsByEmail(String email) {
+            return Optional.empty();
+        }
+
+        @Override
         public RegisteredUser create(String email, String passwordHash, Set<String> roles) {
             if (throwDuplicateOnCreate) {
                 throw new DuplicateKeyException("duplicate email");
@@ -83,6 +89,11 @@ class RegistrationServiceTests {
             createdRoles = Set.copyOf(roles);
             Instant timestamp = Instant.parse("2026-06-23T12:00:00Z");
             return new RegisteredUser(UUID.randomUUID(), email, roles, timestamp, timestamp);
+        }
+
+        @Override
+        public void createSession(UUID userId, String tokenHash, Instant expiresAt) {
+            throw new UnsupportedOperationException("registration tests do not create sessions");
         }
     }
 }

@@ -3,6 +3,9 @@ package com.cloudcomment.api;
 import com.cloudcomment.api.auth.AuthController;
 import com.cloudcomment.api.error.ApiErrorCode;
 import com.cloudcomment.api.error.ApiException;
+import com.cloudcomment.service.AuthenticatedUser;
+import com.cloudcomment.service.LoginResult;
+import com.cloudcomment.service.LoginService;
 import com.cloudcomment.service.RegisteredUser;
 import com.cloudcomment.service.RegistrationService;
 import org.junit.jupiter.api.Test;
@@ -34,6 +37,9 @@ class AuthControllerTests {
 
     @MockitoBean
     private RegistrationService registrationService;
+
+    @MockitoBean
+    private LoginService loginService;
 
     @Test
     void registerCreatesUserWithoutPasswordInResponse() throws Exception {
@@ -93,6 +99,85 @@ class AuthControllerTests {
             .andExpect(jsonPath("$.error.message", is("Email is already used")))
             .andExpect(jsonPath("$.error.status", is(409)))
             .andExpect(jsonPath("$.error.path", is("/api/auth/register")))
+            .andExpect(jsonPath("$.error.fields", empty()));
+    }
+
+    @Test
+    void loginReturnsTokenAndUserWithoutPasswordInResponse() throws Exception {
+        UUID id = UUID.randomUUID();
+        Instant createdAt = Instant.parse("2026-06-23T12:00:00Z");
+        Instant updatedAt = Instant.parse("2026-06-23T13:00:00Z");
+        Instant expiresAt = Instant.parse("2026-06-30T12:00:00Z");
+        AuthenticatedUser user = new AuthenticatedUser(
+            id,
+            "user@example.com",
+            Set.of("COMMENTER"),
+            createdAt,
+            updatedAt
+        );
+        when(loginService.login(eq("User@Example.com"), eq("strong-password")))
+            .thenReturn(new LoginResult("plain-session-token", "Bearer", expiresAt, user));
+
+        mockMvc.perform(post("/api/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "email": "User@Example.com",
+                      "password": "strong-password"
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.token", is("plain-session-token")))
+            .andExpect(jsonPath("$.tokenType", is("Bearer")))
+            .andExpect(jsonPath("$.expiresAt", is("2026-06-30T12:00:00Z")))
+            .andExpect(jsonPath("$.user.id", is(id.toString())))
+            .andExpect(jsonPath("$.user.email", is("user@example.com")))
+            .andExpect(jsonPath("$.user.roles", containsInAnyOrder("COMMENTER")))
+            .andExpect(jsonPath("$.user.createdAt", is("2026-06-23T12:00:00Z")))
+            .andExpect(jsonPath("$.user.updatedAt", is("2026-06-23T13:00:00Z")))
+            .andExpect(jsonPath("$.password").doesNotExist())
+            .andExpect(jsonPath("$.passwordHash").doesNotExist())
+            .andExpect(jsonPath("$.user.password").doesNotExist())
+            .andExpect(jsonPath("$.user.passwordHash").doesNotExist());
+    }
+
+    @Test
+    void loginRejectsInvalidRequest() throws Exception {
+        mockMvc.perform(post("/api/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "email": "not-email",
+                      "password": "short"
+                    }
+                    """))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code", is("VALIDATION_FAILED")))
+            .andExpect(jsonPath("$.error.fields").isNotEmpty());
+    }
+
+    @Test
+    void loginReturnsUnauthorizedForInvalidCredentials() throws Exception {
+        when(loginService.login(eq("user@example.com"), eq("wrong-password")))
+            .thenThrow(new ApiException(
+                ApiErrorCode.INVALID_CREDENTIALS,
+                HttpStatus.UNAUTHORIZED,
+                "Invalid email or password"
+            ));
+
+        mockMvc.perform(post("/api/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "email": "user@example.com",
+                      "password": "wrong-password"
+                    }
+                    """))
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.error.code", is("INVALID_CREDENTIALS")))
+            .andExpect(jsonPath("$.error.message", is("Invalid email or password")))
+            .andExpect(jsonPath("$.error.status", is(401)))
+            .andExpect(jsonPath("$.error.path", is("/api/auth/login")))
             .andExpect(jsonPath("$.error.fields", empty()));
     }
 }
