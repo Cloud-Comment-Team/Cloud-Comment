@@ -3,6 +3,7 @@ package com.cloudcomment.api.error;
 public enum ApiErrorCode {
     BAD_REQUEST,
     BUSINESS_ERROR,
+    EMAIL_ALREADY_USED,
     INTERNAL_ERROR,
     MALFORMED_JSON,
     METHOD_NOT_ALLOWED,
