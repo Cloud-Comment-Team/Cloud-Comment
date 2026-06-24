@@ -95,5 +95,10 @@ class RegistrationServiceTests {
         public void createSession(UUID userId, String tokenHash, Instant expiresAt) {
             throw new UnsupportedOperationException("registration tests do not create sessions");
         }
+
+        @Override
+        public com.cloudcomment.persistence.SessionRevocationResult revokeSession(String tokenHash, Instant revokedAt) {
+            throw new UnsupportedOperationException("registration tests do not revoke sessions");
+        }
     }
 }

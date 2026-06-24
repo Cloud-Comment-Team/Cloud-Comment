@@ -105,6 +105,42 @@ class JdbcUserAccountRepository implements UserAccountRepository {
         );
     }
 
+    @Override
+    public SessionRevocationResult revokeSession(String tokenHash, Instant revokedAt) {
+        OffsetDateTime revokedAtOffset = OffsetDateTime.ofInstant(revokedAt, ZoneOffset.UTC);
+        int updated = jdbcTemplate.update(
+            """
+                update auth_sessions
+                set revoked_at = greatest(?, created_at)
+                where token_hash = ?
+                  and revoked_at is null
+                  and expires_at > ?
+                """,
+            revokedAtOffset,
+            tokenHash,
+            revokedAtOffset
+        );
+        if (updated > 0) {
+            return SessionRevocationResult.REVOKED;
+        }
+
+        Boolean alreadyRevoked = jdbcTemplate.queryForObject(
+            """
+                select exists(
+                    select 1
+                    from auth_sessions
+                    where token_hash = ?
+                      and revoked_at is not null
+                )
+                """,
+            Boolean.class,
+            tokenHash
+        );
+        return Boolean.TRUE.equals(alreadyRevoked)
+            ? SessionRevocationResult.ALREADY_REVOKED
+            : SessionRevocationResult.NOT_FOUND_OR_EXPIRED;
+    }
+
     private RegisteredUser mapRegisteredUser(ResultSet resultSet, int rowNumber) throws SQLException {
         return new RegisteredUser(
             resultSet.getObject("id", UUID.class),

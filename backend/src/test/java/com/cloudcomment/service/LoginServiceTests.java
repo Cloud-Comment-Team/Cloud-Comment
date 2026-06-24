@@ -36,7 +36,7 @@ class LoginServiceTests {
             timestamp,
             timestamp
         )));
-        LoginService service = new LoginService(repository, passwordEncoder, FIXED_CLOCK);
+        LoginService service = new LoginService(repository, passwordEncoder, FIXED_CLOCK, new SessionTokenHasher());
 
         LoginResult result = service.login(" User@Example.COM ", "strong-password");
 
@@ -58,7 +58,7 @@ class LoginServiceTests {
     void loginRejectsUnknownEmail() {
         BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
         CapturingUserAccountRepository repository = new CapturingUserAccountRepository(Optional.empty());
-        LoginService service = new LoginService(repository, passwordEncoder, FIXED_CLOCK);
+        LoginService service = new LoginService(repository, passwordEncoder, FIXED_CLOCK, new SessionTokenHasher());
 
         assertThatThrownBy(() -> service.login("missing@example.com", "strong-password"))
             .isInstanceOf(ApiException.class)
@@ -80,7 +80,7 @@ class LoginServiceTests {
             Instant.parse("2026-06-23T12:00:00Z"),
             Instant.parse("2026-06-23T12:00:00Z")
         )));
-        LoginService service = new LoginService(repository, passwordEncoder, FIXED_CLOCK);
+        LoginService service = new LoginService(repository, passwordEncoder, FIXED_CLOCK, new SessionTokenHasher());
 
         assertThatThrownBy(() -> service.login("user@example.com", "wrong-password"))
             .isInstanceOf(ApiException.class)
@@ -100,7 +100,7 @@ class LoginServiceTests {
             Instant.parse("2026-06-23T12:00:00Z"),
             Instant.parse("2026-06-23T12:00:00Z")
         )));
-        LoginService service = new LoginService(repository, passwordEncoder, FIXED_CLOCK);
+        LoginService service = new LoginService(repository, passwordEncoder, FIXED_CLOCK, new SessionTokenHasher());
 
         assertThatThrownBy(() -> service.login("user@example.com", "strong-password"))
             .isInstanceOf(ApiException.class)
@@ -142,6 +142,11 @@ class LoginServiceTests {
             sessionUserId = userId;
             createdTokenHash = tokenHash;
             sessionExpiresAt = expiresAt;
+        }
+
+        @Override
+        public com.cloudcomment.persistence.SessionRevocationResult revokeSession(String tokenHash, Instant revokedAt) {
+            throw new UnsupportedOperationException("login tests do not revoke sessions");
         }
     }
 }

@@ -6,6 +6,7 @@ import com.cloudcomment.api.error.ApiException;
 import com.cloudcomment.service.AuthenticatedUser;
 import com.cloudcomment.service.LoginResult;
 import com.cloudcomment.service.LoginService;
+import com.cloudcomment.service.LogoutService;
 import com.cloudcomment.service.RegisteredUser;
 import com.cloudcomment.service.RegistrationService;
 import org.junit.jupiter.api.Test;
@@ -24,6 +25,8 @@ import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.is;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -40,6 +43,9 @@ class AuthControllerTests {
 
     @MockitoBean
     private LoginService loginService;
+
+    @MockitoBean
+    private LogoutService logoutService;
 
     @Test
     void registerCreatesUserWithoutPasswordInResponse() throws Exception {
@@ -178,6 +184,74 @@ class AuthControllerTests {
             .andExpect(jsonPath("$.error.message", is("Invalid email or password")))
             .andExpect(jsonPath("$.error.status", is(401)))
             .andExpect(jsonPath("$.error.path", is("/api/auth/login")))
+            .andExpect(jsonPath("$.error.fields", empty()));
+    }
+
+    @Test
+    void logoutRevokesCurrentSession() throws Exception {
+        mockMvc.perform(post("/api/auth/logout")
+                .header("Authorization", "Bearer plain-session-token"))
+            .andExpect(status().isNoContent());
+
+        verify(logoutService).logout("plain-session-token");
+    }
+
+    @Test
+    void logoutTreatsAlreadyRevokedSessionAsSuccess() throws Exception {
+        mockMvc.perform(post("/api/auth/logout")
+                .header("Authorization", "Bearer already-revoked-token"))
+            .andExpect(status().isNoContent());
+
+        verify(logoutService).logout("already-revoked-token");
+    }
+
+    @Test
+    void logoutAcceptsBearerSchemeCaseInsensitively() throws Exception {
+        mockMvc.perform(post("/api/auth/logout")
+                .header("Authorization", "bearer plain-session-token"))
+            .andExpect(status().isNoContent());
+
+        verify(logoutService).logout("plain-session-token");
+    }
+
+    @Test
+    void logoutReturnsUnauthorizedWhenAuthorizationHeaderIsMissing() throws Exception {
+        mockMvc.perform(post("/api/auth/logout"))
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.error.code", is("INVALID_SESSION")))
+            .andExpect(jsonPath("$.error.message", is("Invalid or expired session")))
+            .andExpect(jsonPath("$.error.status", is(401)))
+            .andExpect(jsonPath("$.error.path", is("/api/auth/logout")))
+            .andExpect(jsonPath("$.error.fields", empty()));
+    }
+
+    @Test
+    void logoutReturnsUnauthorizedWhenAuthorizationHeaderIsMalformed() throws Exception {
+        mockMvc.perform(post("/api/auth/logout")
+                .header("Authorization", "Basic plain-session-token"))
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.error.code", is("INVALID_SESSION")))
+            .andExpect(jsonPath("$.error.message", is("Invalid or expired session")))
+            .andExpect(jsonPath("$.error.status", is(401)))
+            .andExpect(jsonPath("$.error.path", is("/api/auth/logout")))
+            .andExpect(jsonPath("$.error.fields", empty()));
+    }
+
+    @Test
+    void logoutReturnsUnauthorizedWhenSessionIsInvalidOrExpired() throws Exception {
+        doThrow(new ApiException(
+            ApiErrorCode.INVALID_SESSION,
+            HttpStatus.UNAUTHORIZED,
+            "Invalid or expired session"
+        )).when(logoutService).logout(eq("expired-session-token"));
+
+        mockMvc.perform(post("/api/auth/logout")
+                .header("Authorization", "Bearer expired-session-token"))
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.error.code", is("INVALID_SESSION")))
+            .andExpect(jsonPath("$.error.message", is("Invalid or expired session")))
+            .andExpect(jsonPath("$.error.status", is(401)))
+            .andExpect(jsonPath("$.error.path", is("/api/auth/logout")))
             .andExpect(jsonPath("$.error.fields", empty()));
     }
 }
