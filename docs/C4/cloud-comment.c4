@@ -190,7 +190,7 @@ model {
     }
 
     backendApi = backendApp 'Backend API' 'Основное приложение CloudComment' {
-      technology 'Java 25, Spring Boot, JDBC, Flyway, Gradle'
+      technology 'Java 25, Spring Boot, Spring Security, JDBC, Flyway, Gradle'
 
       adminApiController = component 'Admin API Controller' 'REST API для веб-интерфейса владельца сайта'
 

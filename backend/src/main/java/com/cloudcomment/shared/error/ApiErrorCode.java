@@ -1,0 +1,16 @@
+package com.cloudcomment.shared.error;
+
+public enum ApiErrorCode {
+    BAD_REQUEST,
+    BUSINESS_ERROR,
+    EMAIL_ALREADY_USED,
+    INVALID_CREDENTIALS,
+    INVALID_SESSION,
+    INTERNAL_ERROR,
+    MALFORMED_JSON,
+    METHOD_NOT_ALLOWED,
+    NOT_FOUND,
+    TYPE_MISMATCH,
+    UNSUPPORTED_MEDIA_TYPE,
+    VALIDATION_FAILED
+}
