@@ -8,15 +8,11 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
-import java.util.HexFormat;
 import java.util.Locale;
 
 @Service
@@ -28,12 +24,19 @@ public class LoginService {
     private final UserAccountRepository userAccountRepository;
     private final PasswordEncoder passwordEncoder;
     private final Clock clock;
+    private final SessionTokenHasher sessionTokenHasher;
     private final SecureRandom secureRandom;
 
-    public LoginService(UserAccountRepository userAccountRepository, PasswordEncoder passwordEncoder, Clock clock) {
+    public LoginService(
+        UserAccountRepository userAccountRepository,
+        PasswordEncoder passwordEncoder,
+        Clock clock,
+        SessionTokenHasher sessionTokenHasher
+    ) {
         this.userAccountRepository = userAccountRepository;
         this.passwordEncoder = passwordEncoder;
         this.clock = clock;
+        this.sessionTokenHasher = sessionTokenHasher;
         this.secureRandom = new SecureRandom();
     }
 
@@ -47,7 +50,7 @@ public class LoginService {
 
         String token = generateToken();
         Instant expiresAt = clock.instant().plus(SESSION_TTL);
-        userAccountRepository.createSession(user.id(), hashToken(token), expiresAt);
+        userAccountRepository.createSession(user.id(), sessionTokenHasher.hash(token), expiresAt);
 
         return new LoginResult(
             token,
@@ -65,15 +68,6 @@ public class LoginService {
         byte[] bytes = new byte[TOKEN_BYTES];
         secureRandom.nextBytes(bytes);
         return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
-    }
-
-    private String hashToken(String token) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            return HexFormat.of().formatHex(digest.digest(token.getBytes(StandardCharsets.UTF_8)));
-        } catch (NoSuchAlgorithmException exception) {
-            throw new IllegalStateException("SHA-256 digest is not available", exception);
-        }
     }
 
     private ApiException invalidCredentials() {

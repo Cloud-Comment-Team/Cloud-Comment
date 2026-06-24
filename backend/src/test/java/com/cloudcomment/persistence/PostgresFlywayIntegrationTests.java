@@ -109,5 +109,60 @@ class PostgresFlywayIntegrationTests {
             "a".repeat(64)
         );
         assertThat(sessions).isOne();
+
+        SessionRevocationResult revoked = userAccountRepository.revokeSession(
+            "a".repeat(64),
+            Instant.parse("2026-06-30T12:00:00Z")
+        );
+        assertThat(revoked).isEqualTo(SessionRevocationResult.REVOKED);
+
+        Integer revokedSessions = jdbcTemplate.queryForObject(
+            "select count(*) from auth_sessions where user_id = ? and token_hash = ? and revoked_at is not null",
+            Integer.class,
+            user.id(),
+            "a".repeat(64)
+        );
+        assertThat(revokedSessions).isOne();
+
+        SessionRevocationResult alreadyRevoked = userAccountRepository.revokeSession(
+            "a".repeat(64),
+            Instant.parse("2026-06-30T12:05:00Z")
+        );
+        assertThat(alreadyRevoked).isEqualTo(SessionRevocationResult.ALREADY_REVOKED);
+
+        SessionRevocationResult missing = userAccountRepository.revokeSession(
+            "b".repeat(64),
+            Instant.parse("2026-06-30T12:00:00Z")
+        );
+        assertThat(missing).isEqualTo(SessionRevocationResult.NOT_FOUND_OR_EXPIRED);
+
+        userAccountRepository.createSession(user.id(), "c".repeat(64), expiresAt);
+        SessionRevocationResult skewSafeRevoked = userAccountRepository.revokeSession(
+            "c".repeat(64),
+            Instant.parse("2026-06-24T12:00:00Z")
+        );
+        assertThat(skewSafeRevoked).isEqualTo(SessionRevocationResult.REVOKED);
+
+        Integer skewSafeSessions = jdbcTemplate.queryForObject(
+            """
+                select count(*)
+                from auth_sessions
+                where user_id = ?
+                  and token_hash = ?
+                  and revoked_at is not null
+                  and revoked_at >= created_at
+                """,
+            Integer.class,
+            user.id(),
+            "c".repeat(64)
+        );
+        assertThat(skewSafeSessions).isOne();
+
+        userAccountRepository.createSession(user.id(), "d".repeat(64), expiresAt);
+        SessionRevocationResult expired = userAccountRepository.revokeSession(
+            "d".repeat(64),
+            Instant.parse("2026-07-02T12:00:00Z")
+        );
+        assertThat(expired).isEqualTo(SessionRevocationResult.NOT_FOUND_OR_EXPIRED);
     }
 }

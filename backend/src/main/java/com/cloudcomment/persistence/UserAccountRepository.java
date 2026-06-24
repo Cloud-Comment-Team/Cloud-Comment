@@ -17,4 +17,6 @@ public interface UserAccountRepository {
     RegisteredUser create(String email, String passwordHash, Set<String> roles);
 
     void createSession(UUID userId, String tokenHash, Instant expiresAt);
+
+    SessionRevocationResult revokeSession(String tokenHash, Instant revokedAt);
 }
