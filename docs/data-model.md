@@ -1,24 +1,24 @@
-# Data model
+# Модель данных
 
-## Users and roles
+## Пользователи и роли
 
-CloudComment stores application users in `app_users`.
+CloudComment хранит пользователей приложения в таблице `app_users`.
 
-`app_users` is compatible with upcoming registration, login and authorization tasks:
+`app_users` совместима с будущими задачами регистрации, входа и авторизации:
 
-- `id` is a generated UUID primary key.
-- `email` is unique and sized for RFC-compatible email addresses.
-- `password_hash` stores a password hash, not a raw password.
-- `display_name` is optional.
-- `is_enabled` can disable access without deleting the account.
-- `created_at` and `updated_at` support audit and profile-management flows.
+- `id` — сгенерированный UUID, первичный ключ.
+- `email` — уникальный адрес, размер поля подходит для RFC-совместимых email.
+- `password_hash` — хеш пароля, не исходный пароль.
+- `display_name` — необязательное отображаемое имя.
+- `is_enabled` — позволяет отключить доступ без удаления аккаунта.
+- `created_at` и `updated_at` поддерживают аудит и будущие сценарии управления профилем.
 
-Roles are stored in the `roles` reference table and assigned through `user_roles`.
+Роли хранятся в справочной таблице `roles` и назначаются пользователям через `user_roles`.
 
-MVP roles:
+Роли MVP:
 
-- `OWNER` - site owner with administrative access to owned resources.
-- `COMMENTER` - authenticated visitor who can publish comments.
-- `MODERATOR` - reserved for future moderation flows.
+- `OWNER` — владелец сайта с административным доступом к своим ресурсам.
+- `COMMENTER` — авторизованный посетитель, который может публиковать комментарии.
+- `MODERATOR` — роль, зарезервированная для будущих сценариев модерации.
 
-`user_roles` keeps a many-to-many relationship between users and roles. This allows later authorization work to support users with multiple permissions without changing the core user table.
+`user_roles` хранит связь many-to-many между пользователями и ролями. Это позволит будущей авторизации поддерживать пользователей с несколькими наборами прав без изменения основной таблицы пользователей.
