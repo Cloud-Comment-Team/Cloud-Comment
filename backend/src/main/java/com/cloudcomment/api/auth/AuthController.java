@@ -2,6 +2,7 @@ package com.cloudcomment.api.auth;
 
 import com.cloudcomment.api.error.ApiErrorCode;
 import com.cloudcomment.api.error.ApiException;
+import com.cloudcomment.service.CurrentUserService;
 import com.cloudcomment.service.LoginResult;
 import com.cloudcomment.service.LoginService;
 import com.cloudcomment.service.LogoutService;
@@ -11,6 +12,7 @@ import jakarta.validation.Valid;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -24,15 +26,18 @@ public class AuthController {
     private final RegistrationService registrationService;
     private final LoginService loginService;
     private final LogoutService logoutService;
+    private final CurrentUserService currentUserService;
 
     AuthController(
         RegistrationService registrationService,
         LoginService loginService,
-        LogoutService logoutService
+        LogoutService logoutService,
+        CurrentUserService currentUserService
     ) {
         this.registrationService = registrationService;
         this.loginService = loginService;
         this.logoutService = logoutService;
+        this.currentUserService = currentUserService;
     }
 
     @PostMapping("/register")
@@ -53,6 +58,13 @@ public class AuthController {
     ) {
         logoutService.logout(extractBearerToken(authorization));
         return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/me")
+    UserProfileResponse me(
+        @RequestHeader(name = HttpHeaders.AUTHORIZATION, required = false) String authorization
+    ) {
+        return UserProfileResponse.from(currentUserService.getCurrentUser(extractBearerToken(authorization)));
     }
 
     private String extractBearerToken(String authorization) {

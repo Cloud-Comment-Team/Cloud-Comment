@@ -1,5 +1,6 @@
 package com.cloudcomment.persistence;
 
+import com.cloudcomment.service.AuthenticatedUser;
 import com.cloudcomment.service.RegisteredUser;
 import com.cloudcomment.service.UserCredentials;
 
@@ -13,6 +14,8 @@ public interface UserAccountRepository {
     boolean existsByEmail(String email);
 
     Optional<UserCredentials> findCredentialsByEmail(String email);
+
+    Optional<AuthenticatedUser> findUserByActiveSessionTokenHash(String tokenHash, Instant now);
 
     RegisteredUser create(String email, String passwordHash, Set<String> roles);
 

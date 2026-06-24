@@ -11,6 +11,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import javax.sql.DataSource;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Set;
 import java.util.UUID;
@@ -77,7 +78,12 @@ class PostgresFlywayIntegrationTests {
     @Test
     void repositoryCreatesUsersReadsCredentialsAndStoresSessions() {
         String email = "repo-" + UUID.randomUUID() + "@example.com";
-        Instant expiresAt = Instant.parse("2026-07-01T12:00:00Z");
+        Instant referenceTime = Instant.now();
+        Instant activeAt = referenceTime.plus(Duration.ofDays(1));
+        Instant alreadyRevokedAt = activeAt.plus(Duration.ofMinutes(5));
+        Instant skewedPastAt = referenceTime.minus(Duration.ofDays(1));
+        Instant expiresAt = referenceTime.plus(Duration.ofDays(7));
+        Instant expiredAt = expiresAt.plus(Duration.ofDays(1));
 
         assertThat(userAccountRepository.existsByEmail(email)).isFalse();
         assertThat(userAccountRepository.findCredentialsByEmail(email)).isEmpty();
@@ -110,9 +116,19 @@ class PostgresFlywayIntegrationTests {
         );
         assertThat(sessions).isOne();
 
+        var currentUser = userAccountRepository.findUserByActiveSessionTokenHash(
+            "a".repeat(64),
+            activeAt
+        ).orElseThrow();
+        assertThat(currentUser.id()).isEqualTo(user.id());
+        assertThat(currentUser.email()).isEqualTo(email);
+        assertThat(currentUser.roles()).containsExactly("COMMENTER");
+        assertThat(currentUser.createdAt()).isEqualTo(user.createdAt());
+        assertThat(currentUser.updatedAt()).isEqualTo(user.updatedAt());
+
         SessionRevocationResult revoked = userAccountRepository.revokeSession(
             "a".repeat(64),
-            Instant.parse("2026-06-30T12:00:00Z")
+            activeAt
         );
         assertThat(revoked).isEqualTo(SessionRevocationResult.REVOKED);
 
@@ -123,23 +139,31 @@ class PostgresFlywayIntegrationTests {
             "a".repeat(64)
         );
         assertThat(revokedSessions).isOne();
+        assertThat(userAccountRepository.findUserByActiveSessionTokenHash(
+            "a".repeat(64),
+            alreadyRevokedAt
+        )).isEmpty();
 
         SessionRevocationResult alreadyRevoked = userAccountRepository.revokeSession(
             "a".repeat(64),
-            Instant.parse("2026-06-30T12:05:00Z")
+            alreadyRevokedAt
         );
         assertThat(alreadyRevoked).isEqualTo(SessionRevocationResult.ALREADY_REVOKED);
 
         SessionRevocationResult missing = userAccountRepository.revokeSession(
             "b".repeat(64),
-            Instant.parse("2026-06-30T12:00:00Z")
+            activeAt
         );
         assertThat(missing).isEqualTo(SessionRevocationResult.NOT_FOUND_OR_EXPIRED);
+        assertThat(userAccountRepository.findUserByActiveSessionTokenHash(
+            "b".repeat(64),
+            activeAt
+        )).isEmpty();
 
         userAccountRepository.createSession(user.id(), "c".repeat(64), expiresAt);
         SessionRevocationResult skewSafeRevoked = userAccountRepository.revokeSession(
             "c".repeat(64),
-            Instant.parse("2026-06-24T12:00:00Z")
+            skewedPastAt
         );
         assertThat(skewSafeRevoked).isEqualTo(SessionRevocationResult.REVOKED);
 
@@ -161,8 +185,21 @@ class PostgresFlywayIntegrationTests {
         userAccountRepository.createSession(user.id(), "d".repeat(64), expiresAt);
         SessionRevocationResult expired = userAccountRepository.revokeSession(
             "d".repeat(64),
-            Instant.parse("2026-07-02T12:00:00Z")
+            expiredAt
         );
         assertThat(expired).isEqualTo(SessionRevocationResult.NOT_FOUND_OR_EXPIRED);
+        assertThat(userAccountRepository.findUserByActiveSessionTokenHash(
+            "d".repeat(64),
+            expiredAt
+        )).isEmpty();
+
+        String disabledEmail = "disabled-" + UUID.randomUUID() + "@example.com";
+        var disabledUser = userAccountRepository.create(disabledEmail, "hashed-password", Set.of("COMMENTER"));
+        userAccountRepository.createSession(disabledUser.id(), "e".repeat(64), expiresAt);
+        jdbcTemplate.update("update app_users set is_enabled = false where id = ?", disabledUser.id());
+        assertThat(userAccountRepository.findUserByActiveSessionTokenHash(
+            "e".repeat(64),
+            activeAt
+        )).isEmpty();
     }
 }
