@@ -4,6 +4,7 @@ import com.cloudcomment.api.auth.AuthController;
 import com.cloudcomment.api.error.ApiErrorCode;
 import com.cloudcomment.api.error.ApiException;
 import com.cloudcomment.service.AuthenticatedUser;
+import com.cloudcomment.service.CurrentUserService;
 import com.cloudcomment.service.LoginResult;
 import com.cloudcomment.service.LoginService;
 import com.cloudcomment.service.LogoutService;
@@ -28,6 +29,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -46,6 +48,9 @@ class AuthControllerTests {
 
     @MockitoBean
     private LogoutService logoutService;
+
+    @MockitoBean
+    private CurrentUserService currentUserService;
 
     @Test
     void registerCreatesUserWithoutPasswordInResponse() throws Exception {
@@ -184,6 +189,90 @@ class AuthControllerTests {
             .andExpect(jsonPath("$.error.message", is("Invalid email or password")))
             .andExpect(jsonPath("$.error.status", is(401)))
             .andExpect(jsonPath("$.error.path", is("/api/auth/login")))
+            .andExpect(jsonPath("$.error.fields", empty()));
+    }
+
+    @Test
+    void meReturnsCurrentUserWithoutPasswordInResponse() throws Exception {
+        UUID id = UUID.randomUUID();
+        Instant createdAt = Instant.parse("2026-06-23T12:00:00Z");
+        Instant updatedAt = Instant.parse("2026-06-23T13:00:00Z");
+        when(currentUserService.getCurrentUser(eq("plain-session-token")))
+            .thenReturn(new AuthenticatedUser(
+                id,
+                "user@example.com",
+                Set.of("COMMENTER"),
+                createdAt,
+                updatedAt
+            ));
+
+        mockMvc.perform(get("/api/auth/me")
+                .header("Authorization", "Bearer plain-session-token"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.id", is(id.toString())))
+            .andExpect(jsonPath("$.email", is("user@example.com")))
+            .andExpect(jsonPath("$.roles", containsInAnyOrder("COMMENTER")))
+            .andExpect(jsonPath("$.createdAt", is("2026-06-23T12:00:00Z")))
+            .andExpect(jsonPath("$.updatedAt", is("2026-06-23T13:00:00Z")))
+            .andExpect(jsonPath("$.password").doesNotExist())
+            .andExpect(jsonPath("$.passwordHash").doesNotExist());
+
+        verify(currentUserService).getCurrentUser("plain-session-token");
+    }
+
+    @Test
+    void meAcceptsBearerSchemeCaseInsensitively() throws Exception {
+        UUID id = UUID.randomUUID();
+        Instant timestamp = Instant.parse("2026-06-23T12:00:00Z");
+        when(currentUserService.getCurrentUser(eq("plain-session-token")))
+            .thenReturn(new AuthenticatedUser(id, "user@example.com", Set.of("COMMENTER"), timestamp, timestamp));
+
+        mockMvc.perform(get("/api/auth/me")
+                .header("Authorization", "bearer plain-session-token"))
+            .andExpect(status().isOk());
+
+        verify(currentUserService).getCurrentUser("plain-session-token");
+    }
+
+    @Test
+    void meReturnsUnauthorizedWhenAuthorizationHeaderIsMissing() throws Exception {
+        mockMvc.perform(get("/api/auth/me"))
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.error.code", is("INVALID_SESSION")))
+            .andExpect(jsonPath("$.error.message", is("Invalid or expired session")))
+            .andExpect(jsonPath("$.error.status", is(401)))
+            .andExpect(jsonPath("$.error.path", is("/api/auth/me")))
+            .andExpect(jsonPath("$.error.fields", empty()));
+    }
+
+    @Test
+    void meReturnsUnauthorizedWhenAuthorizationHeaderIsMalformed() throws Exception {
+        mockMvc.perform(get("/api/auth/me")
+                .header("Authorization", "Basic plain-session-token"))
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.error.code", is("INVALID_SESSION")))
+            .andExpect(jsonPath("$.error.message", is("Invalid or expired session")))
+            .andExpect(jsonPath("$.error.status", is(401)))
+            .andExpect(jsonPath("$.error.path", is("/api/auth/me")))
+            .andExpect(jsonPath("$.error.fields", empty()));
+    }
+
+    @Test
+    void meReturnsUnauthorizedWhenSessionIsInvalidOrExpired() throws Exception {
+        when(currentUserService.getCurrentUser(eq("expired-session-token")))
+            .thenThrow(new ApiException(
+                ApiErrorCode.INVALID_SESSION,
+                HttpStatus.UNAUTHORIZED,
+                "Invalid or expired session"
+            ));
+
+        mockMvc.perform(get("/api/auth/me")
+                .header("Authorization", "Bearer expired-session-token"))
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.error.code", is("INVALID_SESSION")))
+            .andExpect(jsonPath("$.error.message", is("Invalid or expired session")))
+            .andExpect(jsonPath("$.error.status", is(401)))
+            .andExpect(jsonPath("$.error.path", is("/api/auth/me")))
             .andExpect(jsonPath("$.error.fields", empty()));
     }
 

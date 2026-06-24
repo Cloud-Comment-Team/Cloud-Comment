@@ -83,6 +83,11 @@ class LogoutServiceTests {
         }
 
         @Override
+        public Optional<AuthenticatedUser> findUserByActiveSessionTokenHash(String tokenHash, Instant now) {
+            return Optional.empty();
+        }
+
+        @Override
         public RegisteredUser create(String email, String passwordHash, Set<String> roles) {
             throw new UnsupportedOperationException("logout tests do not create users");
         }

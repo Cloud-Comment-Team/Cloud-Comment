@@ -80,6 +80,11 @@ class RegistrationServiceTests {
         }
 
         @Override
+        public Optional<AuthenticatedUser> findUserByActiveSessionTokenHash(String tokenHash, Instant now) {
+            return Optional.empty();
+        }
+
+        @Override
         public RegisteredUser create(String email, String passwordHash, Set<String> roles) {
             if (throwDuplicateOnCreate) {
                 throw new DuplicateKeyException("duplicate email");

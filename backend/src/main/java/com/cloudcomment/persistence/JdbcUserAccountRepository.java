@@ -1,5 +1,6 @@
 package com.cloudcomment.persistence;
 
+import com.cloudcomment.service.AuthenticatedUser;
 import com.cloudcomment.service.RegisteredUser;
 import com.cloudcomment.service.UserCredentials;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -55,6 +56,34 @@ class JdbcUserAccountRepository implements UserAccountRepository {
                 row.email(),
                 row.passwordHash(),
                 row.enabled(),
+                findRoles(row.id()),
+                row.createdAt(),
+                row.updatedAt()
+            ));
+    }
+
+    @Override
+    public Optional<AuthenticatedUser> findUserByActiveSessionTokenHash(String tokenHash, Instant now) {
+        List<UserProfileRow> rows = jdbcTemplate.query(
+            """
+                select u.id, u.email, u.created_at, u.updated_at
+                from auth_sessions s
+                join app_users u on u.id = s.user_id
+                where s.token_hash = ?
+                  and s.revoked_at is null
+                  and s.expires_at > ?
+                  and u.is_enabled = true
+                """,
+            this::mapUserProfileRow,
+            tokenHash,
+            OffsetDateTime.ofInstant(now, ZoneOffset.UTC)
+        );
+
+        return rows.stream()
+            .findFirst()
+            .map(row -> new AuthenticatedUser(
+                row.id(),
+                row.email(),
                 findRoles(row.id()),
                 row.createdAt(),
                 row.updatedAt()
@@ -162,6 +191,15 @@ class JdbcUserAccountRepository implements UserAccountRepository {
         );
     }
 
+    private UserProfileRow mapUserProfileRow(ResultSet resultSet, int rowNumber) throws SQLException {
+        return new UserProfileRow(
+            resultSet.getObject("id", UUID.class),
+            resultSet.getString("email"),
+            toInstant(resultSet, "created_at"),
+            toInstant(resultSet, "updated_at")
+        );
+    }
+
     private Set<String> findRoles(UUID userId) {
         return new LinkedHashSet<>(jdbcTemplate.queryForList(
             """
@@ -184,6 +222,14 @@ class JdbcUserAccountRepository implements UserAccountRepository {
         String email,
         String passwordHash,
         boolean enabled,
+        Instant createdAt,
+        Instant updatedAt
+    ) {
+    }
+
+    private record UserProfileRow(
+        UUID id,
+        String email,
         Instant createdAt,
         Instant updatedAt
     ) {
