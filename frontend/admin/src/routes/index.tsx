@@ -7,6 +7,7 @@ import Moderation from '../pages/Moderation/Moderation';
 import Statistics from '../pages/Statistics/Statistics';
 import Settings from '../pages/Settings/Settings';
 import Login from '../pages/Login/Login';
+import ProtectedRoute from '../components/auth/ProtectedRoute';
 
 export const router = createBrowserRouter([
   {
@@ -15,14 +16,19 @@ export const router = createBrowserRouter([
   },
   {
     path: '/',
-    element: <Layout />,
+    element: <ProtectedRoute />,
     children: [
-      { index: true, element: <Dashboard /> },
-      { path: 'comments', element: <Comments /> },
-      { path: 'users', element: <Users /> },
-      { path: 'moderation', element: <Moderation /> },
-      { path: 'statistics', element: <Statistics /> },
-      { path: 'settings', element: <Settings /> },
+      {
+        element: <Layout />,
+        children: [
+          { index: true, element: <Dashboard /> },
+          { path: 'comments', element: <Comments /> },
+          { path: 'users', element: <Users /> },
+          { path: 'moderation', element: <Moderation /> },
+          { path: 'statistics', element: <Statistics /> },
+          { path: 'settings', element: <Settings /> },
+        ],
+      },
     ],
   },
 ]);
