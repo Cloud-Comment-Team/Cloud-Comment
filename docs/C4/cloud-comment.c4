@@ -198,6 +198,8 @@ model {
 
       authModule = component 'Auth module' 'Регистрация, вход, проверка токена и текущий пользователь'
 
+      accessPolicyModule = component 'Access policy module' 'Проверка владения ресурсами для Admin API'
+
       projectModule = component 'Project module' 'Проекты владельцев сайтов'
 
       siteModule = component 'Site module' 'Сайты, привязанные к проектам'
@@ -302,7 +304,9 @@ model {
 
   cloudComment.widgetRuntime.publicApiClient -[http]-> cloudComment.backendApi.publicWidgetController 'Выполняет public API запросы'
 
-  cloudComment.backendApi.adminApiController -[internal]-> cloudComment.backendApi.authModule 'Проверяет владельца сайта'
+  cloudComment.backendApi.adminApiController -[internal]-> cloudComment.backendApi.authModule 'Проверяет сессию по bearer-токену'
+
+  cloudComment.backendApi.adminApiController -[internal]-> cloudComment.backendApi.accessPolicyModule 'Проверяет владение ресурсом'
 
   cloudComment.backendApi.adminApiController -[internal]-> cloudComment.backendApi.projectModule 'Управляет проектами'
 
@@ -327,6 +331,8 @@ model {
   cloudComment.backendApi.siteModule -[stores]-> cloudComment.backendApi.persistenceModule 'Сохраняет сайты'
 
   cloudComment.backendApi.authModule -[stores]-> cloudComment.backendApi.persistenceModule 'Сохраняет пользователей и токены'
+
+  cloudComment.backendApi.accessPolicyModule -[reads]-> cloudComment.backendApi.persistenceModule 'Проверяет владение по sites.owner_id и связям ресурсов'
 
   cloudComment.backendApi.pageModule -[stores]-> cloudComment.backendApi.persistenceModule 'Сохраняет страницы сайта'
 
@@ -440,6 +446,7 @@ views {
     include cloudComment.adminWebApp.adminApiClient
     include cloudComment.backendApi.adminApiController
     include cloudComment.backendApi.authModule
+    include cloudComment.backendApi.accessPolicyModule
     include cloudComment.backendApi.moderationModule
     include cloudComment.backendApi.commentModule
     include cloudComment.backendApi.auditLogModule
@@ -458,7 +465,7 @@ views {
 
     cloudComment.adminWebApp.adminApiClient -> cloudComment.backendApi.adminApiController 'POST /admin/projects'
 
-    cloudComment.backendApi.adminApiController -> cloudComment.backendApi.authModule 'Проверяет владельца'
+    cloudComment.backendApi.adminApiController -> cloudComment.backendApi.authModule 'Проверяет сессию по bearer-токену'
 
     cloudComment.backendApi.adminApiController -> cloudComment.backendApi.projectModule 'Создает проект'
 
@@ -487,6 +494,10 @@ views {
     cloudComment.adminWebApp.embedCodePage -> cloudComment.adminWebApp.adminApiClient 'Запрашивает код'
 
     cloudComment.adminWebApp.adminApiClient -> cloudComment.backendApi.adminApiController 'GET /admin/sites/{id}/embed-code'
+
+    cloudComment.backendApi.adminApiController -> cloudComment.backendApi.authModule 'Проверяет сессию по bearer-токену'
+
+    cloudComment.backendApi.adminApiController -> cloudComment.backendApi.accessPolicyModule 'Проверяет владение сайтом'
 
     cloudComment.backendApi.adminApiController -> cloudComment.backendApi.embedCodeModule 'Генерирует JS snippet'
 
@@ -544,7 +555,9 @@ views {
 
     cloudComment.adminWebApp.adminApiClient -> cloudComment.backendApi.adminApiController 'GET /admin/comments'
 
-    cloudComment.backendApi.adminApiController -> cloudComment.backendApi.authModule 'Проверяет владельца'
+    cloudComment.backendApi.adminApiController -> cloudComment.backendApi.authModule 'Проверяет сессию по bearer-токену'
+
+    cloudComment.backendApi.adminApiController -> cloudComment.backendApi.accessPolicyModule 'Ограничивает выборку ресурсами владельца'
 
     cloudComment.backendApi.adminApiController -> cloudComment.backendApi.moderationModule 'Получает комментарии на модерацию'
 
@@ -559,6 +572,8 @@ views {
     cloudComment.adminWebApp.moderationPages -> cloudComment.adminWebApp.adminApiClient 'Отправляет действие'
 
     cloudComment.adminWebApp.adminApiClient -> cloudComment.backendApi.adminApiController 'PATCH /admin/comments/{id}/status'
+
+    cloudComment.backendApi.adminApiController -> cloudComment.backendApi.accessPolicyModule 'Проверяет владение комментарием'
 
     cloudComment.backendApi.adminApiController -> cloudComment.backendApi.moderationModule 'Меняет статус'
 
