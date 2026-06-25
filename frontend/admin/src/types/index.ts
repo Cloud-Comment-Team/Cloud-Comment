@@ -7,6 +7,21 @@ export interface User {
   createdAt: string;
 }
 
+export interface AuthUser {
+  id: string;
+  email: string;
+  roles: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LoginResponse {
+  token: string;
+  tokenType: string;
+  expiresAt: string;
+  user: AuthUser;
+}
+
 export interface Comment {
   id: string;
   content: string;
