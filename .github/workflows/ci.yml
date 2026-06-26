@@ -1,0 +1,180 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  backend:
+    name: Backend Tests And Coverage
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout head
+        uses: actions/checkout@v4
+
+      - name: Checkout base
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Test backend
+        working-directory: backend
+        run: |
+          chmod +x ./gradlew
+          ./gradlew test jacocoTestReport --init-script ../.github/scripts/jacoco-init.gradle.kts --no-daemon
+
+      - name: Test base coverage
+        if: github.event_name == 'pull_request'
+        working-directory: base/backend
+        run: |
+          chmod +x ./gradlew
+          ./gradlew test jacocoTestReport --init-script ../../.github/scripts/jacoco-init.gradle.kts --no-daemon
+
+      - name: Summarize backend coverage
+        id: coverage
+        shell: pwsh
+        run: |
+          $baseReport = ""
+          if ("${{ github.event_name }}" -eq "pull_request") {
+            $baseReport = "base/backend/build/reports/jacoco/test/jacocoTestReport.xml"
+          }
+
+          ./.github/scripts/jacoco-summary.ps1 `
+            -CurrentReport "backend/build/reports/jacoco/test/jacocoTestReport.xml" `
+            -BaseReport $baseReport `
+            -OutputMarkdown "coverage-summary.md" `
+            -OutputProperties "coverage-output.properties"
+
+          Get-Content "coverage-summary.md" >> $env:GITHUB_STEP_SUMMARY
+          Get-Content "coverage-output.properties" | ForEach-Object {
+            Add-Content -Path $env:GITHUB_OUTPUT -Value $_
+          }
+
+      - name: Comment backend coverage on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v8
+        continue-on-error: true
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- cloud-comment-backend-coverage -->';
+            const body = fs.readFileSync('coverage-summary.md', 'utf8');
+            const issue_number = context.payload.pull_request.number;
+            const { owner, repo } = context.repo;
+
+            const comments = await github.rest.issues.listComments({
+              owner,
+              repo,
+              issue_number,
+              per_page: 100
+            });
+            const previous = comments.data.find((comment) =>
+              comment.user.type === 'Bot' && comment.body.includes(marker)
+            );
+
+            if (previous) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: previous.id,
+                body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number,
+                body
+              });
+            }
+
+      - name: Upload backend coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-jacoco-report
+          path: backend/build/reports/jacoco/test/html
+
+  frontend-admin:
+    name: Admin Frontend
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/admin/package-lock.json
+
+      - name: Install admin dependencies
+        working-directory: frontend/admin
+        run: npm ci
+
+      - name: Lint admin
+        working-directory: frontend/admin
+        run: npm run lint
+
+      - name: Build admin
+        working-directory: frontend/admin
+        run: npm run build
+
+  widget:
+    name: Widget Frontend
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: widget-frontend/package-lock.json
+
+      - name: Install widget dependencies
+        working-directory: widget-frontend
+        run: npm ci
+
+      - name: Type-check widget
+        working-directory: widget-frontend
+        run: npm run check
+
+      - name: Build widget
+        working-directory: widget-frontend
+        run: npm run build
+
+  compose:
+    name: Docker Compose Config
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate compose config
+        run: docker compose config --quiet

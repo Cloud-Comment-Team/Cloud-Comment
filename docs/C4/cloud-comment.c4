@@ -1,0 +1,598 @@
+specification {
+  element person {
+    style {
+      shape person
+      color amber
+    }
+  }
+
+  element externalSystem {
+    style {
+      color gray
+    }
+  }
+
+  element system {
+    style {
+      color indigo
+    }
+  }
+
+  element frontendApp {
+    style {
+      shape browser
+      color green
+    }
+  }
+
+  element widgetApp {
+    style {
+      shape browser
+      color green
+    }
+  }
+
+  element backendApp {
+    style {
+      shape component
+      color indigo
+    }
+  }
+
+  element edge {
+    style {
+      color gray
+    }
+  }
+
+  element component {
+    style {
+      shape component
+      color primary
+    }
+  }
+
+  element database {
+    style {
+      shape cylinder
+      color amber
+    }
+  }
+
+  element objectStorage {
+    style {
+      shape bucket
+      color amber
+    }
+  }
+
+  element cache {
+    style {
+      shape storage
+      color gray
+    }
+  }
+
+  element observability {
+    style {
+      color gray
+    }
+  }
+
+  relationship http {
+    line solid
+    color green
+  }
+
+  relationship internal {
+    line solid
+    color indigo
+  }
+
+  relationship stores {
+    line solid
+    color amber
+  }
+
+  relationship reads {
+    line dashed
+    color amber
+  }
+
+  relationship logs {
+    line dotted
+    color gray
+  }
+
+  relationship loads {
+    line solid
+    color gray
+  }
+
+  deploymentNode environment {
+    style {
+      color muted
+    }
+  }
+
+  deploymentNode internet {
+    style {
+      color gray
+    }
+  }
+
+  deploymentNode browserNode {
+    style {
+      shape browser
+      color green
+    }
+  }
+
+  deploymentNode externalHost {
+    style {
+      color gray
+    }
+  }
+
+  deploymentNode dockerHost {
+    style {
+      color indigo
+    }
+  }
+
+  deploymentNode dockerContainer {
+    style {
+      color primary
+    }
+  }
+}
+
+model {
+  websiteOwner = person 'Владелец сайта' 'Создает проекты, подключает виджет и модерирует обсуждения'
+
+  authorizedVisitor = person 'Авторизованный пользователь сайта' 'Открывает сайт клиента, авторизуется и оставляет комментарии'
+
+  externalWebsite = externalSystem 'Сайт клиента' 'Любой внешний сайт, куда владелец вставляет embed-код CloudComment'
+
+  cloudComment = system 'CloudComment' 'Облачная платформа комментариев для сайтов' {
+    reverseProxy = edge 'Caddy reverse proxy' 'Единая локальная точка входа для API и будущих web-интерфейсов'
+
+    adminWebApp = frontendApp 'Веб-интерфейс владельца сайта' 'Админ-панель для управления проектами, сайтами, кодом подключения и модерацией' {
+      technology 'React, TypeScript, TanStack, Tailwind, Vite'
+
+      authPages = component 'Страницы авторизации' 'Вход и регистрация владельца сайта'
+
+      projectPages = component 'Страницы проектов' 'Создание и просмотр проектов владельца'
+
+      sitePages = component 'Страницы сайтов' 'Добавление сайтов внутри проекта'
+
+      embedCodePage = component 'Страница embed-кода' 'Показывает JS-код для подключения виджета'
+
+      moderationPages = component 'Страницы модерации' 'Просмотр, скрытие и публикация комментариев'
+
+      adminApiClient = component 'Admin API Client' 'Единый клиент для запросов в backend API'
+    }
+
+    widgetRuntime = widgetApp 'JS-виджет комментариев' 'Встраиваемый виджет, который запускается на внешнем сайте клиента' {
+      technology 'TypeScript, React, Vite bundle'
+
+      embedLoader = component 'Embed loader' 'Минимальный JS-скрипт, который загружает виджет на страницу'
+
+      widgetShell = component 'Widget shell' 'Корневой компонент виджета'
+
+      widgetAuthClient = component 'Widget auth client' 'Работа с авторизацией пользователя внутри виджета'
+
+      commentList = component 'Comment list' 'Получение и отображение комментариев страницы'
+
+      commentForm = component 'Comment form' 'Форма создания нового комментария'
+
+      publicApiClient = component 'Public API Client' 'Клиент публичного API виджета'
+    }
+
+    backendApi = backendApp 'Backend API' 'Основное приложение CloudComment' {
+      technology 'Java 25, Spring Boot, Spring Security, JDBC, Flyway, Gradle'
+
+      adminApiController = component 'Admin API Controller' 'REST API для веб-интерфейса владельца сайта'
+
+      publicWidgetController = component 'Public Widget API Controller' 'Публичное API, которым пользуется встраиваемый виджет'
+
+      authModule = component 'Auth module' 'Регистрация, вход, проверка токена и текущий пользователь'
+
+      accessPolicyModule = component 'Access policy module' 'Проверка владения ресурсами для Admin API'
+
+      projectModule = component 'Project module' 'Проекты владельцев сайтов'
+
+      siteModule = component 'Site module' 'Сайты, привязанные к проектам'
+
+      domainPolicyModule = component 'Domain policy module' 'Проверка разрешенных доменов для подключения виджета'
+
+      embedCodeModule = component 'Embed code module' 'Генерация JS-кода подключения для конкретного сайта'
+
+      pageModule = component 'Page module' 'Определение страницы сайта и разделение обсуждений по URL'
+
+      widgetConfigModule = component 'Widget config module' 'Публичная конфигурация виджета для конкретного сайта'
+
+      commentModule = component 'Comment module' 'Создание, получение и хранение комментариев'
+
+      moderationModule = component 'Moderation module' 'Смена статусов комментариев и управление очередью модерации'
+
+      antiSpamModule = component 'Anti-spam module' 'Базовые проверки частоты запросов и подозрительного поведения'
+
+      fileModule = component 'File module' 'Работа с файлами через MinIO, необязательная часть MVP'
+
+      persistenceModule = component 'Persistence module' 'Доступ к PostgreSQL через репозитории'
+
+      cacheModule = component 'Cache module' 'Кэширование публичной конфигурации и доменных правил'
+
+      auditLogModule = component 'Audit log module' 'Запись действий владельца сайта и модерации'
+
+      observabilityModule = component 'Observability module' 'Структурные логи, метрики и технические события'
+    }
+
+    postgres = database 'PostgreSQL' 'Основное хранилище пользователей, ролей, проектов, сайтов, страниц и комментариев' {
+      technology 'PostgreSQL, Flyway migrations'
+    }
+
+    minio = objectStorage 'MinIO' 'Хранилище файлов, если в MVP появятся вложения или аватары' {
+      technology 'MinIO'
+    }
+
+    caffeineCache = cache 'Caffeine cache' 'In-memory cache внутри backend API' {
+      technology 'Caffeine'
+    }
+
+    observabilityStack = observability 'Observability stack' 'Логи, метрики и дашборды, если успеете в MVP' {
+      technology 'Grafana, ELK'
+    }
+
+    demoSite = frontendApp 'Demo site' 'Тестовый сайт для проверки embed-кода и сценария подключения' {
+      technology 'React, TypeScript, Vite'
+    }
+  }
+
+  websiteOwner -[http]-> cloudComment.adminWebApp 'Работает с админ-панелью'
+
+  authorizedVisitor -[http]-> externalWebsite 'Открывает страницу сайта клиента'
+
+  externalWebsite -[loads]-> cloudComment.widgetRuntime 'Подключает JS-виджет через embed-код'
+
+  authorizedVisitor -[http]-> cloudComment.widgetRuntime 'Авторизуется и оставляет комментарий'
+
+  websiteOwner -[http]-> cloudComment.demoSite 'Проверяет подключение виджета на демо-сайте'
+
+  cloudComment.demoSite -[loads]-> cloudComment.widgetRuntime 'Загружает виджет как внешний сайт'
+
+  cloudComment.reverseProxy -[loads]-> cloudComment.adminWebApp 'Отдает статические файлы админки'
+
+  cloudComment.reverseProxy -[http]-> cloudComment.backendApi 'Проксирует REST API запросы'
+
+  cloudComment.adminWebApp -[http]-> cloudComment.backendApi 'Вызывает admin REST API'
+
+  cloudComment.widgetRuntime -[http]-> cloudComment.backendApi 'Вызывает public widget API'
+
+  cloudComment.backendApi -[stores]-> cloudComment.postgres 'Подключается через datasource, накатывает Flyway-миграции при старте и читает/записывает бизнес-данные'
+
+  cloudComment.backendApi -[stores]-> cloudComment.minio 'Сохраняет файлы при необходимости'
+
+  cloudComment.backendApi -[reads]-> cloudComment.caffeineCache 'Кэширует публичную конфигурацию и доменные правила'
+
+  cloudComment.backendApi -[logs]-> cloudComment.observabilityStack 'Отправляет логи и метрики'
+
+  cloudComment.adminWebApp.authPages -[internal]-> cloudComment.adminWebApp.adminApiClient 'Отправляет данные входа'
+
+  cloudComment.adminWebApp.projectPages -[internal]-> cloudComment.adminWebApp.adminApiClient 'Управляет проектами'
+
+  cloudComment.adminWebApp.sitePages -[internal]-> cloudComment.adminWebApp.adminApiClient 'Управляет сайтами'
+
+  cloudComment.adminWebApp.embedCodePage -[internal]-> cloudComment.adminWebApp.adminApiClient 'Запрашивает код подключения'
+
+  cloudComment.adminWebApp.moderationPages -[internal]-> cloudComment.adminWebApp.adminApiClient 'Управляет модерацией'
+
+  cloudComment.adminWebApp.adminApiClient -[http]-> cloudComment.backendApi.adminApiController 'Выполняет admin API запросы'
+
+  cloudComment.widgetRuntime.embedLoader -[internal]-> cloudComment.widgetRuntime.widgetShell 'Инициализирует виджет на странице'
+
+  cloudComment.widgetRuntime.widgetShell -[internal]-> cloudComment.widgetRuntime.widgetAuthClient 'Проверяет авторизацию пользователя'
+
+  cloudComment.widgetRuntime.widgetShell -[internal]-> cloudComment.widgetRuntime.commentList 'Отображает список комментариев'
+
+  cloudComment.widgetRuntime.widgetShell -[internal]-> cloudComment.widgetRuntime.commentForm 'Показывает форму комментария'
+
+  cloudComment.widgetRuntime.commentList -[internal]-> cloudComment.widgetRuntime.publicApiClient 'Запрашивает комментарии'
+
+  cloudComment.widgetRuntime.commentForm -[internal]-> cloudComment.widgetRuntime.publicApiClient 'Отправляет новый комментарий'
+
+  cloudComment.widgetRuntime.publicApiClient -[http]-> cloudComment.backendApi.publicWidgetController 'Выполняет public API запросы'
+
+  cloudComment.backendApi.adminApiController -[internal]-> cloudComment.backendApi.authModule 'Проверяет сессию по bearer-токену'
+
+  cloudComment.backendApi.adminApiController -[internal]-> cloudComment.backendApi.accessPolicyModule 'Проверяет владение ресурсом'
+
+  cloudComment.backendApi.adminApiController -[internal]-> cloudComment.backendApi.projectModule 'Управляет проектами'
+
+  cloudComment.backendApi.adminApiController -[internal]-> cloudComment.backendApi.siteModule 'Управляет сайтами'
+
+  cloudComment.backendApi.adminApiController -[internal]-> cloudComment.backendApi.embedCodeModule 'Возвращает embed-код'
+
+  cloudComment.backendApi.adminApiController -[internal]-> cloudComment.backendApi.moderationModule 'Выполняет действия модерации'
+
+  cloudComment.backendApi.publicWidgetController -[internal]-> cloudComment.backendApi.domainPolicyModule 'Проверяет разрешенный домен'
+
+  cloudComment.backendApi.publicWidgetController -[internal]-> cloudComment.backendApi.widgetConfigModule 'Отдает публичную конфигурацию виджета'
+
+  cloudComment.backendApi.publicWidgetController -[internal]-> cloudComment.backendApi.pageModule 'Определяет страницу обсуждения'
+
+  cloudComment.backendApi.publicWidgetController -[internal]-> cloudComment.backendApi.commentModule 'Создает и получает комментарии'
+
+  cloudComment.backendApi.publicWidgetController -[internal]-> cloudComment.backendApi.antiSpamModule 'Проверяет базовую антиспам-защиту'
+
+  cloudComment.backendApi.projectModule -[stores]-> cloudComment.backendApi.persistenceModule 'Сохраняет проекты'
+
+  cloudComment.backendApi.siteModule -[stores]-> cloudComment.backendApi.persistenceModule 'Сохраняет сайты'
+
+  cloudComment.backendApi.authModule -[stores]-> cloudComment.backendApi.persistenceModule 'Сохраняет пользователей и токены'
+
+  cloudComment.backendApi.accessPolicyModule -[reads]-> cloudComment.backendApi.persistenceModule 'Проверяет владение по sites.owner_id и связям ресурсов'
+
+  cloudComment.backendApi.pageModule -[stores]-> cloudComment.backendApi.persistenceModule 'Сохраняет страницы сайта'
+
+  cloudComment.backendApi.commentModule -[stores]-> cloudComment.backendApi.persistenceModule 'Сохраняет комментарии'
+
+  cloudComment.backendApi.moderationModule -[stores]-> cloudComment.backendApi.persistenceModule 'Обновляет статусы комментариев'
+
+  cloudComment.backendApi.embedCodeModule -[reads]-> cloudComment.backendApi.siteModule 'Берет идентификатор сайта'
+
+  cloudComment.backendApi.widgetConfigModule -[reads]-> cloudComment.backendApi.siteModule 'Берет настройки сайта'
+
+  cloudComment.backendApi.domainPolicyModule -[reads]-> cloudComment.backendApi.siteModule 'Проверяет список разрешенных доменов'
+
+  cloudComment.backendApi.commentModule -[internal]-> cloudComment.backendApi.antiSpamModule 'Проверяет комментарий перед сохранением'
+
+  cloudComment.backendApi.fileModule -[stores]-> cloudComment.minio 'Сохраняет файлы'
+
+  cloudComment.backendApi.cacheModule -[reads]-> cloudComment.caffeineCache 'Читает и обновляет кэш'
+
+  cloudComment.backendApi.persistenceModule -[stores]-> cloudComment.postgres 'Работает с базой данных'
+
+  cloudComment.backendApi.auditLogModule -[stores]-> cloudComment.postgres 'Сохраняет аудит действий'
+
+  cloudComment.backendApi.observabilityModule -[logs]-> cloudComment.observabilityStack 'Пишет логи и метрики'
+}
+
+deployment {
+  environment localMvp 'Local MVP / Docker Compose' {
+    dockerHost cloudCommentHost 'Local Docker host' {
+      reverseProxyContainer = dockerContainer 'Caddy reverse proxy container' {
+        instanceOf cloudComment.reverseProxy
+      }
+
+      backendContainer = dockerContainer 'Backend API container' {
+        instanceOf cloudComment.backendApi
+      }
+
+      postgresContainer = dockerContainer 'PostgreSQL container' {
+        instanceOf cloudComment.postgres
+      }
+    }
+  }
+}
+
+views {
+  view index {
+    title 'C1. CloudComment — контекст системы'
+
+    include websiteOwner
+    include authorizedVisitor
+    include externalWebsite
+    include cloudComment
+
+    autoLayout LeftRight 160 120
+  }
+
+  view containers {
+    title 'C2. CloudComment — контейнеры MVP'
+
+    include websiteOwner
+    include authorizedVisitor
+    include externalWebsite
+    include cloudComment.*
+
+    autoLayout LeftRight 170 120
+  }
+
+  view admin_frontend_components {
+    title 'C3. Веб-интерфейс владельца сайта'
+
+    include websiteOwner
+    include cloudComment.adminWebApp
+    include cloudComment.adminWebApp.*
+    include cloudComment.backendApi.adminApiController
+
+    autoLayout LeftRight 150 100
+  }
+
+  view widget_components {
+    title 'C3. JS-виджет комментариев'
+
+    include authorizedVisitor
+    include externalWebsite
+    include cloudComment.widgetRuntime
+    include cloudComment.widgetRuntime.*
+    include cloudComment.backendApi.publicWidgetController
+
+    autoLayout LeftRight 150 100
+  }
+
+  view backend_components {
+    title 'C3. Backend API — основные компоненты'
+
+    include cloudComment.adminWebApp.adminApiClient
+    include cloudComment.widgetRuntime.publicApiClient
+    include cloudComment.backendApi
+    include cloudComment.backendApi.*
+    include cloudComment.postgres
+    include cloudComment.minio
+    include cloudComment.caffeineCache
+    include cloudComment.observabilityStack
+
+    autoLayout LeftRight 170 120
+  }
+
+  view moderation_architecture {
+    title 'C3. Модерация комментариев'
+
+    include websiteOwner
+    include cloudComment.adminWebApp.moderationPages
+    include cloudComment.adminWebApp.adminApiClient
+    include cloudComment.backendApi.adminApiController
+    include cloudComment.backendApi.authModule
+    include cloudComment.backendApi.accessPolicyModule
+    include cloudComment.backendApi.moderationModule
+    include cloudComment.backendApi.commentModule
+    include cloudComment.backendApi.auditLogModule
+    include cloudComment.backendApi.persistenceModule
+    include cloudComment.postgres
+
+    autoLayout LeftRight 150 100
+  }
+
+  dynamic view create_project_flow {
+    title 'Сценарий: владелец создает проект и сайт'
+
+    websiteOwner -> cloudComment.adminWebApp.projectPages 'Заполняет данные проекта'
+
+    cloudComment.adminWebApp.projectPages -> cloudComment.adminWebApp.adminApiClient 'Отправляет форму'
+
+    cloudComment.adminWebApp.adminApiClient -> cloudComment.backendApi.adminApiController 'POST /admin/projects'
+
+    cloudComment.backendApi.adminApiController -> cloudComment.backendApi.authModule 'Проверяет сессию по bearer-токену'
+
+    cloudComment.backendApi.adminApiController -> cloudComment.backendApi.projectModule 'Создает проект'
+
+    cloudComment.backendApi.projectModule -> cloudComment.backendApi.persistenceModule 'Сохраняет проект'
+
+    cloudComment.backendApi.persistenceModule -> cloudComment.postgres 'INSERT project'
+
+    websiteOwner -> cloudComment.adminWebApp.sitePages 'Добавляет сайт'
+
+    cloudComment.adminWebApp.sitePages -> cloudComment.adminWebApp.adminApiClient 'Отправляет домен сайта'
+
+    cloudComment.adminWebApp.adminApiClient -> cloudComment.backendApi.adminApiController 'POST /admin/sites'
+
+    cloudComment.backendApi.adminApiController -> cloudComment.backendApi.siteModule 'Создает сайт'
+
+    cloudComment.backendApi.siteModule -> cloudComment.backendApi.persistenceModule 'Сохраняет сайт'
+
+    cloudComment.backendApi.persistenceModule -> cloudComment.postgres 'INSERT site'
+  }
+
+  dynamic view embed_code_flow {
+    title 'Сценарий: получение embed-кода'
+
+    websiteOwner -> cloudComment.adminWebApp.embedCodePage 'Открывает страницу подключения'
+
+    cloudComment.adminWebApp.embedCodePage -> cloudComment.adminWebApp.adminApiClient 'Запрашивает код'
+
+    cloudComment.adminWebApp.adminApiClient -> cloudComment.backendApi.adminApiController 'GET /admin/sites/{id}/embed-code'
+
+    cloudComment.backendApi.adminApiController -> cloudComment.backendApi.authModule 'Проверяет сессию по bearer-токену'
+
+    cloudComment.backendApi.adminApiController -> cloudComment.backendApi.accessPolicyModule 'Проверяет владение сайтом'
+
+    cloudComment.backendApi.adminApiController -> cloudComment.backendApi.embedCodeModule 'Генерирует JS snippet'
+
+    cloudComment.backendApi.embedCodeModule -> cloudComment.backendApi.siteModule 'Берет siteId и публичный ключ'
+
+    cloudComment.backendApi.siteModule -> cloudComment.backendApi.persistenceModule 'Читает сайт'
+
+    cloudComment.backendApi.persistenceModule -> cloudComment.postgres 'SELECT site'
+
+    cloudComment.backendApi.adminApiController -> cloudComment.adminWebApp.adminApiClient 'Возвращает embed-код'
+
+    cloudComment.adminWebApp.embedCodePage -> websiteOwner 'Показывает код для вставки'
+  }
+
+  dynamic view publish_comment_flow {
+    title 'Сценарий: авторизованный пользователь оставляет комментарий'
+
+    authorizedVisitor -> externalWebsite 'Открывает страницу'
+
+    externalWebsite -> cloudComment.widgetRuntime.embedLoader 'Загружает embed script'
+
+    cloudComment.widgetRuntime.embedLoader -> cloudComment.widgetRuntime.widgetShell 'Инициализирует виджет'
+
+    cloudComment.widgetRuntime.widgetShell -> cloudComment.widgetRuntime.widgetAuthClient 'Проверяет авторизацию'
+
+    authorizedVisitor -> cloudComment.widgetRuntime.commentForm 'Пишет комментарий'
+
+    cloudComment.widgetRuntime.commentForm -> cloudComment.widgetRuntime.publicApiClient 'Отправляет комментарий'
+
+    cloudComment.widgetRuntime.publicApiClient -> cloudComment.backendApi.publicWidgetController 'POST /public/comments'
+
+    cloudComment.backendApi.publicWidgetController -> cloudComment.backendApi.domainPolicyModule 'Проверяет origin домена'
+
+    cloudComment.backendApi.publicWidgetController -> cloudComment.backendApi.antiSpamModule 'Проверяет частоту и базовый спам'
+
+    cloudComment.backendApi.publicWidgetController -> cloudComment.backendApi.pageModule 'Определяет страницу обсуждения'
+
+    cloudComment.backendApi.publicWidgetController -> cloudComment.backendApi.commentModule 'Создает комментарий'
+
+    cloudComment.backendApi.commentModule -> cloudComment.backendApi.persistenceModule 'Сохраняет комментарий'
+
+    cloudComment.backendApi.persistenceModule -> cloudComment.postgres 'INSERT comment'
+
+    cloudComment.backendApi.publicWidgetController -> cloudComment.widgetRuntime.publicApiClient 'Возвращает созданный комментарий'
+
+    cloudComment.widgetRuntime.publicApiClient -> cloudComment.widgetRuntime.commentList 'Обновляет список'
+  }
+
+  dynamic view moderation_flow {
+    title 'Сценарий: владелец модерирует комментарий'
+
+    websiteOwner -> cloudComment.adminWebApp.moderationPages 'Открывает очередь модерации'
+
+    cloudComment.adminWebApp.moderationPages -> cloudComment.adminWebApp.adminApiClient 'Запрашивает комментарии'
+
+    cloudComment.adminWebApp.adminApiClient -> cloudComment.backendApi.adminApiController 'GET /admin/comments'
+
+    cloudComment.backendApi.adminApiController -> cloudComment.backendApi.authModule 'Проверяет сессию по bearer-токену'
+
+    cloudComment.backendApi.adminApiController -> cloudComment.backendApi.accessPolicyModule 'Ограничивает выборку ресурсами владельца'
+
+    cloudComment.backendApi.adminApiController -> cloudComment.backendApi.moderationModule 'Получает комментарии на модерацию'
+
+    cloudComment.backendApi.moderationModule -> cloudComment.backendApi.commentModule 'Читает комментарии'
+
+    cloudComment.backendApi.commentModule -> cloudComment.backendApi.persistenceModule 'Запрашивает данные'
+
+    cloudComment.backendApi.persistenceModule -> cloudComment.postgres 'SELECT comments'
+
+    websiteOwner -> cloudComment.adminWebApp.moderationPages 'Публикует или скрывает комментарий'
+
+    cloudComment.adminWebApp.moderationPages -> cloudComment.adminWebApp.adminApiClient 'Отправляет действие'
+
+    cloudComment.adminWebApp.adminApiClient -> cloudComment.backendApi.adminApiController 'PATCH /admin/comments/{id}/status'
+
+    cloudComment.backendApi.adminApiController -> cloudComment.backendApi.accessPolicyModule 'Проверяет владение комментарием'
+
+    cloudComment.backendApi.adminApiController -> cloudComment.backendApi.moderationModule 'Меняет статус'
+
+    cloudComment.backendApi.moderationModule -> cloudComment.backendApi.auditLogModule 'Пишет аудит действия'
+
+    cloudComment.backendApi.auditLogModule -> cloudComment.postgres 'INSERT audit_log'
+
+    cloudComment.backendApi.moderationModule -> cloudComment.backendApi.persistenceModule 'Сохраняет новый статус'
+
+    cloudComment.backendApi.persistenceModule -> cloudComment.postgres 'UPDATE comment'
+  }
+
+  deployment view deployment_mvp {
+    title 'Deployment. Local Docker Compose MVP'
+
+    include localMvp.**
+
+    includeAncestors: true
+
+    autoLayout LeftRight 180 120
+  }
+}
