@@ -1,23 +1,19 @@
-import axios from 'axios'
+import axios from 'axios';
 
-import { API_BASE_URL } from '../config/env'
-import { getStoredAuthToken } from '../auth/tokenStorage'
+const API_URL = 'http://localhost:8080/api';
 
 export const apiClient = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: API_URL,
   headers: {
     'Content-Type': 'application/json',
   },
-})
+});
 
+// Интерцептор для добавления токена в заголовки
 apiClient.interceptors.request.use((config) => {
-  const token = getStoredAuthToken()
-
+  const token = localStorage.getItem('token');
   if (token) {
-    config.headers.Authorization = `Bearer ${token}`
+    config.headers.Authorization = `Bearer ${token}`;
   }
-
-  return config
-})
-
-export { API_BASE_URL }
+  return config;
+});
