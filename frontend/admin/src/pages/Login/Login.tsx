@@ -22,11 +22,15 @@ const Login: React.FC = () => {
         password,
       });
 
-      // Сохраняем токен
       localStorage.setItem('token', response.data.token);
       navigate('/');
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Ошибка входа');
+    } catch (err: unknown) {
+      if (err && typeof err === 'object' && 'response' in err) {
+        const error = err as { response: { data: { message: string } } };
+        setError(error.response.data.message || 'Ошибка входа');
+      } else {
+        setError('Ошибка входа');
+      }
     } finally {
       setLoading(false);
     }

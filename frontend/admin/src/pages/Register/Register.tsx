@@ -41,8 +41,13 @@ const Register: React.FC = () => {
       });
 
       navigate('/login');
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Ошибка регистрации');
+    } catch (err: unknown) {
+      if (err && typeof err === 'object' && 'response' in err) {
+        const error = err as { response: { data: { message: string } } };
+        setError(error.response.data.message || 'Ошибка регистрации');
+      } else {
+        setError('Ошибка регистрации');
+      }
     } finally {
       setLoading(false);
     }
