@@ -11,6 +11,14 @@ interface LoginFormState {
   password: string
 }
 
+interface LoginLocationState {
+  from?: {
+    pathname?: string
+    search?: string
+    hash?: string
+  }
+}
+
 const initialFormState: LoginFormState = {
   email: '',
   password: '',
@@ -36,6 +44,16 @@ function validateLoginForm(form: LoginFormState): string | null {
   return null
 }
 
+function getRedirectTo(state: unknown): string {
+  const locationState = state as LoginLocationState | null
+  const from = locationState?.from
+  const pathname = typeof from?.pathname === 'string' && from.pathname.startsWith('/') ? from.pathname : '/'
+  const search = typeof from?.search === 'string' ? from.search : ''
+  const hash = typeof from?.hash === 'string' ? from.hash : ''
+
+  return `${pathname}${search}${hash}`
+}
+
 const Login = () => {
   const navigate = useNavigate()
   const location = useLocation()
@@ -46,19 +64,10 @@ const Login = () => {
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  const redirectTo =
-    typeof location.state === 'object' &&
-    location.state !== null &&
-    'from' in location.state &&
-    typeof location.state.from === 'object' &&
-    location.state.from !== null &&
-    'pathname' in location.state.from &&
-    typeof location.state.from.pathname === 'string'
-      ? location.state.from.pathname
-      : '/'
+  const redirectTo = getRedirectTo(location.state)
 
   if (status === 'authenticated') {
-    return <Navigate to="/" replace />
+    return <Navigate to={redirectTo} replace />
   }
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
