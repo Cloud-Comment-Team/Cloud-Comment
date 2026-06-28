@@ -10,5 +10,10 @@ spring:
     resources:
       add-mappings: false
 
+cloud-comment:
+  embed:
+    script-url: ${CLOUD_COMMENT_WIDGET_SCRIPT_URL:http://localhost/widget/cloud-comment-widget.js}
+    api-base-url: ${CLOUD_COMMENT_PUBLIC_API_BASE_URL:http://localhost/api}
+
 server:
   port: ${SERVER_PORT:8080}
