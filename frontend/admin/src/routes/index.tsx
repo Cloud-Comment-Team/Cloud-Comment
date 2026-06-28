@@ -6,6 +6,9 @@ import Users from '../pages/Users/Users';
 import Moderation from '../pages/Moderation/Moderation';
 import Statistics from '../pages/Statistics/Statistics';
 import Settings from '../pages/Settings/Settings';
+import SitesList from '../pages/Sites/SitesList';
+import SiteCreate from '../pages/Sites/SiteCreate';
+import SiteDetail from '../pages/Sites/SiteDetail';
 import Login from '../pages/Login/Login';
 import Register from '../pages/Register/Register';
 import ProtectedRoute from '../components/auth/ProtectedRoute';
@@ -27,6 +30,9 @@ export const router = createBrowserRouter([
         element: <Layout />,
         children: [
           { index: true, element: <Dashboard /> },
+          { path: 'sites', element: <SitesList /> },
+          { path: 'sites/new', element: <SiteCreate /> },
+          { path: 'sites/:siteId', element: <SiteDetail /> },
           { path: 'comments', element: <Comments /> },
           { path: 'users', element: <Users /> },
           { path: 'moderation', element: <Moderation /> },

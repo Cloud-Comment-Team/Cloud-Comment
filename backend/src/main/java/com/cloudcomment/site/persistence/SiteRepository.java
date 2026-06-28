@@ -30,4 +30,6 @@ public interface SiteRepository {
     boolean existsByOwnerIdAndDomain(UUID ownerId, String domain);
 
     boolean existsByOwnerIdAndDomainExcludingSite(UUID ownerId, String domain, UUID siteId);
+
+    boolean deleteById(UUID siteId);
 }

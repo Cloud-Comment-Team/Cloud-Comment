@@ -33,6 +33,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -363,6 +364,35 @@ class SiteControllerTests {
             .andExpect(jsonPath("$.dataAttributes.apiBaseUrl", is("http://localhost/api")));
 
         verify(siteService).getEmbedCode(currentUser, siteId);
+    }
+
+    @Test
+    void deleteSiteReturnsNoContent() throws Exception {
+        AuthenticatedUser currentUser = currentUser();
+        UUID siteId = UUID.randomUUID();
+        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+
+        mockMvc.perform(delete("/api/sites/{siteId}", siteId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
+            .andExpect(status().isNoContent());
+
+        verify(siteService).deleteSite(currentUser, siteId);
+    }
+
+    @Test
+    void deleteSiteReturnsNotFoundForForeignOrMissingSite() throws Exception {
+        AuthenticatedUser currentUser = currentUser();
+        UUID siteId = UUID.randomUUID();
+        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        org.mockito.Mockito.doThrow(new ApplicationException(ApiErrorCode.NOT_FOUND, "Resource not found"))
+            .when(siteService)
+            .deleteSite(currentUser, siteId);
+
+        mockMvc.perform(delete("/api/sites/{siteId}", siteId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error.code", is("NOT_FOUND")))
+            .andExpect(jsonPath("$.error.path", is("/api/sites/" + siteId)));
     }
 
     private AuthenticatedUser currentUser() {

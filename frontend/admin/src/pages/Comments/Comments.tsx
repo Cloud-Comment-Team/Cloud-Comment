@@ -1,12 +1,7 @@
-import React from 'react';
+import { Navigate } from 'react-router-dom'
 
-const Comments: React.FC = () => {
-  return (
-    <div>
-      <h1 className="text-2xl font-bold" style={{ color: 'var(--text-h)' }}>Комментарии</h1>
-      <p style={{ color: 'var(--text)' }}>Страница управления комментариями</p>
-    </div>
-  );
-};
+const Comments = () => {
+  return <Navigate to="/moderation" replace />
+}
 
-export default Comments;
+export default Comments

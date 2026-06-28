@@ -1,11 +1,13 @@
 import React from 'react';
 import { Outlet } from 'react-router-dom';
+import { Toaster } from 'react-hot-toast';
 import Sidebar from './Sidebar';
 import Header from './Header';
 
 const Layout: React.FC = () => {
   return (
     <div className="min-h-screen" style={{ backgroundColor: 'var(--bg)' }}>
+      <Toaster position="top-right" />
       <Sidebar />
       <div className="lg:pl-64 flex flex-col min-h-screen">
         <Header />
