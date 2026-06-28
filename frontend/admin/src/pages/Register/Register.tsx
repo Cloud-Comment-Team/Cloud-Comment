@@ -1,47 +1,34 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { SubmitErrorHandler, SubmitHandler } from 'react-hook-form'
 import { useForm, useWatch } from 'react-hook-form'
-import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { Eye, EyeOff, Lock, LogIn, Mail } from 'lucide-react'
+import { Link, Navigate, useNavigate } from 'react-router-dom'
+import { Eye, EyeOff, Lock, Mail, UserPlus } from 'lucide-react'
 
-import { getApiErrorMessage } from '../../api/auth'
-import { getFieldFeedback, validateEmail, validatePassword } from '../../auth/formValidation'
+import { getApiErrorMessage, register as registerUser } from '../../api/auth'
+import {
+  getFieldFeedback,
+  validateEmail,
+  validatePassword,
+  validatePasswordConfirmation,
+} from '../../auth/formValidation'
 import { AuthFormShell, AuthSubmitButton } from '../../components/auth/AuthFormShell'
 import Input from '../../components/common/Input/Input'
 import { useAuthStore } from '../../store'
 
-interface LoginFormState {
+interface RegisterFormState {
   email: string
   password: string
+  confirmPassword: string
 }
 
-interface LoginLocationState {
-  from?: {
-    pathname?: string
-    search?: string
-    hash?: string
-  }
-}
-
-const initialFormState: LoginFormState = {
+const initialFormState: RegisterFormState = {
   email: '',
   password: '',
+  confirmPassword: '',
 }
 
-function getRedirectTo(state: unknown): string {
-  const locationState = state as LoginLocationState | null
-  const from = locationState?.from
-  const pathname = typeof from?.pathname === 'string' && from.pathname.startsWith('/') ? from.pathname : '/'
-  const search = typeof from?.search === 'string' ? from.search : ''
-  const hash = typeof from?.hash === 'string' ? from.hash : ''
-
-  return `${pathname}${search}${hash}`
-}
-
-const Login = () => {
+const Register = () => {
   const navigate = useNavigate()
-  const location = useLocation()
-  const login = useAuthStore((state) => state.login)
   const status = useAuthStore((state) => state.status)
   const [showPassword, setShowPassword] = useState(false)
   const [serverError, setServerError] = useState<string | null>(null)
@@ -50,8 +37,9 @@ const Login = () => {
     control,
     handleSubmit,
     setFocus,
+    trigger,
     formState: { dirtyFields, errors, isSubmitting },
-  } = useForm<LoginFormState>({
+  } = useForm<RegisterFormState>({
     defaultValues: initialFormState,
     mode: 'onChange',
     reValidateMode: 'onChange',
@@ -60,15 +48,19 @@ const Login = () => {
 
   const email = useWatch({ control, name: 'email' }) ?? ''
   const password = useWatch({ control, name: 'password' }) ?? ''
-  const redirectTo = getRedirectTo(location.state)
+  const confirmPassword = useWatch({ control, name: 'confirmPassword' }) ?? ''
   const clearServerError = () => setServerError((current) => (current ? null : current))
   const emailField = register('email', { validate: validateEmail, onChange: clearServerError })
   const passwordField = register('password', { validate: validatePassword, onChange: clearServerError })
+  const confirmPasswordField = register('confirmPassword', {
+    validate: (value) => validatePasswordConfirmation(value, password),
+    onChange: clearServerError,
+  })
   const emailFeedback = getFieldFeedback(
     dirtyFields.email,
     email,
     errors.email?.message,
-    'Введите email администратора',
+    'Введите email для аккаунта',
     'Email выглядит корректно',
   )
   const passwordFeedback = getFieldFeedback(
@@ -78,26 +70,39 @@ const Login = () => {
     'Пароль должен быть от 8 до 72 символов',
     'Пароль подходит по длине',
   )
+  const confirmPasswordFeedback = getFieldFeedback(
+    dirtyFields.confirmPassword,
+    confirmPassword,
+    errors.confirmPassword?.message,
+    'Повторите пароль',
+    'Пароли совпадают',
+  )
+
+  useEffect(() => {
+    if (dirtyFields.confirmPassword) {
+      void trigger('confirmPassword')
+    }
+  }, [dirtyFields.confirmPassword, password, trigger])
 
   if (status === 'authenticated') {
-    return <Navigate to={redirectTo} replace />
+    return <Navigate to="/" replace />
   }
 
-  const handleValidSubmit: SubmitHandler<LoginFormState> = async ({ email: formEmail, password: formPassword }) => {
+  const handleValidSubmit: SubmitHandler<RegisterFormState> = async ({ email: formEmail, password: formPassword }) => {
     setServerError(null)
 
     try {
-      await login({
+      await registerUser({
         email: formEmail.trim(),
         password: formPassword,
       })
-      navigate(redirectTo, { replace: true })
+      navigate('/login', { replace: true })
     } catch (err) {
-      setServerError(getApiErrorMessage(err, 'Не удалось войти. Проверьте email и пароль.'))
+      setServerError(getApiErrorMessage(err, 'Не удалось зарегистрироваться. Попробуйте еще раз.'))
     }
   }
 
-  const handleInvalidSubmit: SubmitErrorHandler<LoginFormState> = (fieldErrors) => {
+  const handleInvalidSubmit: SubmitErrorHandler<RegisterFormState> = (fieldErrors) => {
     setServerError(null)
 
     if (fieldErrors.email) {
@@ -107,23 +112,28 @@ const Login = () => {
 
     if (fieldErrors.password) {
       setFocus('password')
+      return
+    }
+
+    if (fieldErrors.confirmPassword) {
+      setFocus('confirmPassword')
     }
   }
 
   return (
     <AuthFormShell
-      description="Используйте email и пароль администратора Cloud Comment."
+      description="Создайте аккаунт для доступа к панели Cloud Comment."
       footer={
         <>
-          Нет аккаунта?{' '}
-          <Link className="font-semibold hover:underline" style={{ color: 'var(--accent)' }} to="/register">
-            Зарегистрироваться
+          Уже есть аккаунт?{' '}
+          <Link className="font-semibold hover:underline" style={{ color: 'var(--accent)' }} to="/login">
+            Войти
           </Link>
         </>
       }
-      icon={<LogIn className="h-6 w-6" aria-hidden="true" />}
+      icon={<UserPlus className="h-6 w-6" aria-hidden="true" />}
       serverError={serverError}
-      title="Вход в админку"
+      title="Регистрация"
     >
       <form className="space-y-5 text-left" onSubmit={handleSubmit(handleValidSubmit, handleInvalidSubmit)} noValidate>
         <Input
@@ -139,12 +149,12 @@ const Login = () => {
         />
 
         <Input
-          autoComplete="current-password"
+          autoComplete="new-password"
           error={passwordFeedback.error}
           hint={passwordFeedback.hint}
           icon={<Lock className="h-5 w-5" aria-hidden="true" />}
           label="Пароль"
-          placeholder="Минимум 8 символов"
+          placeholder="8-72 символа"
           rightAction={
             <button
               aria-label={showPassword ? 'Скрыть пароль' : 'Показать пароль'}
@@ -161,12 +171,24 @@ const Login = () => {
           {...passwordField}
         />
 
-        <AuthSubmitButton isSubmitting={isSubmitting} submittingLabel="Входим...">
-          Войти
+        <Input
+          autoComplete="new-password"
+          error={confirmPasswordFeedback.error}
+          hint={confirmPasswordFeedback.hint}
+          icon={<Lock className="h-5 w-5" aria-hidden="true" />}
+          label="Повторите пароль"
+          placeholder="Повторите пароль"
+          success={confirmPasswordFeedback.success}
+          type={showPassword ? 'text' : 'password'}
+          {...confirmPasswordField}
+        />
+
+        <AuthSubmitButton isSubmitting={isSubmitting} submittingLabel="Создаем аккаунт...">
+          Зарегистрироваться
         </AuthSubmitButton>
       </form>
     </AuthFormShell>
   )
 }
 
-export default Login
+export default Register
