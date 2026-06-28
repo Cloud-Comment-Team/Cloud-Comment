@@ -1,0 +1,41 @@
+package com.cloudcomment.comment.api;
+
+import com.cloudcomment.comment.domain.CommentView;
+import com.cloudcomment.comment.domain.CommentStatus;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.UUID;
+
+record CommentResponse(
+    UUID id,
+    UUID siteId,
+    UUID pageId,
+    UUID parentId,
+    CommentAuthorResponse author,
+    String content,
+    CommentStatus status,
+    Instant createdAt,
+    Instant updatedAt,
+    List<CommentResponse> replies
+) {
+
+    CommentResponse {
+        replies = List.copyOf(replies);
+    }
+
+    static CommentResponse from(CommentView comment) {
+        return new CommentResponse(
+            comment.id(),
+            comment.siteId(),
+            comment.pageId(),
+            comment.parentId(),
+            CommentAuthorResponse.from(comment.author()),
+            comment.content(),
+            comment.status(),
+            comment.createdAt(),
+            comment.updatedAt(),
+            comment.replies().stream().map(CommentResponse::from).toList()
+        );
+    }
+}

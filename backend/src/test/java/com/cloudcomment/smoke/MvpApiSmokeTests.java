@@ -97,20 +97,24 @@ class MvpApiSmokeTests {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.email", is(email)));
 
+        String siteDomain = "smoke-%s.example.com".formatted(email.hashCode());
+        String origin = "https://" + siteDomain;
+        String pageUrl = origin + "/blog/post-1";
+
         String siteResponse = mockMvc.perform(post("/api/sites")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
                       "name": "Smoke site",
-                      "domain": "smoke-%s.example.com",
-                      "moderationMode": "PRE_MODERATION",
-                      "allowedOrigins": ["https://smoke-%s.example.com"]
+                      "domain": "%s",
+                      "moderationMode": "POST_MODERATION",
+                      "allowedOrigins": ["%s"]
                     }
-                    """.formatted(email.hashCode(), email.hashCode())))
+                    """.formatted(siteDomain, origin)))
             .andExpect(status().isCreated())
             .andExpect(jsonPath("$.name", is("Smoke site")))
-            .andExpect(jsonPath("$.moderationMode", is("PRE_MODERATION")))
+            .andExpect(jsonPath("$.moderationMode", is("POST_MODERATION")))
             .andExpect(jsonPath("$.isActive", is(true)))
             .andReturn()
             .getResponse()
@@ -128,6 +132,47 @@ class MvpApiSmokeTests {
             .andExpect(jsonPath("$.embedCode", is("<script src=\"http://localhost/widget/cloud-comment-widget.js\" data-site-id=\"" + siteId + "\" data-api-base-url=\"http://localhost/api\"></script>")))
             .andExpect(jsonPath("$.dataAttributes.siteId", is(siteId)))
             .andExpect(jsonPath("$.dataAttributes.apiBaseUrl", is("http://localhost/api")));
+
+        mockMvc.perform(get("/api/public/sites/{siteId}/config", siteId)
+                .header(HttpHeaders.ORIGIN, origin))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.siteId", is(siteId)))
+            .andExpect(jsonPath("$.moderationMode", is("POST_MODERATION")));
+
+        mockMvc.perform(get("/api/public/sites/{siteId}/pages/comments", siteId)
+                .header(HttpHeaders.ORIGIN, origin)
+                .param("pageUrl", pageUrl))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.items", empty()))
+            .andExpect(jsonPath("$.totalItems", is(0)));
+
+        String commentResponse = mockMvc.perform(post("/api/public/sites/{siteId}/pages/comments", siteId)
+                .header(HttpHeaders.ORIGIN, origin)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "pageUrl": "%s",
+                      "content": "Smoke comment"
+                    }
+                    """.formatted(pageUrl)))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.siteId", is(siteId)))
+            .andExpect(jsonPath("$.content", is("Smoke comment")))
+            .andExpect(jsonPath("$.status", is("APPROVED")))
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+        String commentId = extractString(commentResponse, "id");
+
+        mockMvc.perform(get("/api/public/sites/{siteId}/pages/comments", siteId)
+                .header(HttpHeaders.ORIGIN, origin)
+                .param("pageUrl", pageUrl))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.items[0].id", is(commentId)))
+            .andExpect(jsonPath("$.items[0].content", is("Smoke comment")))
+            .andExpect(jsonPath("$.items[0].status", is("APPROVED")))
+            .andExpect(jsonPath("$.totalItems", is(1)));
 
         mockMvc.perform(get("/api/auth/me"))
             .andExpect(status().isUnauthorized())
