@@ -11,6 +11,7 @@ import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
+import org.springframework.web.cors.CorsUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
@@ -41,6 +42,11 @@ public class ApiAuthenticationFilter extends OncePerRequestFilter {
         HttpServletResponse response,
         FilterChain filterChain
     ) throws ServletException, IOException {
+        if (CorsUtils.isPreFlightRequest(request)) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
         if (!apiEndpointSecurity.requiresAuthentication(request)) {
             filterChain.doFilter(request, response);
             return;

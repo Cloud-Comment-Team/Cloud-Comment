@@ -515,7 +515,7 @@ views {
 
     cloudComment.widgetRuntime.commentForm -> cloudComment.widgetRuntime.publicApiClient 'Отправляет комментарий'
 
-    cloudComment.widgetRuntime.publicApiClient -> cloudComment.backendApi.publicWidgetController 'POST /api/public/comments'
+    cloudComment.widgetRuntime.publicApiClient -> cloudComment.backendApi.publicWidgetController 'POST /api/public/sites/{siteId}/pages/comments'
 
     cloudComment.backendApi.publicWidgetController -> cloudComment.backendApi.authModule 'Проверяет bearer-токен пользователя'
 
