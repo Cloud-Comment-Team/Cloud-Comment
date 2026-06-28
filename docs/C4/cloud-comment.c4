@@ -517,6 +517,8 @@ views {
 
     cloudComment.widgetRuntime.publicApiClient -> cloudComment.backendApi.publicWidgetController 'POST /api/public/comments'
 
+    cloudComment.backendApi.publicWidgetController -> cloudComment.backendApi.authModule 'Проверяет bearer-токен пользователя'
+
     cloudComment.backendApi.publicWidgetController -> cloudComment.backendApi.domainPolicyModule 'Проверяет origin домена'
 
     cloudComment.backendApi.publicWidgetController -> cloudComment.backendApi.antiSpamModule 'Проверяет частоту и базовый спам'
