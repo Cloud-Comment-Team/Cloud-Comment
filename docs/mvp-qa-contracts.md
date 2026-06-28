@@ -183,7 +183,7 @@ Frontend route map зафиксирован в `frontend/admin/src/routes/index.
 | --- | --- | --- | --- |
 | `/api/public/sites/{siteId}/config` | `GET` | public + origin check | Public widget configuration |
 | `/api/public/comments` | `GET` | public + origin check | List comments for a page |
-| `/api/public/comments` | `POST` | public + origin check | Create a comment |
+| `/api/public/comments` | `POST` | bearer + origin check | Create a comment for authenticated visitor |
 
 Query для list:
 
