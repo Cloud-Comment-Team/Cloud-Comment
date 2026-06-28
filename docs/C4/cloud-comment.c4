@@ -456,28 +456,16 @@ views {
     autoLayout LeftRight 150 100
   }
 
-  dynamic view create_project_flow {
-    title 'Сценарий: владелец создает проект и сайт'
-
-    websiteOwner -> cloudComment.adminWebApp.projectPages 'Заполняет данные проекта'
-
-    cloudComment.adminWebApp.projectPages -> cloudComment.adminWebApp.adminApiClient 'Отправляет форму'
-
-    cloudComment.adminWebApp.adminApiClient -> cloudComment.backendApi.adminApiController 'POST /admin/projects'
-
-    cloudComment.backendApi.adminApiController -> cloudComment.backendApi.authModule 'Проверяет сессию по bearer-токену'
-
-    cloudComment.backendApi.adminApiController -> cloudComment.backendApi.projectModule 'Создает проект'
-
-    cloudComment.backendApi.projectModule -> cloudComment.backendApi.persistenceModule 'Сохраняет проект'
-
-    cloudComment.backendApi.persistenceModule -> cloudComment.postgres 'INSERT project'
+  dynamic view create_site_flow {
+    title 'Сценарий: владелец создает сайт'
 
     websiteOwner -> cloudComment.adminWebApp.sitePages 'Добавляет сайт'
 
     cloudComment.adminWebApp.sitePages -> cloudComment.adminWebApp.adminApiClient 'Отправляет домен сайта'
 
-    cloudComment.adminWebApp.adminApiClient -> cloudComment.backendApi.adminApiController 'POST /admin/sites'
+    cloudComment.adminWebApp.adminApiClient -> cloudComment.backendApi.adminApiController 'POST /api/sites'
+
+    cloudComment.backendApi.adminApiController -> cloudComment.backendApi.authModule 'Проверяет сессию по bearer-токену'
 
     cloudComment.backendApi.adminApiController -> cloudComment.backendApi.siteModule 'Создает сайт'
 
@@ -493,7 +481,7 @@ views {
 
     cloudComment.adminWebApp.embedCodePage -> cloudComment.adminWebApp.adminApiClient 'Запрашивает код'
 
-    cloudComment.adminWebApp.adminApiClient -> cloudComment.backendApi.adminApiController 'GET /admin/sites/{id}/embed-code'
+    cloudComment.adminWebApp.adminApiClient -> cloudComment.backendApi.adminApiController 'GET /api/sites/{siteId}/embed-code'
 
     cloudComment.backendApi.adminApiController -> cloudComment.backendApi.authModule 'Проверяет сессию по bearer-токену'
 
@@ -527,7 +515,7 @@ views {
 
     cloudComment.widgetRuntime.commentForm -> cloudComment.widgetRuntime.publicApiClient 'Отправляет комментарий'
 
-    cloudComment.widgetRuntime.publicApiClient -> cloudComment.backendApi.publicWidgetController 'POST /public/comments'
+    cloudComment.widgetRuntime.publicApiClient -> cloudComment.backendApi.publicWidgetController 'POST /api/public/comments'
 
     cloudComment.backendApi.publicWidgetController -> cloudComment.backendApi.domainPolicyModule 'Проверяет origin домена'
 
@@ -553,7 +541,7 @@ views {
 
     cloudComment.adminWebApp.moderationPages -> cloudComment.adminWebApp.adminApiClient 'Запрашивает комментарии'
 
-    cloudComment.adminWebApp.adminApiClient -> cloudComment.backendApi.adminApiController 'GET /admin/comments'
+    cloudComment.adminWebApp.adminApiClient -> cloudComment.backendApi.adminApiController 'GET /api/moderation/comments'
 
     cloudComment.backendApi.adminApiController -> cloudComment.backendApi.authModule 'Проверяет сессию по bearer-токену'
 
@@ -571,7 +559,7 @@ views {
 
     cloudComment.adminWebApp.moderationPages -> cloudComment.adminWebApp.adminApiClient 'Отправляет действие'
 
-    cloudComment.adminWebApp.adminApiClient -> cloudComment.backendApi.adminApiController 'PATCH /admin/comments/{id}/status'
+    cloudComment.adminWebApp.adminApiClient -> cloudComment.backendApi.adminApiController 'POST /api/moderation/comments/{commentId}/actions'
 
     cloudComment.backendApi.adminApiController -> cloudComment.backendApi.accessPolicyModule 'Проверяет владение комментарием'
 
