@@ -1,146 +1,182 @@
-import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { Mail, Lock, Eye, EyeOff } from 'lucide-react';
-import { apiClient } from '../../api/client';
+import { useState } from 'react'
+import type { FormEvent } from 'react'
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { Eye, EyeOff, Lock, LogIn, Mail } from 'lucide-react'
 
-const Login: React.FC = () => {
-  const navigate = useNavigate();
-  const [showPassword, setShowPassword] = useState(false);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+import { getApiErrorMessage } from '../../api/auth'
+import { useAuthStore } from '../../store'
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    setLoading(true);
+interface LoginFormState {
+  email: string
+  password: string
+}
+
+const initialFormState: LoginFormState = {
+  email: '',
+  password: '',
+}
+
+function validateLoginForm(form: LoginFormState): string | null {
+  if (!form.email.trim()) {
+    return 'Введите email'
+  }
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
+    return 'Введите корректный email'
+  }
+
+  if (!form.password) {
+    return 'Введите пароль'
+  }
+
+  if (form.password.length < 8) {
+    return 'Пароль должен быть не короче 8 символов'
+  }
+
+  return null
+}
+
+const Login = () => {
+  const navigate = useNavigate()
+  const location = useLocation()
+  const login = useAuthStore((state) => state.login)
+  const status = useAuthStore((state) => state.status)
+  const [form, setForm] = useState<LoginFormState>(initialFormState)
+  const [showPassword, setShowPassword] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const redirectTo =
+    typeof location.state === 'object' &&
+    location.state !== null &&
+    'from' in location.state &&
+    typeof location.state.from === 'object' &&
+    location.state.from !== null &&
+    'pathname' in location.state.from &&
+    typeof location.state.from.pathname === 'string'
+      ? location.state.from.pathname
+      : '/'
+
+  if (status === 'authenticated') {
+    return <Navigate to="/" replace />
+  }
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    const validationError = validateLoginForm(form)
+    if (validationError) {
+      setError(validationError)
+      return
+    }
+
+    setError(null)
+    setIsSubmitting(true)
 
     try {
-      const response = await apiClient.post('/auth/login', {
-        email,
-        password,
-      });
-
-      localStorage.setItem('token', response.data.token);
-      navigate('/');
-    } catch (err: unknown) {
-      if (err && typeof err === 'object' && 'response' in err) {
-        const error = err as { response: { data: { message: string } } };
-        setError(error.response.data.message || 'Ошибка входа');
-      } else {
-        setError('Ошибка входа');
-      }
+      await login({
+        email: form.email.trim(),
+        password: form.password,
+      })
+      navigate(redirectTo, { replace: true })
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Не удалось войти. Проверьте email и пароль.'))
     } finally {
-      setLoading(false);
+      setIsSubmitting(false)
     }
-  };
+  }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4" style={{ backgroundColor: '#fcf8fb' }}>
-      <div
-        className="w-full max-w-md p-8 rounded-2xl shadow-xl"
-        style={{
-          backgroundColor: 'rgba(255,255,255,0.7)',
-          backdropFilter: 'blur(12px)',
-          border: '1px solid rgba(255,255,255,0.3)'
-        }}
-      >
-        <div className="text-center mb-8">
-          <div className="flex items-center justify-center gap-3 mb-3">
-            <div
-              className="w-12 h-12 rounded-xl flex items-center justify-center shadow-lg"
-              style={{ background: 'linear-gradient(135deg, #0058bc, #60cdff)' }}
-            >
-              <span className="text-white text-2xl font-bold">☁️</span>
-            </div>
-            <h1 className="text-2xl font-extrabold" style={{ color: '#1b1b1d' }}>
-              Cloud<span style={{ color: '#0058bc' }}>Comment</span>
-            </h1>
+    <main className="min-h-screen px-4 py-10 flex items-center justify-center" style={{ backgroundColor: 'var(--bg)' }}>
+      <section className="w-full max-w-md">
+        <div className="mb-8 text-left">
+          <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-lg" style={{ backgroundColor: 'var(--accent-bg)', color: 'var(--accent)' }}>
+            <LogIn className="h-6 w-6" aria-hidden="true" />
           </div>
-          <p className="text-sm" style={{ color: '#414755' }}>Войдите в панель управления</p>
+          <h1
+            className="mb-2 font-semibold"
+            style={{ color: 'var(--text-h)', fontSize: '1.875rem', lineHeight: '2.25rem', letterSpacing: 0, margin: '0 0 0.5rem' }}
+          >
+            Вход в админку
+          </h1>
+          <p className="text-base" style={{ color: 'var(--text)' }}>
+            Используйте email и пароль администратора Cloud Comment.
+          </p>
         </div>
 
-        {error && (
-          <div className="mb-4 p-3 rounded-lg text-sm" style={{ backgroundColor: '#ffdad6', color: '#ba1a1a' }}>
-            {error}
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="space-y-5">
-          <div>
-            <label className="block text-sm font-medium mb-1.5" style={{ color: '#1b1b1d' }}>Email</label>
-            <div className="relative">
-              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5" style={{ color: '#717786' }} />
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 rounded-xl border outline-none transition-all focus:ring-2"
-                style={{
-                  backgroundColor: '#f6f3f5',
-                  borderColor: '#c1c6d7',
-                  color: '#1b1b1d'
-                }}
-                placeholder="admin@example.com"
-                required
-              />
+        <form className="space-y-5 text-left" onSubmit={handleSubmit} noValidate>
+          {error && (
+            <div className="rounded-lg border px-4 py-3 text-sm" style={{ backgroundColor: '#fff1f0', borderColor: '#ffccc7', color: '#a8071a' }} role="alert">
+              {error}
             </div>
-          </div>
+          )}
 
-          <div>
-            <label className="block text-sm font-medium mb-1.5" style={{ color: '#1b1b1d' }}>Пароль</label>
-            <div className="relative">
-              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5" style={{ color: '#717786' }} />
+          <label className="block">
+            <span className="mb-2 block text-sm font-medium" style={{ color: 'var(--text-h)' }}>
+              Email
+            </span>
+            <span className="relative block">
+              <Mail className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2" style={{ color: 'var(--text)' }} aria-hidden="true" />
               <input
+                autoComplete="email"
+                className="w-full rounded-lg border py-3 pl-10 pr-4 outline-none transition focus:ring-2"
+                name="email"
+                onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))}
+                placeholder="admin@example.com"
+                style={{ backgroundColor: 'var(--code-bg)', borderColor: 'var(--border)', color: 'var(--text-h)' }}
+                type="email"
+                value={form.email}
+              />
+            </span>
+          </label>
+
+          <label className="block">
+            <span className="mb-2 block text-sm font-medium" style={{ color: 'var(--text-h)' }}>
+              Пароль
+            </span>
+            <span className="relative block">
+              <Lock className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2" style={{ color: 'var(--text)' }} aria-hidden="true" />
+              <input
+                autoComplete="current-password"
+                className="w-full rounded-lg border py-3 pl-10 pr-12 outline-none transition focus:ring-2"
+                name="password"
+                onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))}
+                placeholder="Минимум 8 символов"
+                style={{ backgroundColor: 'var(--code-bg)', borderColor: 'var(--border)', color: 'var(--text-h)' }}
                 type={showPassword ? 'text' : 'password'}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full pl-10 pr-10 py-3 rounded-xl border outline-none transition-all focus:ring-2"
-                style={{
-                  backgroundColor: '#f6f3f5',
-                  borderColor: '#c1c6d7',
-                  color: '#1b1b1d'
-                }}
-                placeholder="••••••••"
-                required
+                value={form.password}
               />
               <button
+                aria-label={showPassword ? 'Скрыть пароль' : 'Показать пароль'}
+                className="absolute right-3 top-1/2 -translate-y-1/2 rounded p-1"
+                onClick={() => setShowPassword((current) => !current)}
+                style={{ color: 'var(--text)' }}
                 type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 hover:opacity-80"
-                style={{ color: '#717786' }}
               >
-                {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                {showPassword ? <EyeOff className="h-5 w-5" aria-hidden="true" /> : <Eye className="h-5 w-5" aria-hidden="true" />}
               </button>
-            </div>
-          </div>
-
-          <div className="text-right">
-            <Link to="/forgot-password" className="text-sm hover:underline" style={{ color: '#0058bc' }}>
-              Забыли пароль?
-            </Link>
-          </div>
+            </span>
+          </label>
 
           <button
+            className="w-full rounded-lg px-4 py-3 font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={isSubmitting}
+            style={{ backgroundColor: 'var(--accent)' }}
             type="submit"
-            disabled={loading}
-            className="w-full py-3.5 rounded-xl font-bold text-white shadow-lg transition-all hover:brightness-110 active:scale-95 disabled:opacity-50"
-            style={{ background: 'linear-gradient(135deg, #0058bc, #60cdff)' }}
           >
-            {loading ? 'Вход...' : 'Войти'}
+            {isSubmitting ? 'Входим...' : 'Войти'}
           </button>
         </form>
 
-        <p className="mt-6 text-center text-sm" style={{ color: '#414755' }}>
+        <p className="mt-6 text-center text-sm" style={{ color: 'var(--text)' }}>
           Нет аккаунта?{' '}
-          <Link to="/register" style={{ color: '#0058bc' }} className="font-semibold hover:underline">
+          <Link className="font-semibold hover:underline" style={{ color: 'var(--accent)' }} to="/register">
             Зарегистрироваться
           </Link>
         </p>
-      </div>
-    </div>
-  );
-};
+      </section>
+    </main>
+  )
+}
 
-export default Login;
+export default Login
