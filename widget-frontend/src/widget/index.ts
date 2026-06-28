@@ -44,6 +44,7 @@ function normalizeOptions(options: CloudCommentWidgetOptions): Required<CloudCom
 
   return {
     siteId: options.siteId,
+    publicKey: options.publicKey ?? "",
     apiBaseUrl: options.apiBaseUrl ?? DEFAULT_API_BASE_URL,
     pageUrl: options.pageUrl ?? window.location.href,
     target: options.target ?? `#${DEFAULT_TARGET_ID}`
@@ -54,13 +55,7 @@ function init(options: CloudCommentWidgetOptions): CloudCommentWidgetInstance {
   const normalizedOptions = normalizeOptions(options);
   const target = resolveTarget(options.target);
   target.replaceChildren();
-  renderWidget(target, normalizedOptions);
-
-  return {
-    destroy: () => {
-      target.shadowRoot?.replaceChildren();
-    }
-  };
+  return renderWidget(target, normalizedOptions);
 }
 
 function autoInit(): CloudCommentWidgetInstance | null {
@@ -72,6 +67,7 @@ function autoInit(): CloudCommentWidgetInstance | null {
 
   return init({
     siteId,
+    publicKey: script.dataset.publicKey,
     apiBaseUrl: script.dataset.apiBaseUrl,
     pageUrl: script.dataset.pageUrl,
     target: script.dataset.target
