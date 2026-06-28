@@ -3,6 +3,8 @@ package com.cloudcomment.shared.web.error;
 import com.cloudcomment.shared.error.ApiErrorCode;
 import com.cloudcomment.shared.error.ApplicationException;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.MessageSourceResolvable;
@@ -68,6 +70,26 @@ class ApiErrorHandler {
         List<ApiErrorResponse.ApiFieldError> fields = exception.getParameterValidationResults()
             .stream()
             .flatMap(this::toFieldErrors)
+            .toList();
+
+        ApiErrorResponse response = ApiErrorResponse.of(
+            ApiErrorCode.VALIDATION_FAILED,
+            "Request validation failed",
+            HttpStatus.BAD_REQUEST.value(),
+            request.getRequestURI(),
+            fields
+        );
+        return ResponseEntity.badRequest().body(response);
+    }
+
+    @ExceptionHandler(ConstraintViolationException.class)
+    ResponseEntity<ApiErrorResponse> handleConstraintViolation(
+        ConstraintViolationException exception,
+        HttpServletRequest request
+    ) {
+        List<ApiErrorResponse.ApiFieldError> fields = exception.getConstraintViolations()
+            .stream()
+            .map(this::toFieldError)
             .toList();
 
         ApiErrorResponse response = ApiErrorResponse.of(
@@ -168,6 +190,20 @@ class ApiErrorHandler {
         return validationResult.getResolvableErrors()
             .stream()
             .map(error -> new ApiErrorResponse.ApiFieldError(field, resolveMessage(error), resolveCode(error)));
+    }
+
+    private ApiErrorResponse.ApiFieldError toFieldError(ConstraintViolation<?> violation) {
+        return new ApiErrorResponse.ApiFieldError(
+            resolveViolationField(violation),
+            violation.getMessage(),
+            violation.getConstraintDescriptor().getAnnotation().annotationType().getSimpleName()
+        );
+    }
+
+    private String resolveViolationField(ConstraintViolation<?> violation) {
+        String path = violation.getPropertyPath().toString();
+        int dotIndex = path.lastIndexOf('.');
+        return dotIndex >= 0 ? path.substring(dotIndex + 1) : path;
     }
 
     private String resolveParameterName(MethodParameter parameter) {

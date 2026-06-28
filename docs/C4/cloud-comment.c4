@@ -200,9 +200,9 @@ model {
 
       accessPolicyModule = component 'Access policy module' 'Проверка владения ресурсами для Admin API'
 
-      projectModule = component 'Project module' 'Проекты владельцев сайтов'
+      projectModule = component 'Project module' 'MVP-термин проекта, который маппится на site без отдельной таблицы'
 
-      siteModule = component 'Site module' 'Сайты, привязанные к проектам'
+      siteModule = component 'Site module' 'Сайты владельцев, allowed origins, режим модерации и public key'
 
       domainPolicyModule = component 'Domain policy module' 'Проверка разрешенных доменов для подключения виджета'
 
@@ -308,7 +308,7 @@ model {
 
   cloudComment.backendApi.adminApiController -[internal]-> cloudComment.backendApi.accessPolicyModule 'Проверяет владение ресурсом'
 
-  cloudComment.backendApi.adminApiController -[internal]-> cloudComment.backendApi.projectModule 'Управляет проектами'
+  cloudComment.backendApi.adminApiController -[internal]-> cloudComment.backendApi.projectModule 'Маппит проект MVP на site'
 
   cloudComment.backendApi.adminApiController -[internal]-> cloudComment.backendApi.siteModule 'Управляет сайтами'
 
@@ -326,9 +326,9 @@ model {
 
   cloudComment.backendApi.publicWidgetController -[internal]-> cloudComment.backendApi.antiSpamModule 'Проверяет базовую антиспам-защиту'
 
-  cloudComment.backendApi.projectModule -[stores]-> cloudComment.backendApi.persistenceModule 'Сохраняет проекты'
+  cloudComment.backendApi.projectModule -[internal]-> cloudComment.backendApi.siteModule 'Использует site как проект MVP'
 
-  cloudComment.backendApi.siteModule -[stores]-> cloudComment.backendApi.persistenceModule 'Сохраняет сайты'
+  cloudComment.backendApi.siteModule -[stores]-> cloudComment.backendApi.persistenceModule 'Сохраняет sites и site_allowed_origins'
 
   cloudComment.backendApi.authModule -[stores]-> cloudComment.backendApi.persistenceModule 'Сохраняет пользователей и токены'
 
@@ -489,7 +489,7 @@ views {
 
     cloudComment.backendApi.adminApiController -> cloudComment.backendApi.embedCodeModule 'Генерирует JS snippet'
 
-    cloudComment.backendApi.embedCodeModule -> cloudComment.backendApi.siteModule 'Берет siteId и публичный ключ'
+    cloudComment.backendApi.embedCodeModule -> cloudComment.backendApi.siteModule 'Берет siteId для data-атрибутов'
 
     cloudComment.backendApi.siteModule -> cloudComment.backendApi.persistenceModule 'Читает сайт'
 

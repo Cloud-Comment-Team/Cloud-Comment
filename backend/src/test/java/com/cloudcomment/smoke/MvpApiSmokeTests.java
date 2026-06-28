@@ -97,6 +97,38 @@ class MvpApiSmokeTests {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.email", is(email)));
 
+        String siteResponse = mockMvc.perform(post("/api/sites")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "name": "Smoke site",
+                      "domain": "smoke-%s.example.com",
+                      "moderationMode": "PRE_MODERATION",
+                      "allowedOrigins": ["https://smoke-%s.example.com"]
+                    }
+                    """.formatted(email.hashCode(), email.hashCode())))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.name", is("Smoke site")))
+            .andExpect(jsonPath("$.moderationMode", is("PRE_MODERATION")))
+            .andExpect(jsonPath("$.isActive", is(true)))
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+        String siteId = extractString(siteResponse, "id");
+        String publicKey = extractString(siteResponse, "publicKey");
+        assertThat(siteId).isNotBlank();
+        assertThat(publicKey).matches("[0-9a-f]{64}");
+
+        mockMvc.perform(get("/api/sites/{siteId}/embed-code", siteId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.siteId", is(siteId)))
+            .andExpect(jsonPath("$.scriptUrl", is("http://localhost/widget/cloud-comment-widget.js")))
+            .andExpect(jsonPath("$.embedCode", is("<script src=\"http://localhost/widget/cloud-comment-widget.js\" data-site-id=\"" + siteId + "\" data-api-base-url=\"http://localhost/api\"></script>")))
+            .andExpect(jsonPath("$.dataAttributes.siteId", is(siteId)))
+            .andExpect(jsonPath("$.dataAttributes.apiBaseUrl", is("http://localhost/api")));
+
         mockMvc.perform(get("/api/auth/me"))
             .andExpect(status().isUnauthorized())
             .andExpect(jsonPath("$.error.code", is("INVALID_SESSION")))
@@ -114,7 +146,11 @@ class MvpApiSmokeTests {
     }
 
     private String extractToken(String json) {
-        Matcher matcher = Pattern.compile("\"token\"\\s*:\\s*\"([^\"]+)\"").matcher(json);
+        return extractString(json, "token");
+    }
+
+    private String extractString(String json, String fieldName) {
+        Matcher matcher = Pattern.compile("\"" + fieldName + "\"\\s*:\\s*\"([^\"]+)\"").matcher(json);
         assertThat(matcher.find()).isTrue();
         return matcher.group(1);
     }
