@@ -1,6 +1,5 @@
 package com.cloudcomment.moderation.application;
 
-import com.cloudcomment.moderation.domain.Comment;
 import com.cloudcomment.moderation.domain.CommentSortField;
 import com.cloudcomment.moderation.domain.CommentStatus;
 import com.cloudcomment.moderation.domain.SortOrder;

@@ -85,7 +85,18 @@ class ModerationServiceTests {
         ModerationCommentFilters filters = new ModerationCommentFilters(
             null,
             null,
+            " https://example.com/page ",
+            CommentStatus.PENDING,
             null,
+            null,
+            " spam ",
+            CommentSortField.CREATED_AT,
+            SortOrder.DESC
+        );
+        ModerationCommentFilters expectedFilters = new ModerationCommentFilters(
+            null,
+            null,
+            "https://example.com/page",
             CommentStatus.PENDING,
             null,
             null,
@@ -97,10 +108,36 @@ class ModerationServiceTests {
         ModerationCommentPage page = service.listComments(currentUser, filters, 2, 10);
 
         assertThat(commentRepository.lastOwnerId).isEqualTo(currentUser.id());
-        assertThat(commentRepository.lastFilters).isEqualTo(filters);
+        assertThat(commentRepository.lastFilters).isEqualTo(expectedFilters);
         assertThat(commentRepository.lastPage).isEqualTo(2);
         assertThat(commentRepository.lastPageSize).isEqualTo(10);
         assertThat(page.items()).hasSize(1);
+    }
+
+    @Test
+    void listCommentsRejectsInvalidDateRange() {
+        ModerationService service = service(new CapturingCommentRepository(), true);
+
+        assertThatThrownBy(() -> service.listComments(
+            currentUser(),
+            new ModerationCommentFilters(
+                null,
+                null,
+                null,
+                null,
+                TIMESTAMP.plusSeconds(1),
+                TIMESTAMP,
+                null,
+                CommentSortField.CREATED_AT,
+                SortOrder.DESC
+            ),
+            1,
+            20
+        ))
+            .isInstanceOf(ApplicationException.class)
+            .hasMessage("createdFrom must be before or equal to createdTo")
+            .extracting("code")
+            .hasToString("BAD_REQUEST");
     }
 
     @Test
@@ -129,6 +166,7 @@ class ModerationServiceTests {
         ModerationAction action = service.applyAction(currentUser, commentId, ModerationActionType.APPROVE, " Looks good ");
 
         assertThat(commentRepository.updatedCommentId).isEqualTo(commentId);
+        assertThat(commentRepository.expectedStatus).isEqualTo(CommentStatus.PENDING);
         assertThat(commentRepository.updatedStatus).isEqualTo(CommentStatus.APPROVED);
         assertThat(commentRepository.updatedReason).isEqualTo("Looks good");
         assertThat(action.action()).isEqualTo(ModerationActionType.APPROVE);
@@ -157,6 +195,31 @@ class ModerationServiceTests {
             .hasMessage("Comment already has status APPROVED")
             .extracting("code")
             .hasToString("BUSINESS_ERROR");
+    }
+
+    @Test
+    void applyActionRejectsConcurrentStatusChangeWithoutRecordingAction() {
+        CapturingCommentRepository commentRepository = new CapturingCommentRepository();
+        commentRepository.failUpdates = true;
+        CapturingModerationActionRepository actionRepository = new CapturingModerationActionRepository();
+        ModerationService service = new ModerationService(
+            commentRepository,
+            actionRepository,
+            new ResourceOwnershipService((ownerId, resourceType, resourceId) -> true)
+        );
+
+        assertThatThrownBy(() -> service.applyAction(
+            currentUser(),
+            commentRepository.comment.id(),
+            ModerationActionType.APPROVE,
+            null
+        ))
+            .isInstanceOf(ApplicationException.class)
+            .hasMessage("Comment status changed; retry moderation action")
+            .extracting("code")
+            .hasToString("BUSINESS_ERROR");
+
+        assertThat(actionRepository.createCalls).isZero();
     }
 
     @Test
@@ -229,8 +292,10 @@ class ModerationServiceTests {
         private int lastPage;
         private int lastPageSize;
         private UUID updatedCommentId;
+        private CommentStatus expectedStatus;
         private CommentStatus updatedStatus;
         private String updatedReason;
+        private boolean failUpdates;
 
         @Override
         public ModerationCommentPage findByOwnerId(
@@ -252,16 +317,27 @@ class ModerationServiceTests {
         }
 
         @Override
-        public Optional<Comment> updateStatus(UUID commentId, CommentStatus newStatus, String moderationReason) {
+        public Optional<Comment> updateStatus(
+            UUID commentId,
+            CommentStatus expectedStatus,
+            CommentStatus newStatus,
+            String moderationReason
+        ) {
             updatedCommentId = commentId;
+            this.expectedStatus = expectedStatus;
             updatedStatus = newStatus;
             updatedReason = moderationReason;
+            if (failUpdates || comment.status() != expectedStatus) {
+                return Optional.empty();
+            }
             comment = comment(commentId, newStatus);
             return Optional.of(comment);
         }
     }
 
     private static class CapturingModerationActionRepository implements ModerationActionRepository {
+
+        private int createCalls;
 
         @Override
         public ModerationAction create(
@@ -272,6 +348,7 @@ class ModerationServiceTests {
             CommentStatus toStatus,
             String reason
         ) {
+            createCalls++;
             return new ModerationAction(
                 UUID.randomUUID(),
                 commentId,

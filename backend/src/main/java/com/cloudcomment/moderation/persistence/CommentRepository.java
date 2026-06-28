@@ -14,5 +14,10 @@ public interface CommentRepository {
 
     Optional<Comment> findById(UUID commentId);
 
-    Optional<Comment> updateStatus(UUID commentId, CommentStatus newStatus, String moderationReason);
+    Optional<Comment> updateStatus(
+        UUID commentId,
+        CommentStatus expectedStatus,
+        CommentStatus newStatus,
+        String moderationReason
+    );
 }

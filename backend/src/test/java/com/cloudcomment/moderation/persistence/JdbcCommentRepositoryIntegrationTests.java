@@ -212,8 +212,21 @@ class JdbcCommentRepositoryIntegrationTests {
         UUID pageId = insertPage(siteId, "https://example.com/page", "Page");
         UUID commentId = insertComment(pageId, "Needs review", "PENDING", Instant.parse("2026-06-28T10:00:00Z"));
 
-        Comment updated = commentRepository.updateStatus(commentId, CommentStatus.APPROVED, "Looks good").orElseThrow();
+        Comment updated = commentRepository.updateStatus(
+            commentId,
+            CommentStatus.PENDING,
+            CommentStatus.APPROVED,
+            "Looks good"
+        ).orElseThrow();
         assertThat(updated.status()).isEqualTo(CommentStatus.APPROVED);
+
+        assertThat(commentRepository.updateStatus(
+            commentId,
+            CommentStatus.PENDING,
+            CommentStatus.REJECTED,
+            "Too late"
+        )).isEmpty();
+        assertThat(commentRepository.findById(commentId).orElseThrow().status()).isEqualTo(CommentStatus.APPROVED);
 
         var action = moderationActionRepository.create(
             commentId,

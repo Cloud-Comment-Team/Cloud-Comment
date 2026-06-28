@@ -97,7 +97,12 @@ class JdbcCommentRepository implements CommentRepository {
 
     @Override
     @Transactional
-    public Optional<Comment> updateStatus(UUID commentId, CommentStatus newStatus, String moderationReason) {
+    public Optional<Comment> updateStatus(
+        UUID commentId,
+        CommentStatus expectedStatus,
+        CommentStatus newStatus,
+        String moderationReason
+    ) {
         int updated = jdbcTemplate.update(
             """
                 update comments
@@ -106,10 +111,12 @@ class JdbcCommentRepository implements CommentRepository {
                     moderated_at = now(),
                     updated_at = now()
                 where id = ?
+                  and status = ?
                 """,
             newStatus.name(),
             moderationReason,
-            commentId
+            commentId,
+            expectedStatus.name()
         );
         if (updated == 0) {
             return Optional.empty();

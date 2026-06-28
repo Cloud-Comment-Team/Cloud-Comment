@@ -31,8 +31,9 @@ public class ModerationService {
         int page,
         int pageSize
     ) {
-        assertFilterOwnership(currentUser, filters);
-        return commentRepository.findByOwnerId(currentUser.id(), filters, page, pageSize);
+        ModerationCommentFilters normalizedFilters = normalizeFilters(filters);
+        assertFilterOwnership(currentUser, normalizedFilters);
+        return commentRepository.findByOwnerId(currentUser.id(), normalizedFilters, page, pageSize);
     }
 
     @Transactional(readOnly = true)
@@ -51,16 +52,14 @@ public class ModerationService {
         resourceOwnershipService.assertCommentOwnedBy(currentUser, commentId);
         Comment comment = commentRepository.findById(commentId).orElseThrow(this::notFound);
 
+        String normalizedReason = normalizeReason(reason);
         CommentStatus targetStatus = resolveTargetStatus(action);
         if (comment.status() == targetStatus) {
-            throw new ApplicationException(
-                ApiErrorCode.BUSINESS_ERROR,
-                "Comment already has status " + targetStatus.name()
-            );
+            throw alreadyHasStatus(targetStatus);
         }
 
-        commentRepository.updateStatus(commentId, targetStatus, normalizeReason(reason))
-            .orElseThrow(this::notFound);
+        commentRepository.updateStatus(commentId, comment.status(), targetStatus, normalizedReason)
+            .orElseThrow(() -> concurrentStatusChange(commentId, targetStatus));
 
         return moderationActionRepository.create(
             commentId,
@@ -68,7 +67,29 @@ public class ModerationService {
             action,
             comment.status(),
             targetStatus,
-            normalizeReason(reason)
+            normalizedReason
+        );
+    }
+
+    private ModerationCommentFilters normalizeFilters(ModerationCommentFilters filters) {
+        if (filters.createdFrom() != null
+            && filters.createdTo() != null
+            && filters.createdFrom().isAfter(filters.createdTo())) {
+            throw new ApplicationException(
+                ApiErrorCode.BAD_REQUEST,
+                "createdFrom must be before or equal to createdTo"
+            );
+        }
+        return new ModerationCommentFilters(
+            filters.siteId(),
+            filters.pageId(),
+            normalizeNullable(filters.pageUrl()),
+            filters.status(),
+            filters.createdFrom(),
+            filters.createdTo(),
+            normalizeNullable(filters.search()),
+            filters.sortBy(),
+            filters.sortOrder()
         );
     }
 
@@ -91,12 +112,34 @@ public class ModerationService {
         };
     }
 
-    private String normalizeReason(String reason) {
-        if (reason == null) {
+    private ApplicationException concurrentStatusChange(UUID commentId, CommentStatus targetStatus) {
+        Comment currentComment = commentRepository.findById(commentId).orElseThrow(this::notFound);
+        if (currentComment.status() == targetStatus) {
+            return alreadyHasStatus(targetStatus);
+        }
+        return new ApplicationException(
+            ApiErrorCode.BUSINESS_ERROR,
+            "Comment status changed; retry moderation action"
+        );
+    }
+
+    private ApplicationException alreadyHasStatus(CommentStatus targetStatus) {
+        return new ApplicationException(
+            ApiErrorCode.BUSINESS_ERROR,
+            "Comment already has status " + targetStatus.name()
+        );
+    }
+
+    private String normalizeNullable(String value) {
+        if (value == null) {
             return null;
         }
-        String normalized = reason.trim();
+        String normalized = value.trim();
         return normalized.isEmpty() ? null : normalized;
+    }
+
+    private String normalizeReason(String reason) {
+        return normalizeNullable(reason);
     }
 
     private ApplicationException notFound() {

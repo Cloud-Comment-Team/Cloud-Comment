@@ -92,6 +92,7 @@ class ModerationControllerTests {
             .andExpect(jsonPath("$.items[0].id", is(comment.id().toString())))
             .andExpect(jsonPath("$.items[0].siteId", is(comment.siteId().toString())))
             .andExpect(jsonPath("$.items[0].pageId", is(comment.pageId().toString())))
+            .andExpect(jsonPath("$.items[0].pageUrl", is("https://example.com/page")))
             .andExpect(jsonPath("$.items[0].author.email", is("author@example.com")))
             .andExpect(jsonPath("$.items[0].content", is("Comment body")))
             .andExpect(jsonPath("$.items[0].status", is("PENDING")))
@@ -197,6 +198,7 @@ class ModerationControllerTests {
                 .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.id", is(comment.id().toString())))
+            .andExpect(jsonPath("$.pageUrl", is("https://example.com/page")))
             .andExpect(jsonPath("$.content", is("Comment body")))
             .andExpect(jsonPath("$.status", is("PENDING")));
     }
