@@ -76,7 +76,7 @@ Admin frontend использует `apiClient` с `baseURL = VITE_CLOUD_COMMENT
 | --- | --- | --- | --- |
 | `/api/auth/register` | `POST` | public | Create a user account |
 | `/api/auth/login` | `POST` | public | Exchange credentials for bearer token |
-| `/api/auth/logout` | `POST` | public (token optional) | Revoke current session token |
+| `/api/auth/logout` | `POST` | self-auth bearer required | Revoke current session token |
 | `/api/auth/me` | `GET` | bearer | Return current authenticated user |
 
 #### `POST /api/auth/register`
