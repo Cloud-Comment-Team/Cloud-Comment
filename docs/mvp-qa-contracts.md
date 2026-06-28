@@ -1,0 +1,382 @@
+# MVP API contracts and smoke checklist
+
+Этот документ фиксирует минимальный контракт для MVP, чтобы backend, admin и widget не расходились по route names, response shapes и auth-flow.
+
+OpenAPI / springdoc — отдельная задача после MVP. До активной frontend/widget интеграции этот файл является source of truth.
+
+## Статус реализации
+
+| Область | Статус | Примечание |
+| --- | --- | --- |
+| Health | реализовано | `GET /api/health` |
+| Auth | реализовано | register, login, logout, me |
+| Unified error envelope | реализовано | `ApiErrorHandler`, `ApiErrorCode` |
+| Admin sites / embed code | контракт | endpoints ещё не реализованы |
+| Moderation | контракт | endpoints ещё не реализованы |
+| Public widget API | контракт | endpoints ещё не реализованы |
+| Widget bundle / bootstrap | реализовано | shell без public API calls |
+
+## Auth flow
+
+1. Клиент вызывает `POST /api/auth/login` и получает `token`, `tokenType` (`Bearer`), `expiresAt`, `user`.
+2. Защищённые admin endpoints получают `Authorization: Bearer <token>`.
+3. `GET /api/auth/me` возвращает текущего пользователя по bearer-токену.
+4. `POST /api/auth/logout` отзывает текущую сессию и возвращает `204`.
+5. Невалидный, просроченный или отозванный токен → `401` с `error.code = INVALID_SESSION`.
+6. Неверные credentials → `401` с `error.code = INVALID_CREDENTIALS`.
+7. Публичные endpoints помечаются `@PublicApi` и не требуют bearer-токена.
+
+Admin frontend использует `apiClient` с `baseURL = VITE_CLOUD_COMMENT_API_BASE_URL` (обычно `http://localhost/api`) и путями `/auth/*`.
+
+## Unified error envelope
+
+Все ошибки API используют один формат:
+
+```json
+{
+  "error": {
+    "code": "VALIDATION_FAILED",
+    "message": "Request validation failed",
+    "status": 400,
+    "path": "/api/auth/register",
+    "fields": [
+      {
+        "field": "email",
+        "message": "must be a well-formed email address",
+        "code": "Email"
+      }
+    ]
+  }
+}
+```
+
+Правила:
+
+- `code` — строковое имя из `ApiErrorCode`.
+- `path` — запрошенный URI.
+- `fields` — массив; для не-validation ошибок может быть пустым.
+- Отсутствующий или невалидный bearer на защищённом endpoint → `401 INVALID_SESSION`.
+- Чужой или несуществующий owned resource → `404 NOT_FOUND` с `message: "Resource not found"`.
+
+Коды `ApiErrorCode`: `BAD_REQUEST`, `BUSINESS_ERROR`, `EMAIL_ALREADY_USED`, `INVALID_CREDENTIALS`, `INVALID_SESSION`, `INTERNAL_ERROR`, `MALFORMED_JSON`, `METHOD_NOT_ALLOWED`, `NOT_FOUND`, `TYPE_MISMATCH`, `UNSUPPORTED_MEDIA_TYPE`, `VALIDATION_FAILED`.
+
+## Route map
+
+Все backend routes начинаются с `/api/`. Caddy проксирует `/api/*` на backend.
+
+### Health
+
+| Route | Method | Auth | Purpose |
+| --- | --- | --- | --- |
+| `/api/health` | `GET` | public | Smoke check for backend availability |
+
+### Auth
+
+| Route | Method | Auth | Purpose |
+| --- | --- | --- | --- |
+| `/api/auth/register` | `POST` | public | Create a user account |
+| `/api/auth/login` | `POST` | public | Exchange credentials for bearer token |
+| `/api/auth/logout` | `POST` | self-auth bearer required | Revoke current session token |
+| `/api/auth/me` | `GET` | bearer | Return current authenticated user |
+
+#### `POST /api/auth/register`
+
+Request:
+
+```json
+{
+  "email": "owner@example.com",
+  "password": "strong-password"
+}
+```
+
+Response `201`:
+
+```json
+{
+  "id": "uuid",
+  "email": "owner@example.com",
+  "roles": ["COMMENTER"],
+  "createdAt": "2026-06-28T18:00:00Z",
+  "updatedAt": "2026-06-28T18:00:00Z"
+}
+```
+
+#### `POST /api/auth/login`
+
+Request — тот же shape, что register.
+
+Response `200`:
+
+```json
+{
+  "token": "opaque-session-token",
+  "tokenType": "Bearer",
+  "expiresAt": "2026-06-29T18:00:00Z",
+  "user": {
+    "id": "uuid",
+    "email": "owner@example.com",
+    "roles": ["OWNER"],
+    "createdAt": "2026-06-28T18:00:00Z",
+    "updatedAt": "2026-06-28T18:00:00Z"
+  }
+}
+```
+
+#### `GET /api/auth/me`
+
+Response `200` — тот же shape, что `user` в login response.
+
+#### `POST /api/auth/logout`
+
+Response `204`, body отсутствует.
+
+### Admin backend API
+
+Все admin endpoints требуют `Authorization: Bearer <token>` и проверку владения через `sites.owner_id` (см. `docs/data-model.md`).
+
+| Route | Method | Purpose |
+| --- | --- | --- |
+| `/api/sites` | `GET` | List sites owned by current user |
+| `/api/sites` | `POST` | Create a site |
+| `/api/sites/{siteId}` | `GET` | Get site details |
+| `/api/sites/{siteId}` | `PATCH` | Update site name, domain, moderation mode, active flag |
+| `/api/sites/{siteId}/allowed-origins` | `PUT` | Replace allowed widget origins |
+| `/api/sites/{siteId}/embed-code` | `GET` | Get embed snippet for the site |
+| `/api/moderation/comments` | `GET` | List comments for moderation queue (paginated) |
+| `/api/moderation/comments/{commentId}/actions` | `POST` | Apply moderation action |
+
+#### `POST /api/sites`
+
+Request:
+
+```json
+{
+  "name": "Example site",
+  "domain": "example.com",
+  "moderationMode": "PRE_MODERATION",
+  "allowedOrigins": ["https://example.com"]
+}
+```
+
+`moderationMode`: `PRE_MODERATION` | `POST_MODERATION` | `DISABLED`.
+
+### Admin SPA routes
+
+Frontend route map зафиксирован в `frontend/admin/src/routes/index.tsx`:
+
+| Route | Purpose |
+| --- | --- |
+| `/login` | Login page |
+| `/` | Dashboard |
+| `/comments` | Comments page |
+| `/users` | Users page |
+| `/moderation` | Moderation page |
+| `/statistics` | Statistics page |
+| `/settings` | Settings page |
+
+Неавторизованный доступ к protected routes перенаправляется на `/login`.
+
+### Public widget API
+
+| Route | Method | Auth | Purpose |
+| --- | --- | --- | --- |
+| `/api/public/sites/{siteId}/config` | `GET` | public + origin check | Public widget configuration |
+| `/api/public/comments` | `GET` | public + origin check | List comments for a page |
+| `/api/public/comments` | `POST` | bearer + origin check | Create a comment for authenticated visitor |
+
+Query для list:
+
+- `siteId` — UUID сайта (обязателен)
+- `pageUrl` — URL страницы обсуждения (обязателен)
+- `page`, `pageSize` — pagination (опционально)
+
+Request для create:
+
+```json
+{
+  "siteId": "uuid",
+  "pageUrl": "https://example.com/blog/post-1",
+  "parentId": null,
+  "content": "Comment text"
+}
+```
+
+### Public widget surface (static)
+
+| Surface | Contract |
+| --- | --- |
+| `/widget/cloud-comment-widget.js` | Public bundle served by Caddy |
+| `window.CloudCommentWidget.init(options)` | Manual widget bootstrap |
+| `window.CloudCommentWidget.autoInit()` | Auto bootstrap from script `data-*` attributes |
+
+Widget options (`widget-frontend/src/widget/types.ts`):
+
+```ts
+type CloudCommentWidgetOptions = {
+  siteId: string;
+  apiBaseUrl?: string;
+  pageUrl?: string;
+  target?: string | HTMLElement;
+};
+```
+
+Script attributes:
+
+- `data-site-id` — обязателен для `autoInit()`
+- `data-api-base-url` — optional, default from build config
+- `data-page-url` — optional, default `window.location.href`
+- `data-target` — optional CSS selector or element id
+
+## Canonical response shapes
+
+### Site
+
+```json
+{
+  "id": "uuid",
+  "ownerId": "uuid",
+  "name": "example.com",
+  "domain": "example.com",
+  "publicKey": "sk_live_...",
+  "moderationMode": "PRE_MODERATION",
+  "isActive": true,
+  "allowedOrigins": ["https://example.com"],
+  "createdAt": "2026-06-28T18:00:00Z",
+  "updatedAt": "2026-06-28T18:00:00Z"
+}
+```
+
+### Embed code
+
+```json
+{
+  "siteId": "uuid",
+  "scriptUrl": "http://localhost/widget/cloud-comment-widget.js",
+  "embedCode": "<script src=\"http://localhost/widget/cloud-comment-widget.js\" data-site-id=\"uuid\" data-api-base-url=\"http://localhost/api\"></script>",
+  "dataAttributes": {
+    "siteId": "uuid",
+    "apiBaseUrl": "http://localhost/api"
+  }
+}
+```
+
+### Comment
+
+```json
+{
+  "id": "uuid",
+  "siteId": "uuid",
+  "pageId": "uuid",
+  "parentId": null,
+  "author": {
+    "id": "uuid",
+    "email": "user@example.com",
+    "displayName": "User Name"
+  },
+  "content": "Comment text",
+  "status": "PENDING",
+  "createdAt": "2026-06-28T18:00:00Z",
+  "updatedAt": "2026-06-28T18:00:00Z",
+  "replies": []
+}
+```
+
+`status`: `PENDING` | `APPROVED` | `REJECTED` | `HIDDEN` | `SPAM`.
+
+### Pagination
+
+Обёртка для list endpoints (`GET /api/sites`, `GET /api/moderation/comments`, `GET /api/public/comments`):
+
+```json
+{
+  "items": [],
+  "page": 1,
+  "pageSize": 20,
+  "totalItems": 0,
+  "totalPages": 0
+}
+```
+
+Query defaults: `page=1`, `pageSize=20`, max `pageSize=100`.
+
+### Moderation action
+
+Request `POST /api/moderation/comments/{commentId}/actions`:
+
+```json
+{
+  "action": "APPROVE",
+  "reason": "Looks good"
+}
+```
+
+`action`: `APPROVE` | `REJECT` | `HIDE` | `MARK_SPAM` | `RESTORE`.
+
+Response `201`:
+
+```json
+{
+  "id": "uuid",
+  "commentId": "uuid",
+  "action": "APPROVE",
+  "fromStatus": "PENDING",
+  "toStatus": "APPROVED",
+  "reason": "Looks good",
+  "performedBy": {
+    "id": "uuid",
+    "email": "moderator@example.com"
+  },
+  "createdAt": "2026-06-28T18:00:00Z"
+}
+```
+
+## Smoke checklist
+
+### Backend (automated)
+
+Покрыто `MvpApiSmokeTests` и существующими auth/health tests:
+
+1. `GET /api/health` → `200`, `status: "UP"`, `application: "cloud-comment"`.
+2. `POST /api/auth/register` → `201`; invalid input → unified error envelope.
+3. `POST /api/auth/login` → `200` with `token`, `tokenType`, `expiresAt`, `user`.
+4. `GET /api/auth/me` → `200` with bearer token; без токена → `401 INVALID_SESSION`.
+5. `POST /api/auth/logout` → `204`; повторный `GET /api/auth/me` → `401 INVALID_SESSION`.
+
+### Admin SPA (manual / CI build)
+
+6. Routes из таблицы выше присутствуют в SPA router.
+7. Неавторизованный доступ к `/` перенаправляет на `/login`.
+8. `npm --prefix frontend/admin run lint` и `build` проходят.
+
+### Widget (manual / CI build)
+
+9. Widget bundle доступен по `/widget/cloud-comment-widget.js` после `npm --prefix widget-frontend run build`.
+10. `window.CloudCommentWidget.autoInit()` работает с `data-site-id`.
+11. `window.CloudCommentWidget.init({ siteId, apiBaseUrl, target })` рендерит shell без ошибок.
+12. `npm --prefix widget-frontend run check` и `build` проходят.
+
+### Planned MVP endpoints (contract review before implementation)
+
+13. Admin endpoints используют `/api/sites/**` и `/api/moderation/**`, не `/admin/**`.
+14. Public widget endpoints используют `/api/public/**`.
+15. Response shapes site / embed code / comment / pagination / moderation action совпадают с разделом выше.
+16. Owned resource access возвращает `404 NOT_FOUND` для чужих UUID.
+
+### Docs / architecture alignment
+
+17. Route names в этом документе, C4 dynamic views и реализованных controllers совпадают по префиксу `/api/`.
+18. C4 container names (`adminWebApp`, `widgetRuntime`, `backendApi`, `reverseProxy`) не расходятся с README и deployment diagram.
+
+## C4 alignment
+
+C4 (`docs/C4/cloud-comment.c4`) описывает те же контейнеры и route families. Dynamic views используют canonical paths из этого документа:
+
+- `POST /api/sites`
+- `GET /api/sites/{siteId}/embed-code`
+- `GET /api/moderation/comments`
+- `POST /api/moderation/comments/{commentId}/actions`
+- `GET /api/public/comments`
+- `POST /api/public/comments`
+
+Изменения контейнеров не требуются: `adminWebApp`, `widgetRuntime`, `backendApi`, `reverseProxy`, `postgres` уже соответствуют MVP.

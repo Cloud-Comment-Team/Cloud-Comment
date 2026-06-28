@@ -176,6 +176,8 @@ npm --prefix frontend/admin run lint
 docker compose config
 ```
 
+MVP API contract и smoke checklist описаны в `docs/mvp-qa-contracts.md`.
+
 Проверить backend API после запуска стека:
 
 ```sh
