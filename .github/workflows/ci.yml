@@ -37,18 +37,21 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Verify Docker for backend integration tests
+        run: docker info
+
       - name: Test backend
         working-directory: backend
         run: |
           chmod +x ./gradlew
-          ./gradlew test jacocoTestReport --init-script ../.github/scripts/jacoco-init.gradle.kts --no-daemon
+          ./gradlew clean test jacocoTestReport --init-script ../.github/scripts/jacoco-init.gradle.kts --no-daemon
 
       - name: Test base coverage
         if: github.event_name == 'pull_request'
         working-directory: base/backend
         run: |
           chmod +x ./gradlew
-          ./gradlew test jacocoTestReport --init-script ../../.github/scripts/jacoco-init.gradle.kts --no-daemon
+          ./gradlew clean test jacocoTestReport --init-script ../../.github/scripts/jacoco-init.gradle.kts --no-daemon
 
       - name: Summarize backend coverage
         id: coverage
