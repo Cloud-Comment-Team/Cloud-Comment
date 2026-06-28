@@ -7,12 +7,17 @@ import Moderation from '../pages/Moderation/Moderation';
 import Statistics from '../pages/Statistics/Statistics';
 import Settings from '../pages/Settings/Settings';
 import Login from '../pages/Login/Login';
+import Register from '../pages/Register/Register';
 import ProtectedRoute from '../components/auth/ProtectedRoute';
 
 export const router = createBrowserRouter([
   {
     path: '/login',
     element: <Login />,
+  },
+  {
+    path: '/register',
+    element: <Register />,
   },
   {
     path: '/',
