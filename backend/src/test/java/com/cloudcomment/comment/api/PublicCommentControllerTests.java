@@ -215,6 +215,43 @@ class PublicCommentControllerTests {
         verifyNoInteractions(currentUserService, publicCommentService);
     }
 
+    @Test
+    void actualPublicRequestWithDisallowedOriginIsMaskedBeforeControllerValidation() throws Exception {
+        UUID siteId = UUID.randomUUID();
+        when(domainPolicyService.isOriginAllowed(siteId, "https://evil.example")).thenReturn(false);
+
+        mockMvc.perform(get("/api/public/sites/{siteId}/pages/comments", siteId)
+                .header(HttpHeaders.ORIGIN, "https://evil.example")
+                .param("pageUrl", "not-a-url"))
+            .andExpect(status().isNotFound())
+            .andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN))
+            .andExpect(jsonPath("$.error.code", is("NOT_FOUND")))
+            .andExpect(jsonPath("$.error.message", is("Resource not found")))
+            .andExpect(jsonPath("$.error.fields", empty()));
+
+        verifyNoInteractions(currentUserService, publicCommentService);
+    }
+
+    @Test
+    void actualPublicRequestWithoutOriginIsMaskedBeforeAuthentication() throws Exception {
+        UUID siteId = UUID.randomUUID();
+        when(domainPolicyService.isOriginAllowed(siteId, null)).thenReturn(false);
+
+        mockMvc.perform(post("/api/public/sites/{siteId}/pages/comments", siteId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "pageUrl": "%s",
+                      "content": "Hello world"
+                    }
+                    """.formatted(PAGE_URL)))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error.code", is("NOT_FOUND")))
+            .andExpect(jsonPath("$.error.message", is("Resource not found")));
+
+        verifyNoInteractions(currentUserService, publicCommentService);
+    }
+
     private AuthenticatedUser currentUser() {
         return new AuthenticatedUser(UUID.randomUUID(), "visitor@example.com", Set.of("COMMENTER"), TIMESTAMP, TIMESTAMP);
     }
