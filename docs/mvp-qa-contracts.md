@@ -141,6 +141,7 @@ Response `204`, body отсутствует.
 | `/api/sites` | `POST` | Create a site |
 | `/api/sites/{siteId}` | `GET` | Get site details |
 | `/api/sites/{siteId}` | `PATCH` | Update site name, domain, moderation mode, active flag |
+| `/api/sites/{siteId}` | `DELETE` | Delete owned site and its related widget data |
 | `/api/sites/{siteId}/allowed-origins` | `PUT` | Replace allowed widget origins |
 | `/api/sites/{siteId}/embed-code` | `GET` | Get embed snippet for the site |
 | `/api/moderation/comments` | `GET` | List comments for moderation queue (paginated) |
