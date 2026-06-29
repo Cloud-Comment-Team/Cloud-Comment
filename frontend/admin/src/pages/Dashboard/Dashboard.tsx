@@ -19,19 +19,24 @@ const StatCard = ({
   label,
   value,
   href,
+  tone = 'accent',
 }: {
   icon: ReactNode
   label: string
   value: number | string
   href?: string
+  tone?: 'accent' | 'success' | 'warning' | 'danger'
 }) => {
+  const color = `var(--${tone})`
+  const backgroundColor = `var(--${tone}-bg)`
+
   const content = (
     <div
-      className="rounded-xl border p-6 transition hover:opacity-95"
-      style={{ backgroundColor: 'var(--bg)', borderColor: 'var(--border)' }}
+      className="rounded-lg border p-5 transition hover:opacity-95"
+      style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}
     >
       <div className="mb-4 flex items-center justify-between">
-        <div className="rounded-lg p-3" style={{ backgroundColor: 'var(--accent-bg)' }}>
+        <div className="rounded-lg p-3" style={{ backgroundColor, color }}>
           {icon}
         </div>
         <span className="text-2xl font-bold" style={{ color: 'var(--text-h)' }}>
@@ -112,28 +117,31 @@ const Dashboard = () => {
         {stats && (
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
             <StatCard
-              icon={<Globe className="h-6 w-6" style={{ color: 'var(--accent)' }} aria-hidden="true" />}
+              icon={<Globe className="h-6 w-6" aria-hidden="true" />}
               label="Сайтов"
               value={stats.sites}
               href="/sites"
             />
             <StatCard
-              icon={<Clock className="h-6 w-6" style={{ color: 'var(--accent)' }} aria-hidden="true" />}
+              icon={<Clock className="h-6 w-6" aria-hidden="true" />}
               label="На модерации"
               value={stats.pending}
               href="/moderation"
+              tone="warning"
             />
             <StatCard
-              icon={<MessageSquare className="h-6 w-6" style={{ color: 'var(--accent)' }} aria-hidden="true" />}
+              icon={<MessageSquare className="h-6 w-6" aria-hidden="true" />}
               label="Одобрено"
               value={stats.approved}
               href="/moderation"
+              tone="success"
             />
             <StatCard
-              icon={<AlertTriangle className="h-6 w-6" style={{ color: 'var(--accent)' }} aria-hidden="true" />}
+              icon={<AlertTriangle className="h-6 w-6" aria-hidden="true" />}
               label="Отклонено"
               value={stats.rejected}
               href="/moderation"
+              tone="danger"
             />
           </div>
         )}

@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { Check, EyeOff, RotateCcw, ShieldAlert, X } from 'lucide-react'
@@ -7,6 +7,7 @@ import { getApiErrorMessage } from '../../api/auth'
 import { applyModerationAction, listComments } from '../../api/moderation'
 import { listAllSites } from '../../api/sites'
 import { AsyncState } from '../../components/common/AsyncState'
+import { Badge } from '../../components/common/Badge'
 import { PaginationControls } from '../../components/common/PaginationControls'
 import type { Comment, CommentStatus, ModerationActionType, Site } from '../../types/api'
 import { formatDateTime } from '../../utils/formatDate'
@@ -20,12 +21,12 @@ const statusLabels: Record<CommentStatus, string> = {
   SPAM: 'Спам',
 }
 
-const statusColors: Record<CommentStatus, { bg: string; color: string }> = {
-  PENDING: { bg: 'rgba(250, 173, 20, 0.15)', color: '#ad6800' },
-  APPROVED: { bg: 'rgba(35, 120, 4, 0.12)', color: '#237804' },
-  REJECTED: { bg: 'rgba(168, 7, 26, 0.12)', color: '#a8071a' },
-  HIDDEN: { bg: 'rgba(107, 99, 117, 0.15)', color: 'var(--text)' },
-  SPAM: { bg: 'rgba(168, 7, 26, 0.12)', color: '#a8071a' },
+const statusTones: Record<CommentStatus, 'success' | 'warning' | 'danger' | 'muted'> = {
+  PENDING: 'warning',
+  APPROVED: 'success',
+  REJECTED: 'danger',
+  HIDDEN: 'muted',
+  SPAM: 'danger',
 }
 
 const actionButtons: Record<
@@ -68,6 +69,9 @@ const Moderation = () => {
   const [search, setSearch] = useState('')
   const [reasons, setReasons] = useState<Record<string, string>>({})
   const [reloadKey, setReloadKey] = useState(0)
+
+  const siteNamesById = useMemo(() => new Map(sites.map((site) => [site.id, site.name])), [sites])
+  const filtersApplied = Object.values(appliedFilters).some(Boolean)
 
   useEffect(() => {
     let cancelled = false
@@ -166,6 +170,16 @@ const Moderation = () => {
     setPage(1)
   }
 
+  function handleResetFilters() {
+    setSiteId('')
+    setPageId('')
+    setStatus('')
+    setPageUrl('')
+    setSearch('')
+    setAppliedFilters(emptyFilters)
+    setPage(1)
+  }
+
   return (
     <div className="text-left">
       <div className="mb-8">
@@ -178,8 +192,8 @@ const Moderation = () => {
       </div>
 
       <form
-        className="mb-6 grid gap-4 rounded-xl border p-4 md:grid-cols-2 xl:grid-cols-3"
-        style={{ borderColor: 'var(--border)' }}
+        className="mb-6 grid gap-4 rounded-lg border p-4 md:grid-cols-2 xl:grid-cols-3"
+        style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}
         onSubmit={handleApplyFilters}
       >
         <label className="block">
@@ -260,7 +274,7 @@ const Moderation = () => {
           />
         </label>
 
-        <div className="md:col-span-2 xl:col-span-3">
+        <div className="flex flex-wrap gap-2 md:col-span-2 xl:col-span-3">
           <button
             type="submit"
             className="rounded-lg px-4 py-2 text-sm font-medium text-white transition hover:opacity-90"
@@ -268,6 +282,16 @@ const Moderation = () => {
           >
             Применить фильтры
           </button>
+          {filtersApplied && (
+            <button
+              type="button"
+              className="rounded-lg border px-4 py-2 text-sm font-medium transition hover:opacity-80"
+              style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)', color: 'var(--text-h)' }}
+              onClick={handleResetFilters}
+            >
+              Сбросить
+            </button>
+          )}
         </div>
       </form>
 
@@ -281,11 +305,15 @@ const Moderation = () => {
           {comments.map((comment) => {
             const authorLabel =
               comment.author?.displayName || comment.author?.email || 'Гость'
-            const siteName = sites.find((site) => site.id === comment.siteId)?.name ?? comment.siteId
+            const siteName = siteNamesById.get(comment.siteId) ?? comment.siteId
             const availableActions = getAvailableModerationActions(comment.status)
 
             return (
-              <article key={comment.id} className="rounded-xl border p-4" style={{ borderColor: 'var(--border)' }}>
+              <article
+                key={comment.id}
+                className="rounded-lg border p-4"
+                style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}
+              >
                 <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <p className="font-medium" style={{ color: 'var(--text-h)' }}>
@@ -298,54 +326,57 @@ const Moderation = () => {
                       {formatDateTime(comment.createdAt)} · pageId: {comment.pageId}
                     </p>
                   </div>
-                  <span
-                    className="rounded-full px-2 py-1 text-xs font-medium"
-                    style={statusColors[comment.status]}
-                  >
-                    {statusLabels[comment.status]}
-                  </span>
+                  <Badge tone={statusTones[comment.status]}>{statusLabels[comment.status]}</Badge>
                 </div>
 
                 <p className="mb-4 whitespace-pre-wrap text-sm" style={{ color: 'var(--text-h)' }}>
                   {comment.content}
                 </p>
 
-                <label className="mb-4 block">
-                  <span className="mb-2 block text-xs font-medium" style={{ color: 'var(--text-h)' }}>
-                    Причина (необязательно)
-                  </span>
-                  <input
-                    className="w-full rounded-lg border px-3 py-2 text-sm outline-none"
-                    style={{ backgroundColor: 'var(--code-bg)', borderColor: 'var(--border)', color: 'var(--text-h)' }}
-                    placeholder="Причина для этого комментария"
-                    value={reasons[comment.id] ?? ''}
-                    onChange={(event) =>
-                      setReasons((current) => ({
-                        ...current,
-                        [comment.id]: event.target.value,
-                      }))
-                    }
-                  />
-                </label>
+                {availableActions.length > 0 && (
+                  <>
+                    <label className="mb-4 block">
+                      <span className="mb-2 block text-xs font-medium" style={{ color: 'var(--text-h)' }}>
+                        Причина (необязательно)
+                      </span>
+                      <input
+                        className="w-full rounded-lg border px-3 py-2 text-sm outline-none"
+                        style={{
+                          backgroundColor: 'var(--code-bg)',
+                          borderColor: 'var(--border)',
+                          color: 'var(--text-h)',
+                        }}
+                        placeholder="Причина для этого комментария"
+                        value={reasons[comment.id] ?? ''}
+                        onChange={(event) =>
+                          setReasons((current) => ({
+                            ...current,
+                            [comment.id]: event.target.value,
+                          }))
+                        }
+                      />
+                    </label>
 
-                <div className="flex flex-wrap gap-2">
-                  {availableActions.map((action) => {
-                    const { label, icon: Icon } = actionButtons[action]
-                    return (
-                      <button
-                        key={action}
-                        type="button"
-                        disabled={actionCommentId === comment.id}
-                        onClick={() => void handleAction(comment.id, action)}
-                        className="inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs transition hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
-                        style={{ borderColor: 'var(--border)', color: 'var(--text-h)' }}
-                      >
-                        <Icon className="h-3.5 w-3.5" aria-hidden="true" />
-                        {label}
-                      </button>
-                    )
-                  })}
-                </div>
+                    <div className="flex flex-wrap gap-2">
+                      {availableActions.map((action) => {
+                        const { label, icon: Icon } = actionButtons[action]
+                        return (
+                          <button
+                            key={action}
+                            type="button"
+                            disabled={actionCommentId === comment.id}
+                            onClick={() => void handleAction(comment.id, action)}
+                            className="inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs font-medium transition hover:opacity-80 disabled:opacity-50"
+                            style={{ borderColor: 'var(--border)', color: 'var(--text-h)' }}
+                          >
+                            <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+                            {label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </>
+                )}
               </article>
             )
           })}

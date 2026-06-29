@@ -8,7 +8,7 @@ import { getApiErrorMessage } from '../../api/auth'
 import { createSite } from '../../api/sites'
 import Input from '../../components/common/Input/Input'
 import type { ModerationMode } from '../../types/api'
-import { parseOriginsInput } from '../../utils/origins'
+import { normalizeDomainInput, parseAllowedOriginsInput } from '../../utils/origins'
 
 interface SiteFormValues {
   name: string
@@ -29,23 +29,29 @@ const SiteCreate = () => {
       name: '',
       domain: '',
       moderationMode: 'PRE_MODERATION',
-      allowedOrigins: 'https://example.com',
+      allowedOrigins: '',
     },
   })
 
   const onSubmit: SubmitHandler<SiteFormValues> = async (values) => {
     setServerError(null)
 
-    const allowedOrigins = parseOriginsInput(values.allowedOrigins)
-    if (allowedOrigins.length === 0) {
-      setServerError('Укажите хотя бы один allowed origin.')
+    const domain = normalizeDomainInput(values.domain)
+    if (!domain) {
+      setServerError('Домен должен быть hostname без схемы, пути и пробелов.')
+      return
+    }
+
+    const { origins: allowedOrigins, error: originsError } = parseAllowedOriginsInput(values.allowedOrigins)
+    if (originsError) {
+      setServerError(originsError)
       return
     }
 
     try {
       const site = await createSite({
         name: values.name.trim(),
-        domain: values.domain.trim(),
+        domain,
         moderationMode: values.moderationMode,
         allowedOrigins,
       })
@@ -76,15 +82,17 @@ const SiteCreate = () => {
       </div>
 
       {serverError && (
-        <div
-          className="mb-6 rounded-lg border px-4 py-3 text-sm"
-          style={{ borderColor: '#ff7875', color: '#a8071a', backgroundColor: 'rgba(255, 120, 117, 0.08)' }}
-        >
+        <div className="mb-6 rounded-lg border px-4 py-3 text-sm" style={{ borderColor: 'var(--danger)', color: 'var(--danger)', backgroundColor: 'var(--danger-bg)' }}>
           {serverError}
         </div>
       )}
 
-      <form className="space-y-5 rounded-xl border p-6" style={{ borderColor: 'var(--border)' }} onSubmit={handleSubmit(onSubmit)} noValidate>
+      <form
+        className="space-y-5 rounded-lg border p-5 md:p-6"
+        style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}
+        onSubmit={handleSubmit(onSubmit)}
+        noValidate
+      >
         <Input
           label="Название"
           placeholder="Example site"
@@ -125,6 +133,7 @@ const SiteCreate = () => {
           <textarea
             className="min-h-32 w-full rounded-lg border px-4 py-3 outline-none"
             style={{ backgroundColor: 'var(--code-bg)', borderColor: 'var(--border)', color: 'var(--text-h)' }}
+            placeholder="https://example.com"
             {...register('allowedOrigins', { required: 'Укажите allowed origins' })}
           />
         </label>

@@ -5,6 +5,7 @@ import { Globe, Plus } from 'lucide-react'
 import { getApiErrorMessage } from '../../api/auth'
 import { listSites } from '../../api/sites'
 import { AsyncState } from '../../components/common/AsyncState'
+import { Badge } from '../../components/common/Badge'
 import { PaginationControls } from '../../components/common/PaginationControls'
 import type { Site } from '../../types/api'
 import { formatDateTime } from '../../utils/formatDate'
@@ -79,9 +80,12 @@ const SitesList = () => {
         emptyMessage="У вас пока нет сайтов. Создайте первый проект, чтобы подключить виджет."
       >
         <div className="space-y-4">
-          <div className="overflow-hidden rounded-xl border" style={{ borderColor: 'var(--border)' }}>
-            <table className="min-w-full divide-y text-sm" style={{ borderColor: 'var(--border)' }}>
-              <thead style={{ backgroundColor: 'var(--code-bg)' }}>
+          <div
+            className="overflow-x-auto rounded-lg border"
+            style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}
+          >
+            <table className="w-full min-w-[760px] divide-y text-sm" style={{ borderColor: 'var(--border)' }}>
+              <thead style={{ backgroundColor: 'var(--surface-muted)' }}>
                 <tr>
                   <th className="px-4 py-3 text-left font-medium" style={{ color: 'var(--text-h)' }}>
                     Название
@@ -120,15 +124,9 @@ const SitesList = () => {
                       {moderationModeLabels[site.moderationMode]}
                     </td>
                     <td className="px-4 py-3">
-                      <span
-                        className="rounded-full px-2 py-1 text-xs font-medium"
-                        style={{
-                          backgroundColor: site.isActive ? 'rgba(35, 120, 4, 0.12)' : 'rgba(168, 7, 26, 0.12)',
-                          color: site.isActive ? '#237804' : '#a8071a',
-                        }}
-                      >
+                      <Badge tone={site.isActive ? 'success' : 'danger'}>
                         {site.isActive ? 'Активен' : 'Деактивирован'}
-                      </span>
+                      </Badge>
                     </td>
                     <td className="px-4 py-3" style={{ color: 'var(--text)' }}>
                       {formatDateTime(site.createdAt)}

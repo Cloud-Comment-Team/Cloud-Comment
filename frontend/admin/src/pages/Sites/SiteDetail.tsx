@@ -6,8 +6,9 @@ import toast from 'react-hot-toast'
 import { getApiErrorMessage } from '../../api/auth'
 import { deleteSite, getEmbedCode, getSite, replaceAllowedOrigins, updateSite } from '../../api/sites'
 import { AsyncState } from '../../components/common/AsyncState'
+import { Badge } from '../../components/common/Badge'
 import type { EmbedCode, ModerationMode, Site } from '../../types/api'
-import { formatOriginsInput, parseOriginsInput } from '../../utils/origins'
+import { formatOriginsInput, normalizeDomainInput, parseAllowedOriginsInput } from '../../utils/origins'
 import { moderationModeLabels } from '../../utils/moderationModeLabels'
 
 const SiteDetail = () => {
@@ -22,6 +23,8 @@ const SiteDetail = () => {
   const [domain, setDomain] = useState('')
   const [moderationMode, setModerationMode] = useState<ModerationMode>('PRE_MODERATION')
   const [originsInput, setOriginsInput] = useState('')
+  const [deleteConfirmationVisible, setDeleteConfirmationVisible] = useState(false)
+  const [deleteConfirmation, setDeleteConfirmation] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -66,15 +69,21 @@ const SiteDetail = () => {
 
     setSaving(true)
     try {
-      const allowedOrigins = parseOriginsInput(originsInput)
-      if (allowedOrigins.length === 0) {
-        toast.error('Укажите хотя бы один allowed origin.')
+      const normalizedDomain = normalizeDomainInput(domain)
+      if (!normalizedDomain) {
+        toast.error('Домен должен быть hostname без схемы, пути и пробелов.')
+        return
+      }
+
+      const { origins: allowedOrigins, error: originsError } = parseAllowedOriginsInput(originsInput)
+      if (originsError) {
+        toast.error(originsError)
         return
       }
 
       await updateSite(site.id, {
         name: name.trim(),
-        domain: domain.trim(),
+        domain: normalizedDomain,
         moderationMode,
       })
       const siteWithOrigins = await replaceAllowedOrigins(site.id, { allowedOrigins })
@@ -100,6 +109,10 @@ const SiteDetail = () => {
     try {
       const updatedSite = await updateSite(site.id, { isActive: !site.isActive })
       setSite(updatedSite)
+      setName(updatedSite.name)
+      setDomain(updatedSite.domain)
+      setModerationMode(updatedSite.moderationMode)
+      setOriginsInput(formatOriginsInput(updatedSite.allowedOrigins))
       toast.success(updatedSite.isActive ? 'Сайт активирован' : 'Сайт деактивирован')
     } catch (toggleError) {
       toast.error(getApiErrorMessage(toggleError, 'Не удалось изменить статус сайта.'))
@@ -113,10 +126,8 @@ const SiteDetail = () => {
       return
     }
 
-    const confirmed = window.confirm(
-      `Удалить сайт «${site.name}»? Все связанные страницы и комментарии будут удалены без возможности восстановления.`,
-    )
-    if (!confirmed) {
+    if (deleteConfirmation !== site.domain) {
+      toast.error('Введите домен сайта для подтверждения удаления.')
       return
     }
 
@@ -165,10 +176,15 @@ const SiteDetail = () => {
                   <Globe className="h-6 w-6" style={{ color: 'var(--accent)' }} aria-hidden="true" />
                   {site.name}
                 </h1>
-                <p className="mt-1" style={{ color: 'var(--text)' }}>
-                  {site.domain} · {moderationModeLabels[site.moderationMode]} ·{' '}
-                  {site.isActive ? 'активен' : 'деактивирован'}
-                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <span className="text-sm" style={{ color: 'var(--text)' }}>
+                    {site.domain}
+                  </span>
+                  <Badge tone="accent">{moderationModeLabels[site.moderationMode]}</Badge>
+                  <Badge tone={site.isActive ? 'success' : 'danger'}>
+                    {site.isActive ? 'Активен' : 'Деактивирован'}
+                  </Badge>
+                </div>
               </div>
               <div className="flex flex-wrap gap-2">
                 <button
@@ -183,10 +199,10 @@ const SiteDetail = () => {
                 </button>
                 <button
                   type="button"
-                  onClick={() => void handleDeleteSite()}
+                  onClick={() => setDeleteConfirmationVisible((current) => !current)}
                   disabled={saving}
                   className="inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm transition hover:opacity-80 disabled:opacity-60"
-                  style={{ borderColor: '#ff7875', color: '#a8071a' }}
+                  style={{ borderColor: 'var(--danger)', color: 'var(--danger)' }}
                 >
                   <Trash2 className="h-4 w-4" aria-hidden="true" />
                   Удалить
@@ -194,7 +210,10 @@ const SiteDetail = () => {
               </div>
             </div>
 
-            <section className="rounded-xl border p-6" style={{ borderColor: 'var(--border)' }}>
+            <section
+              className="rounded-lg border p-5 md:p-6"
+              style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}
+            >
               <h2 className="mb-4 text-lg font-semibold" style={{ color: 'var(--text-h)' }}>
                 Настройки сайта
               </h2>
@@ -260,7 +279,10 @@ const SiteDetail = () => {
               </button>
             </section>
 
-            <section className="rounded-xl border p-6" style={{ borderColor: 'var(--border)' }}>
+            <section
+              className="rounded-lg border p-5 md:p-6"
+              style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}
+            >
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h2 className="text-lg font-semibold" style={{ color: 'var(--text-h)' }}>
@@ -294,6 +316,45 @@ const SiteDetail = () => {
                 </>
               )}
             </section>
+
+            {deleteConfirmationVisible && (
+              <section
+                className="rounded-lg border p-5 md:p-6"
+                style={{ backgroundColor: 'var(--danger-bg)', borderColor: 'var(--danger)' }}
+              >
+                <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+                  <div className="max-w-2xl">
+                    <h2 className="text-lg font-semibold" style={{ color: 'var(--danger)' }}>
+                      Удаление сайта
+                    </h2>
+                    <p className="mt-1 text-sm" style={{ color: 'var(--text)' }}>
+                      Будут удалены сайт, allowed origins, страницы и комментарии. Для подтверждения введите домен{' '}
+                      <strong style={{ color: 'var(--text-h)' }}>{site.domain}</strong>.
+                    </p>
+                    <input
+                      className="mt-4 w-full rounded-lg border px-4 py-3 outline-none"
+                      style={{
+                        backgroundColor: 'var(--surface)',
+                        borderColor: 'var(--danger)',
+                        color: 'var(--text-h)',
+                      }}
+                      value={deleteConfirmation}
+                      onChange={(event) => setDeleteConfirmation(event.target.value)}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void handleDeleteSite()}
+                    disabled={saving || deleteConfirmation !== site.domain}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
+                    style={{ backgroundColor: 'var(--danger)' }}
+                  >
+                    <Trash2 className="h-4 w-4" aria-hidden="true" />
+                    Удалить без восстановления
+                  </button>
+                </div>
+              </section>
+            )}
           </div>
         )}
       </AsyncState>
