@@ -14,6 +14,57 @@ export type CloudCommentWidgetApi = {
   autoInit: () => CloudCommentWidgetInstance | null;
 };
 
+export type ModerationMode = "PRE_MODERATION" | "POST_MODERATION";
+
+export type CommentStatus = "PENDING" | "APPROVED" | "REJECTED" | "HIDDEN" | "SPAM";
+
+export type CommentAuthor = {
+  id: string;
+  email: string;
+  displayName: string | null;
+};
+
+export type PublicComment = {
+  id: string;
+  siteId: string;
+  pageId: string;
+  parentId: string | null;
+  author: CommentAuthor;
+  content: string;
+  status: CommentStatus;
+  createdAt: string;
+  updatedAt: string;
+  replies: PublicComment[];
+};
+
+export type PublicWidgetConfig = {
+  siteId: string;
+  moderationMode: ModerationMode;
+};
+
+export type PaginatedResponse<T> = {
+  items: T[];
+  page: number;
+  pageSize: number;
+  totalItems: number;
+  totalPages: number;
+};
+
+export type AuthUser = {
+  id: string;
+  email: string;
+  roles: string[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type LoginResponse = {
+  token: string;
+  tokenType: string;
+  expiresAt: string;
+  user: AuthUser;
+};
+
 declare global {
   interface Window {
     CloudCommentWidget?: CloudCommentWidgetApi;

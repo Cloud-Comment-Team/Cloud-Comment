@@ -54,13 +54,7 @@ function init(options: CloudCommentWidgetOptions): CloudCommentWidgetInstance {
   const normalizedOptions = normalizeOptions(options);
   const target = resolveTarget(options.target);
   target.replaceChildren();
-  renderWidget(target, normalizedOptions);
-
-  return {
-    destroy: () => {
-      target.shadowRoot?.replaceChildren();
-    }
-  };
+  return renderWidget(target, normalizedOptions);
 }
 
 function autoInit(): CloudCommentWidgetInstance | null {

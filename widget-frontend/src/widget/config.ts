@@ -1,4 +1,6 @@
 const FALLBACK_API_BASE_URL = "/api";
+export const WIDGET_AUTH_TOKEN_KEY = "cloud-comment.widget.authToken";
+export const ADMIN_AUTH_TOKEN_KEY = "cloud-comment.admin.authToken";
 
 export function getDefaultApiBaseUrl(
   envValue = import.meta.env.VITE_CLOUD_COMMENT_API_BASE_URL

@@ -14,7 +14,7 @@ public record RegisterUserResponse(
     Instant updatedAt
 ) {
 
-    static RegisterUserResponse from(RegisteredUser user) {
+    public static RegisterUserResponse from(RegisteredUser user) {
         return new RegisterUserResponse(
             user.id(),
             user.email(),

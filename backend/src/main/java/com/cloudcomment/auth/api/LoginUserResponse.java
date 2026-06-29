@@ -11,7 +11,7 @@ public record LoginUserResponse(
     UserProfileResponse user
 ) {
 
-    static LoginUserResponse from(LoginResult result) {
+    public static LoginUserResponse from(LoginResult result) {
         return new LoginUserResponse(
             result.token(),
             result.tokenType(),
