@@ -124,6 +124,42 @@ class SiteServiceTests {
         assertThat(embedCode.embedCode()).contains("data-site-id=\"" + siteId + "\"");
     }
 
+    @Test
+    void deleteSiteChecksOwnershipAndDeletesSite() {
+        CapturingSiteRepository repository = new CapturingSiteRepository();
+        SiteService service = service(repository, true);
+        UUID siteId = UUID.randomUUID();
+
+        service.deleteSite(currentUser(), siteId);
+
+        assertThat(repository.deletedSiteId).isEqualTo(siteId);
+    }
+
+    @Test
+    void deleteSiteMasksForeignOrMissingSiteAsNotFound() {
+        CapturingSiteRepository repository = new CapturingSiteRepository();
+        SiteService service = service(repository, false);
+
+        assertThatThrownBy(() -> service.deleteSite(currentUser(), UUID.randomUUID()))
+            .isInstanceOf(ApplicationException.class)
+            .hasMessage("Resource not found")
+            .extracting("code")
+            .hasToString("NOT_FOUND");
+    }
+
+    @Test
+    void deleteSiteReturnsNotFoundWhenSiteDoesNotExist() {
+        CapturingSiteRepository repository = new CapturingSiteRepository();
+        repository.deleteReturnsFalse = true;
+        SiteService service = service(repository, true);
+
+        assertThatThrownBy(() -> service.deleteSite(currentUser(), UUID.randomUUID()))
+            .isInstanceOf(ApplicationException.class)
+            .hasMessage("Resource not found")
+            .extracting("code")
+            .hasToString("NOT_FOUND");
+    }
+
     private SiteService service(CapturingSiteRepository repository, boolean owned) {
         ResourceOwnershipRepository ownershipRepository = (UUID ownerId, OwnedResourceType resourceType, UUID resourceId) -> owned;
         return new SiteService(
@@ -160,6 +196,17 @@ class SiteServiceTests {
         private List<String> createdAllowedOrigins;
         private UUID replacedSiteId;
         private List<String> replacedAllowedOrigins;
+        private UUID deletedSiteId;
+        private boolean deleteReturnsFalse;
+
+        @Override
+        public boolean deleteById(UUID siteId) {
+            if (deleteReturnsFalse) {
+                return false;
+            }
+            deletedSiteId = siteId;
+            return true;
+        }
 
         @Override
         public SitePage findByOwnerId(UUID ownerId, int page, int pageSize) {

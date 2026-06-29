@@ -1,23 +1,32 @@
-import { createBrowserRouter } from 'react-router-dom';
-import Layout from '../components/layout/Layout';
-import Dashboard from '../pages/Dashboard/Dashboard';
-import Comments from '../pages/Comments/Comments';
-import Users from '../pages/Users/Users';
-import Moderation from '../pages/Moderation/Moderation';
-import Statistics from '../pages/Statistics/Statistics';
-import Settings from '../pages/Settings/Settings';
-import Login from '../pages/Login/Login';
-import Register from '../pages/Register/Register';
-import ProtectedRoute from '../components/auth/ProtectedRoute';
+import { Suspense, type ReactNode } from 'react'
+import { createBrowserRouter } from 'react-router-dom'
+
+import ProtectedRoute from '../components/auth/ProtectedRoute'
+import Layout from '../components/layout/Layout'
+import { Comments, Dashboard, Login, Moderation, Register, SiteCreate, SiteDetail, SitesList } from './lazyPages'
+
+function routeElement(element: ReactNode) {
+  return (
+    <Suspense
+      fallback={
+        <div className="px-4 py-6 text-sm" style={{ color: 'var(--text)' }}>
+          Загрузка раздела...
+        </div>
+      }
+    >
+      {element}
+    </Suspense>
+  )
+}
 
 export const router = createBrowserRouter([
   {
     path: '/login',
-    element: <Login />,
+    element: routeElement(<Login />),
   },
   {
     path: '/register',
-    element: <Register />,
+    element: routeElement(<Register />),
   },
   {
     path: '/',
@@ -26,14 +35,14 @@ export const router = createBrowserRouter([
       {
         element: <Layout />,
         children: [
-          { index: true, element: <Dashboard /> },
-          { path: 'comments', element: <Comments /> },
-          { path: 'users', element: <Users /> },
-          { path: 'moderation', element: <Moderation /> },
-          { path: 'statistics', element: <Statistics /> },
-          { path: 'settings', element: <Settings /> },
+          { index: true, element: routeElement(<Dashboard />) },
+          { path: 'sites', element: routeElement(<SitesList />) },
+          { path: 'sites/new', element: routeElement(<SiteCreate />) },
+          { path: 'sites/:siteId', element: routeElement(<SiteDetail />) },
+          { path: 'comments', element: routeElement(<Comments />) },
+          { path: 'moderation', element: routeElement(<Moderation />) },
         ],
       },
     ],
   },
-]);
+])

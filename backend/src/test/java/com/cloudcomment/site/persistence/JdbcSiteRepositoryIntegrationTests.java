@@ -82,6 +82,29 @@ class JdbcSiteRepositoryIntegrationTests {
         )).isEmpty();
     }
 
+    @Test
+    void deleteByIdRemovesSiteAndCascadesSiteOwnedData() {
+        UUID ownerId = insertUser("delete-owner");
+        Site site = siteRepository.create(
+            ownerId,
+            "Delete me",
+            "delete-me.example.com",
+            "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+            ModerationMode.POST_MODERATION,
+            List.of("https://delete-me.example.com")
+        );
+        UUID pageId = insertPage(site.id());
+        UUID commentId = insertComment(pageId, ownerId);
+
+        assertThat(siteRepository.deleteById(site.id())).isTrue();
+
+        assertThat(countSites(site.id())).isZero();
+        assertThat(countAllowedOrigins(site.id())).isZero();
+        assertThat(countPages(pageId)).isZero();
+        assertThat(countComments(commentId)).isZero();
+        assertThat(siteRepository.deleteById(site.id())).isFalse();
+    }
+
     private UUID insertUser(String label) {
         return jdbcTemplate.queryForObject(
             """
@@ -92,6 +115,67 @@ class JdbcSiteRepositoryIntegrationTests {
             UUID.class,
             label + "-" + UUID.randomUUID() + "@example.com",
             "hashed-password"
+        );
+    }
+
+    private UUID insertPage(UUID siteId) {
+        return jdbcTemplate.queryForObject(
+            """
+                insert into pages (site_id, url)
+                values (?, ?)
+                returning id
+                """,
+            UUID.class,
+            siteId,
+            "https://delete-me.example.com/post"
+        );
+    }
+
+    private UUID insertComment(UUID pageId, UUID authorId) {
+        return jdbcTemplate.queryForObject(
+            """
+                insert into comments (page_id, author_user_id, author_email, body, status)
+                values (?, ?, ?, ?, ?)
+                returning id
+                """,
+            UUID.class,
+            pageId,
+            authorId,
+            "owner@example.com",
+            "Comment to be deleted",
+            "APPROVED"
+        );
+    }
+
+    private Long countSites(UUID siteId) {
+        return jdbcTemplate.queryForObject(
+            "select count(*) from sites where id = ?",
+            Long.class,
+            siteId
+        );
+    }
+
+    private Long countAllowedOrigins(UUID siteId) {
+        return jdbcTemplate.queryForObject(
+            "select count(*) from site_allowed_origins where site_id = ?",
+            Long.class,
+            siteId
+        );
+    }
+
+    private Long countPages(UUID pageId) {
+        return jdbcTemplate.queryForObject(
+            "select count(*) from pages where id = ?",
+            Long.class,
+            pageId
+        );
+    }
+
+    private Long countComments(UUID commentId) {
+        return jdbcTemplate.queryForObject(
+            "select count(*) from comments where id = ?",
+            Long.class,
+            commentId
         );
     }
 }

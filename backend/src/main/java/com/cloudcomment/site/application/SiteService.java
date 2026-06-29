@@ -121,6 +121,14 @@ public class SiteService {
         return embedCodeService.build(siteId);
     }
 
+    @Transactional
+    public void deleteSite(AuthenticatedUser currentUser, UUID siteId) {
+        resourceOwnershipService.assertSiteOwnedBy(currentUser, siteId);
+        if (!siteRepository.deleteById(siteId)) {
+            throw notFound();
+        }
+    }
+
     private String normalizeName(String name) {
         String normalizedName = name.trim();
         if (normalizedName.isBlank()) {

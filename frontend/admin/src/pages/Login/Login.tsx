@@ -153,7 +153,11 @@ const Login = () => {
               style={{ color: 'var(--text)' }}
               type="button"
             >
-              {showPassword ? <EyeOff className="h-5 w-5" aria-hidden="true" /> : <Eye className="h-5 w-5" aria-hidden="true" />}
+              {showPassword ? (
+                <EyeOff className="h-5 w-5" aria-hidden="true" />
+              ) : (
+                <Eye className="h-5 w-5" aria-hidden="true" />
+              )}
             </button>
           }
           success={passwordFeedback.success}

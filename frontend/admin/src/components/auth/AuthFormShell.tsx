@@ -54,7 +54,7 @@ export function AuthFormShell({
               exit={reducedMotion ? undefined : { opacity: 0, y: -4 }}
               initial={reducedMotion ? false : { opacity: 0, y: -4 }}
               role="alert"
-              style={{ backgroundColor: '#fff1f0', borderColor: '#ffccc7', color: '#a8071a' }}
+              style={{ backgroundColor: 'var(--danger-bg)', borderColor: 'var(--danger)', color: 'var(--danger)' }}
               transition={reducedMotion ? undefined : { duration: 0.16 }}
             >
               {serverError}

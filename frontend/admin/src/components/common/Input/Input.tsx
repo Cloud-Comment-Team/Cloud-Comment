@@ -31,10 +31,10 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
         }
 
     return (
-      <label className="block text-left" htmlFor={inputId}>
-        <span className="mb-2 block text-sm font-medium" style={{ color: 'var(--text-h)' }}>
+      <div className="block text-left">
+        <label className="mb-2 block text-sm font-medium" htmlFor={inputId} style={{ color: 'var(--text-h)' }}>
           {label}
-        </span>
+        </label>
         <span className="relative block">
           {icon && (
             <span
@@ -69,7 +69,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
             )}
           </AnimatePresence>
         </span>
-      </label>
+      </div>
     )
   },
 )

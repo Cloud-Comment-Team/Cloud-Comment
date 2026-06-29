@@ -156,6 +156,12 @@ class JdbcSiteRepository implements SiteRepository {
     }
 
     @Override
+    @Transactional
+    public boolean deleteById(UUID siteId) {
+        return jdbcTemplate.update("delete from sites where id = ?", siteId) > 0;
+    }
+
+    @Override
     public boolean existsByOwnerIdAndDomainExcludingSite(UUID ownerId, String domain, UUID siteId) {
         Boolean exists = jdbcTemplate.queryForObject(
             "select exists(select 1 from sites where owner_id = ? and domain = ? and id <> ?)",
