@@ -48,7 +48,7 @@ export function createWidgetApiClient(
         }
       });
     } catch {
-      throw new WidgetApiError("CloudComment is temporarily unavailable. Please try again later.");
+      throw new WidgetApiError("CloudComment временно недоступен. Попробуйте позже.");
     }
 
     if (!response.ok) {
@@ -115,12 +115,12 @@ async function readErrorMessage(response: Response): Promise<string> {
   }
 
   if (response.status === 401) {
-    return "Please sign in before posting a comment.";
+    return "Войдите, чтобы оставить комментарий.";
   }
 
   if (response.status === 404) {
-    return "Comments are not available for this site or page.";
+    return "Комментарии недоступны для этого сайта или страницы.";
   }
 
-  return "CloudComment could not process the request. Please try again.";
+  return "CloudComment не смог обработать запрос. Попробуйте еще раз.";
 }

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { SubmitHandler } from 'react-hook-form'
 import { useForm } from 'react-hook-form'
 import { Link, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Globe } from 'lucide-react'
+import { ArrowLeft, Globe, Link2 } from 'lucide-react'
 
 import { getApiErrorMessage } from '../../api/auth'
 import { createSite } from '../../api/sites'
@@ -62,23 +62,24 @@ const SiteCreate = () => {
   }
 
   return (
-    <div className="mx-auto max-w-2xl text-left">
+    <div className="cc-page mx-auto max-w-3xl">
       <Link
         to="/sites"
-        className="mb-6 inline-flex items-center gap-2 text-sm hover:underline"
+        className="mb-6 inline-flex items-center gap-2 text-sm font-medium hover:underline"
         style={{ color: 'var(--text)' }}
       >
         <ArrowLeft className="h-4 w-4" aria-hidden="true" />
         К списку сайтов
       </Link>
 
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold" style={{ color: 'var(--text-h)' }}>
-          Новый сайт
-        </h1>
-        <p className="mt-1" style={{ color: 'var(--text)' }}>
+      <div className="cc-page-heading">
+        <div>
+          <p className="cc-eyebrow">Новый проект</p>
+          <h1 className="cc-title">Подключение сайта</h1>
+          <p className="cc-subtitle">
           Создайте проект и укажите домен с разрешёнными origin для виджета
-        </p>
+          </p>
+        </div>
       </div>
 
       {serverError && (
@@ -88,7 +89,7 @@ const SiteCreate = () => {
       )}
 
       <form
-        className="space-y-5 rounded-lg border p-5 md:p-6"
+        className="cc-card space-y-5 p-5 md:p-6"
         style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}
         onSubmit={handleSubmit(onSubmit)}
         noValidate
@@ -104,6 +105,7 @@ const SiteCreate = () => {
         <Input
           label="Домен"
           placeholder="example.com"
+          icon={<Link2 className="h-5 w-5" aria-hidden="true" />}
           error={errors.domain?.message}
           {...register('domain', { required: 'Укажите домен сайта' })}
         />
@@ -113,8 +115,7 @@ const SiteCreate = () => {
             Режим модерации
           </span>
           <select
-            className="w-full rounded-lg border px-4 py-3 outline-none"
-            style={{ backgroundColor: 'var(--code-bg)', borderColor: 'var(--border)', color: 'var(--text-h)' }}
+            className="cc-field"
             {...register('moderationMode')}
           >
             <option value="PRE_MODERATION">Пре-модерация</option>
@@ -125,14 +126,13 @@ const SiteCreate = () => {
 
         <label className="block text-left">
           <span className="mb-2 block text-sm font-medium" style={{ color: 'var(--text-h)' }}>
-            Allowed origins
+            Разрешённые origins
           </span>
           <span className="mb-2 block text-sm" style={{ color: 'var(--text)' }}>
             По одному origin на строку, например https://example.com
           </span>
           <textarea
-            className="min-h-32 w-full rounded-lg border px-4 py-3 outline-none"
-            style={{ backgroundColor: 'var(--code-bg)', borderColor: 'var(--border)', color: 'var(--text-h)' }}
+            className="cc-field min-h-32"
             placeholder="https://example.com"
             {...register('allowedOrigins', { required: 'Укажите allowed origins' })}
           />
@@ -141,8 +141,7 @@ const SiteCreate = () => {
         <button
           type="submit"
           disabled={isSubmitting}
-          className="w-full rounded-lg px-4 py-3 text-sm font-medium text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-          style={{ backgroundColor: 'var(--accent)' }}
+          className="cc-button-primary w-full py-3"
         >
           {isSubmitting ? 'Создаём...' : 'Создать сайт'}
         </button>

@@ -232,6 +232,7 @@ type CloudCommentWidgetOptions = {
   apiBaseUrl?: string;
   pageUrl?: string;
   target?: string | HTMLElement;
+  theme?: "auto" | "light" | "dark";
 };
 ```
 
@@ -241,6 +242,7 @@ Script attributes:
 - `data-api-base-url` — optional, default from build config
 - `data-page-url` — optional, default `window.location.href`
 - `data-target` — optional CSS selector or element id
+- `data-theme` — optional `auto | light | dark`; default `auto`, виджет подстраивается под тему страницы
 
 ## Canonical response shapes
 

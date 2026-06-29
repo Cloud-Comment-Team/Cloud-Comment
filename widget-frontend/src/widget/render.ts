@@ -6,10 +6,12 @@ import type {
   CloudCommentWidgetOptions,
   LoginResponse,
   PublicComment,
-  PublicWidgetConfig
+  PublicWidgetConfig,
+  WidgetTheme
 } from "./types";
 
 type AuthMode = "login" | "register";
+type ResolvedWidgetTheme = "light" | "dark";
 
 type WidgetState = {
   loading: boolean;
@@ -37,7 +39,8 @@ export function renderWidget(
 
   const shell = document.createElement("section");
   shell.className = "cloud-comment";
-  shell.setAttribute("aria-label", "CloudComment comments");
+  shell.setAttribute("aria-label", "Комментарии CloudComment");
+  const themeController = createThemeController(shell, options.theme);
 
   shadowRoot.append(style, shell);
 
@@ -99,7 +102,7 @@ export function renderWidget(
       state.token = loginResponse.token;
       state.userEmail = loginResponse.user.email;
       storeAuthToken(loginResponse.token);
-      state.notice = "You are signed in.";
+      state.notice = "Вы вошли и можете оставить комментарий.";
     } catch (error) {
       state.authError = getErrorMessage(error);
     } finally {
@@ -110,7 +113,7 @@ export function renderWidget(
 
   async function submitComment(content: string): Promise<void> {
     if (!state.token) {
-      state.authError = "Please sign in before posting a comment.";
+      state.authError = "Войдите или зарегистрируйтесь, чтобы оставить комментарий.";
       render();
       return;
     }
@@ -126,8 +129,8 @@ export function renderWidget(
       state.comments = mergeCreatedComment(createdComment, refreshedComments.items);
       state.notice =
         createdComment.status === "APPROVED"
-          ? "Your comment was posted."
-          : "Your comment was submitted and is waiting for moderation.";
+          ? "Комментарий опубликован."
+          : "Комментарий отправлен и ждет модерации.";
     } catch (error) {
       if (error instanceof WidgetApiError && error.status === 401) {
         state.token = null;
@@ -157,7 +160,7 @@ export function renderWidget(
       const formData = new FormData(form);
       const content = String(formData.get("comment") ?? "").trim();
       if (!content) {
-        state.error = "Write a comment before sending.";
+        state.error = "Напишите комментарий перед отправкой.";
         render();
         return;
       }
@@ -185,9 +188,76 @@ export function renderWidget(
   return {
     destroy: () => {
       destroyed = true;
+      themeController.destroy();
       shadowRoot.replaceChildren();
     }
   };
+}
+
+function createThemeController(shell: HTMLElement, theme: WidgetTheme): { destroy: () => void } {
+  const applyTheme = () => {
+    shell.dataset.theme = resolveWidgetTheme(theme);
+  };
+
+  applyTheme();
+
+  if (theme !== "auto") {
+    return { destroy: () => undefined };
+  }
+
+  const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+  const observer = new MutationObserver(applyTheme);
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "data-theme", "style"] });
+
+  if (document.body) {
+    observer.observe(document.body, { attributes: true, attributeFilter: ["class", "data-theme", "style"] });
+  }
+
+  mediaQuery.addEventListener("change", applyTheme);
+
+  return {
+    destroy: () => {
+      observer.disconnect();
+      mediaQuery.removeEventListener("change", applyTheme);
+    }
+  };
+}
+
+function resolveWidgetTheme(theme: WidgetTheme): ResolvedWidgetTheme {
+  if (theme === "light" || theme === "dark") {
+    return theme;
+  }
+
+  return detectHostTheme() ?? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+}
+
+function detectHostTheme(): ResolvedWidgetTheme | null {
+  for (const element of [document.documentElement, document.body].filter(Boolean) as HTMLElement[]) {
+    const datasetTheme = normalizeThemeName(element.dataset.theme);
+    if (datasetTheme) {
+      return datasetTheme;
+    }
+
+    if (element.classList.contains("dark")) {
+      return "dark";
+    }
+    if (element.classList.contains("light")) {
+      return "light";
+    }
+
+    const colorScheme = window.getComputedStyle(element).colorScheme.toLowerCase().split(/\s+/)[0];
+    const styleTheme = normalizeThemeName(colorScheme);
+    if (styleTheme) {
+      return styleTheme;
+    }
+  }
+
+  return null;
+}
+
+function normalizeThemeName(value: string | undefined): ResolvedWidgetTheme | null {
+  const normalized = value?.trim().toLowerCase();
+  return normalized === "light" || normalized === "dark" ? normalized : null;
 }
 
 function renderHeader(
@@ -199,17 +269,15 @@ function renderHeader(
 
   const titleBlock = document.createElement("div");
 
+  const eyebrow = document.createElement("p");
+  eyebrow.className = "cloud-comment__eyebrow";
+  eyebrow.textContent = "Обсуждение";
+
   const title = document.createElement("h2");
   title.className = "cloud-comment__title";
-  title.textContent = "Comments";
+  title.textContent = "Комментарии";
 
-  const meta = document.createElement("p");
-  meta.className = "cloud-comment__meta";
-  meta.textContent = state.config
-    ? `${state.config.moderationMode === "PRE_MODERATION" ? "Pre-moderated" : "Live"} discussion`
-    : getPageLabel(options.pageUrl);
-
-  titleBlock.append(title, meta);
+  titleBlock.append(eyebrow, title);
 
   const badge = document.createElement("span");
   badge.className = "cloud-comment__badge";
@@ -232,7 +300,7 @@ function renderBody(state: WidgetState): HTMLElement {
   }
 
   if (state.loading) {
-    body.append(renderMessage("Loading comments...", "muted"));
+    body.append(renderMessage("Загружаем комментарии...", "muted"));
   } else {
     body.append(renderCommentList(state.comments));
   }
@@ -248,7 +316,7 @@ function renderCommentList(comments: PublicComment[]): HTMLElement {
   if (comments.length === 0) {
     const empty = document.createElement("p");
     empty.className = "cloud-comment__empty";
-    empty.textContent = "No comments yet.";
+    empty.textContent = "Пока нет комментариев. Будьте первым, кто начнет обсуждение.";
     list.append(empty);
     return list;
   }
@@ -267,6 +335,10 @@ function renderComment(comment: PublicComment): HTMLElement {
   const header = document.createElement("header");
   header.className = "cloud-comment__comment-header";
 
+  const avatar = document.createElement("span");
+  avatar.className = "cloud-comment__avatar";
+  avatar.textContent = getInitials(comment.author.displayName || comment.author.email);
+
   const author = document.createElement("strong");
   author.textContent = comment.author.displayName || comment.author.email;
 
@@ -274,12 +346,12 @@ function renderComment(comment: PublicComment): HTMLElement {
   date.dateTime = comment.createdAt;
   date.textContent = formatDate(comment.createdAt);
 
-  header.append(author, date);
+  header.append(avatar, author, date);
 
   if (comment.status !== "APPROVED") {
     const status = document.createElement("span");
     status.className = "cloud-comment__status";
-    status.textContent = comment.status === "PENDING" ? "Pending" : comment.status;
+    status.textContent = getStatusLabel(comment.status);
     header.append(status);
   }
 
@@ -309,8 +381,8 @@ function renderCommentForm(state: WidgetState): HTMLElement {
   const textarea = document.createElement("textarea");
   textarea.className = "cloud-comment__textarea";
   textarea.name = "comment";
-  textarea.placeholder = state.token ? "Write a comment" : "Sign in to write a comment";
-  textarea.setAttribute("aria-label", "Write a comment");
+  textarea.placeholder = state.token ? "Напишите комментарий" : "Войдите, чтобы написать комментарий";
+  textarea.setAttribute("aria-label", "Написать комментарий");
   textarea.maxLength = 5000;
   textarea.disabled = state.submitting || !state.token;
 
@@ -319,13 +391,13 @@ function renderCommentForm(state: WidgetState): HTMLElement {
 
   const meta = document.createElement("span");
   meta.className = "cloud-comment__meta";
-  meta.textContent = state.userEmail ? `Signed in as ${state.userEmail}` : "";
+  meta.textContent = state.userEmail ? `Вы вошли как ${state.userEmail}` : state.token ? "Вы авторизованы" : "";
 
   const button = document.createElement("button");
   button.className = "cloud-comment__button";
   button.type = "submit";
   button.disabled = state.submitting || !state.token;
-  button.textContent = state.submitting ? "Sending..." : "Send";
+  button.textContent = state.submitting ? "Отправляем..." : "Отправить";
 
   actions.append(meta, button);
   form.append(textarea, actions);
@@ -337,6 +409,7 @@ function renderAuthSection(state: WidgetState): HTMLElement {
   section.className = "cloud-comment__auth";
 
   if (state.token) {
+    section.hidden = true;
     return section;
   }
 
@@ -349,7 +422,7 @@ function renderAuthSection(state: WidgetState): HTMLElement {
     button.className =
       mode === state.authMode ? "cloud-comment__tab cloud-comment__tab--active" : "cloud-comment__tab";
     button.dataset.authMode = mode;
-    button.textContent = mode === "login" ? "Login" : "Register";
+    button.textContent = mode === "login" ? "Войти" : "Регистрация";
     tabs.append(button);
   }
 
@@ -371,7 +444,7 @@ function renderAuthSection(state: WidgetState): HTMLElement {
   password.name = "password";
   password.type = "password";
   password.autocomplete = state.authMode === "login" ? "current-password" : "new-password";
-  password.placeholder = "Password";
+  password.placeholder = "Пароль";
   password.required = true;
   password.minLength = 8;
   password.maxLength = 72;
@@ -381,10 +454,10 @@ function renderAuthSection(state: WidgetState): HTMLElement {
   submit.type = "submit";
   submit.disabled = state.authenticating;
   submit.textContent = state.authenticating
-    ? "Please wait..."
+    ? "Подождите..."
     : state.authMode === "login"
-      ? "Login"
-      : "Register";
+      ? "Войти"
+      : "Создать аккаунт";
 
   form.append(email, password, submit);
   section.append(tabs);
@@ -416,7 +489,7 @@ function getErrorMessage(error: unknown): string {
   if (error instanceof Error) {
     return error.message;
   }
-  return "CloudComment could not process the request. Please try again.";
+  return "CloudComment не смог обработать запрос. Попробуйте еще раз.";
 }
 
 function formatDate(value: string): string {
@@ -428,6 +501,24 @@ function formatDate(value: string): string {
     dateStyle: "medium",
     timeStyle: "short"
   }).format(date);
+}
+
+function getStatusLabel(status: PublicComment["status"]): string {
+  if (status === "PENDING") {
+    return "На модерации";
+  }
+  if (status === "APPROVED") {
+    return "Опубликован";
+  }
+  return status;
+}
+
+function getInitials(value: string): string {
+  const normalized = value.trim();
+  if (!normalized) {
+    return "CC";
+  }
+  return normalized.slice(0, 2).toUpperCase();
 }
 
 function getPageLabel(pageUrl: string): string {

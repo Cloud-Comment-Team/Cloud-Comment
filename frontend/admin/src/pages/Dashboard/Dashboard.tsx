@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, Clock, Globe, MessageSquare } from 'lucide-react'
+import { AlertTriangle, Clock, Globe, MessageSquare, ShieldCheck } from 'lucide-react'
+import { motion, useReducedMotion } from 'framer-motion'
 
 import { getApiErrorMessage } from '../../api/auth'
 import { listComments } from '../../api/moderation'
@@ -29,11 +30,14 @@ const StatCard = ({
 }) => {
   const color = `var(--${tone})`
   const backgroundColor = `var(--${tone}-bg)`
+  const reducedMotion = useReducedMotion()
 
   const content = (
-    <div
-      className="rounded-lg border p-5 transition hover:opacity-95"
+    <motion.div
+      className="cc-card p-5 transition"
       style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}
+      whileHover={reducedMotion ? undefined : { y: href ? -3 : 0 }}
+      transition={reducedMotion ? undefined : { duration: 0.16 }}
     >
       <div className="mb-4 flex items-center justify-between">
         <div className="rounded-lg p-3" style={{ backgroundColor, color }}>
@@ -46,7 +50,7 @@ const StatCard = ({
       <p className="text-sm" style={{ color: 'var(--text)' }}>
         {label}
       </p>
-    </div>
+    </motion.div>
   )
 
   if (href) {
@@ -103,19 +107,30 @@ const Dashboard = () => {
   }, [])
 
   return (
-    <div className="text-left">
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold" style={{ color: 'var(--text-h)' }}>
-          Дашборд
-        </h1>
-        <p className="mt-1" style={{ color: 'var(--text)' }}>
-          Краткий обзор сайтов и статусов комментариев
-        </p>
+    <div className="cc-page">
+      <div className="cc-page-heading">
+        <div>
+          <p className="cc-eyebrow">Обзор</p>
+          <h1 className="cc-title">Панель владельца сайта</h1>
+          <p className="cc-subtitle">
+            Управляйте проектами, embed-кодом и модерацией комментариев из одного места.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-3">
+          <Link to="/sites/new" className="cc-button-primary">
+            <Globe className="h-4 w-4" aria-hidden="true" />
+            Создать сайт
+          </Link>
+          <Link to="/moderation" className="cc-button-secondary">
+            <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+            Модерация
+          </Link>
+        </div>
       </div>
 
       <AsyncState loading={loading} error={error} empty={false}>
         {stats && (
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
             <StatCard
               icon={<Globe className="h-6 w-6" aria-hidden="true" />}
               label="Сайтов"

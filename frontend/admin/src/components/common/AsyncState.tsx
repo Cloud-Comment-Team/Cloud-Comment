@@ -19,7 +19,7 @@ export function AsyncState({
   if (loading) {
     return (
       <div
-        className="flex items-center justify-center gap-3 rounded-lg border py-14"
+        className="cc-card flex items-center justify-center gap-3 py-14"
         style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}
       >
         <Loader2 className="h-6 w-6 animate-spin" style={{ color: 'var(--accent)' }} aria-hidden="true" />
@@ -31,7 +31,7 @@ export function AsyncState({
   if (error) {
     return (
       <div
-        className="flex items-start gap-3 rounded-lg border px-4 py-4 text-left"
+        className="flex items-start gap-3 rounded-lg border px-4 py-4 text-left shadow-sm"
         style={{ borderColor: 'var(--danger)', backgroundColor: 'var(--danger-bg)' }}
       >
         <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" style={{ color: 'var(--danger)' }} aria-hidden="true" />
@@ -45,7 +45,7 @@ export function AsyncState({
   if (empty) {
     return (
       <div
-        className="flex flex-col items-center justify-center gap-3 rounded-lg border px-4 py-14 text-center"
+        className="cc-card flex flex-col items-center justify-center gap-3 px-4 py-14 text-center"
         style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}
       >
         <Inbox className="h-8 w-8" style={{ color: 'var(--text)' }} aria-hidden="true" />

@@ -1,32 +1,86 @@
 <!doctype html>
-<html lang="en">
+<html lang="ru">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>CloudComment Widget Smoke</title>
     <style>
+      :root {
+        color: #142033;
+        background: #eef4f7;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
       body {
         margin: 0;
-        background: #f6f8fb;
-        color: #182230;
-        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        min-width: 320px;
       }
 
       main {
-        width: min(920px, calc(100% - 32px));
-        margin: 48px auto;
+        width: min(1120px, calc(100% - 32px));
+        margin: 40px auto 72px;
       }
 
       article {
-        margin-bottom: 28px;
+        margin-bottom: 24px;
+        border: 1px solid #d5dce8;
+        border-radius: 8px;
+        background: #ffffff;
+        padding: clamp(22px, 4vw, 38px);
+        box-shadow: 0 18px 48px rgba(21, 31, 53, 0.08);
+      }
+
+      h1 {
+        margin: 0;
+        max-width: 780px;
+        font-size: clamp(2rem, 5vw, 3.4rem);
+        line-height: 1.05;
+        letter-spacing: 0;
+      }
+
+      p {
+        margin: 14px 0 0;
+        max-width: 760px;
+        color: #475467;
+        font-size: 1rem;
+        line-height: 1.65;
+      }
+
+      code {
+        border-radius: 6px;
+        background: #eef4ff;
+        color: #194185;
+        padding: 2px 6px;
+      }
+
+      #comments {
+        width: 100%;
+      }
+
+      @media (max-width: 640px) {
+        .desktop-hint {
+          display: none;
+        }
       }
     </style>
   </head>
   <body>
     <main>
       <article>
-        <h1>External page smoke test</h1>
-        <p>This page loads the built widget bundle as an external site would.</p>
+        <h1>Демо внешней страницы сайта</h1>
+        <p>
+          Эта страница имитирует чужой сайт на отдельном origin и подключает собранный
+          CloudComment widget bundle так же, как это будет делать клиент.
+        </p>
+        <p class="desktop-hint">
+          Для ручной проверки можно открыть <code>/demo-page.html?siteId=&lt;uuid&gt;</code>.
+        </p>
       </article>
 
       <div id="comments"></div>
@@ -34,8 +88,11 @@
 
     <script src="./dist/widget/cloud-comment-widget.js"></script>
     <script>
+      const siteId = new URLSearchParams(window.location.search).get("siteId")
+        || "00000000-0000-0000-0000-000000000000";
+
       window.CloudCommentWidget.init({
-        siteId: "00000000-0000-0000-0000-000000000000",
+        siteId,
         apiBaseUrl: "http://localhost/api",
         pageUrl: window.location.href,
         target: "#comments"

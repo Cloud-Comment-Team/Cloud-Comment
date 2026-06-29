@@ -3,7 +3,10 @@ export type CloudCommentWidgetOptions = {
   apiBaseUrl?: string;
   pageUrl?: string;
   target?: string | HTMLElement;
+  theme?: WidgetTheme;
 };
+
+export type WidgetTheme = "auto" | "light" | "dark";
 
 export type CloudCommentWidgetInstance = {
   destroy: () => void;
