@@ -1,6 +1,5 @@
 export type CloudCommentWidgetOptions = {
   siteId: string;
-  publicKey?: string;
   apiBaseUrl?: string;
   pageUrl?: string;
   target?: string | HTMLElement;

@@ -86,7 +86,7 @@ export function createWidgetApiClient(
         })
       }),
     login: (email, password) =>
-      request<LoginResponse>("/auth/login", {
+      request<LoginResponse>(`${siteBasePath}/auth/login`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
@@ -94,7 +94,7 @@ export function createWidgetApiClient(
         body: JSON.stringify({ email, password })
       }),
     register: (email, password) =>
-      request<void>("/auth/register", {
+      request<void>(`${siteBasePath}/auth/register`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json"

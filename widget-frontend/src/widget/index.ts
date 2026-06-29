@@ -44,7 +44,6 @@ function normalizeOptions(options: CloudCommentWidgetOptions): Required<CloudCom
 
   return {
     siteId: options.siteId,
-    publicKey: options.publicKey ?? "",
     apiBaseUrl: options.apiBaseUrl ?? DEFAULT_API_BASE_URL,
     pageUrl: options.pageUrl ?? window.location.href,
     target: options.target ?? `#${DEFAULT_TARGET_ID}`
@@ -67,7 +66,6 @@ function autoInit(): CloudCommentWidgetInstance | null {
 
   return init({
     siteId,
-    publicKey: script.dataset.publicKey,
     apiBaseUrl: script.dataset.apiBaseUrl,
     pageUrl: script.dataset.pageUrl,
     target: script.dataset.target
