@@ -17,7 +17,7 @@ const badgeColors: Record<BadgeTone, { backgroundColor: string; color: string }>
 
 export function Badge({ children, tone = 'muted' }: BadgeProps) {
   return (
-    <span className="inline-flex items-center rounded-md px-2 py-1 text-xs font-semibold" style={badgeColors[tone]}>
+    <span className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold" style={badgeColors[tone]}>
       {children}
     </span>
   )

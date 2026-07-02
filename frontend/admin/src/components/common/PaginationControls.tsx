@@ -8,7 +8,7 @@ interface PaginationControlsProps {
 export function PaginationControls({ page, totalPages, totalItems, onPageChange }: PaginationControlsProps) {
   if (totalPages <= 1) {
     return (
-      <p className="text-left text-sm" style={{ color: 'var(--text)' }}>
+      <p className="text-left text-sm font-medium" style={{ color: 'var(--text)' }}>
         Всего: {totalItems}
       </p>
     )
@@ -22,19 +22,17 @@ export function PaginationControls({ page, totalPages, totalItems, onPageChange 
       <div className="flex items-center gap-2">
         <button
           type="button"
-          className="rounded-lg border px-3 py-2 text-sm font-medium transition hover:opacity-80 disabled:opacity-50"
+          className="cc-button-secondary px-3 py-2"
           disabled={page <= 1}
           onClick={() => onPageChange(page - 1)}
-          style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)', color: 'var(--text-h)' }}
         >
           Назад
         </button>
         <button
           type="button"
-          className="rounded-lg border px-3 py-2 text-sm font-medium transition hover:opacity-80 disabled:opacity-50"
+          className="cc-button-secondary px-3 py-2"
           disabled={page >= totalPages}
           onClick={() => onPageChange(page + 1)}
-          style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)', color: 'var(--text-h)' }}
         >
           Вперёд
         </button>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Globe, Plus } from 'lucide-react'
+import { ArrowRight, Globe, Plus } from 'lucide-react'
 
 import { getApiErrorMessage } from '../../api/auth'
 import { listSites } from '../../api/sites'
@@ -53,21 +53,16 @@ const SitesList = () => {
   }, [page])
 
   return (
-    <div className="text-left">
-      <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
+    <div className="cc-page">
+      <div className="cc-page-heading">
         <div>
-          <h1 className="text-2xl font-bold" style={{ color: 'var(--text-h)' }}>
-            Сайты
-          </h1>
-          <p className="mt-1" style={{ color: 'var(--text)' }}>
+          <p className="cc-eyebrow">Проекты</p>
+          <h1 className="cc-title">Сайты</h1>
+          <p className="cc-subtitle">
             Управляйте проектами, доменами и настройками виджета комментариев
           </p>
         </div>
-        <Link
-          to="/sites/new"
-          className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white transition hover:opacity-90"
-          style={{ backgroundColor: 'var(--accent)' }}
-        >
+        <Link to="/sites/new" className="cc-button-primary">
           <Plus className="h-4 w-4" aria-hidden="true" />
           Создать сайт
         </Link>
@@ -80,10 +75,31 @@ const SitesList = () => {
         emptyMessage="У вас пока нет сайтов. Создайте первый проект, чтобы подключить виджет."
       >
         <div className="space-y-4">
-          <div
-            className="overflow-x-auto rounded-lg border"
-            style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}
-          >
+          <div className="grid gap-3 md:hidden">
+            {sites.map((site) => (
+              <Link key={site.id} to={`/sites/${site.id}`} className="cc-card block p-4">
+                <div className="mb-3 flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold" style={{ color: 'var(--text-h)' }}>
+                      {site.name}
+                    </p>
+                    <p className="mt-1 truncate text-sm" style={{ color: 'var(--text)' }}>
+                      {site.domain}
+                    </p>
+                  </div>
+                  <ArrowRight className="h-4 w-4 shrink-0" style={{ color: 'var(--accent)' }} aria-hidden="true" />
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge tone="accent">{moderationModeLabels[site.moderationMode]}</Badge>
+                  <Badge tone={site.isActive ? 'success' : 'danger'}>
+                    {site.isActive ? 'Активен' : 'Деактивирован'}
+                  </Badge>
+                </div>
+              </Link>
+            ))}
+          </div>
+
+          <div className="cc-table-shell hidden md:block">
             <table className="w-full min-w-[760px] divide-y text-sm" style={{ borderColor: 'var(--border)' }}>
               <thead style={{ backgroundColor: 'var(--surface-muted)' }}>
                 <tr>
@@ -106,11 +122,11 @@ const SitesList = () => {
               </thead>
               <tbody>
                 {sites.map((site) => (
-                  <tr key={site.id} className="border-t" style={{ borderColor: 'var(--border)' }}>
+                  <tr key={site.id} className="border-t transition hover:bg-[var(--surface-muted)]" style={{ borderColor: 'var(--border)' }}>
                     <td className="px-4 py-3">
                       <Link
                         to={`/sites/${site.id}`}
-                        className="inline-flex items-center gap-2 font-medium hover:underline"
+                        className="inline-flex items-center gap-2 font-semibold hover:underline"
                         style={{ color: 'var(--text-h)' }}
                       >
                         <Globe className="h-4 w-4" style={{ color: 'var(--accent)' }} aria-hidden="true" />

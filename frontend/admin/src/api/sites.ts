@@ -15,6 +15,7 @@ export interface ListSitesParams {
 
 export async function listSites(params: ListSitesParams = {}): Promise<PaginatedResponse<Site>> {
   const response = await apiClient.get<PaginatedResponse<Site>>('/sites', { params })
+  assertPaginatedSiteResponse(response.data)
   return response.data
 }
 
@@ -61,4 +62,10 @@ export async function listAllSites(): Promise<Site[]> {
   }
 
   return allSites
+}
+
+function assertPaginatedSiteResponse(value: PaginatedResponse<Site>): void {
+  if (!value || !Array.isArray(value.items)) {
+    throw new Error('Некорректный ответ API со списком сайтов.')
+  }
 }

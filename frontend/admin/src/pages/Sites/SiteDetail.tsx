@@ -157,10 +157,10 @@ const SiteDetail = () => {
   }
 
   return (
-    <div className="text-left">
+    <div className="cc-page">
       <Link
         to="/sites"
-        className="mb-6 inline-flex items-center gap-2 text-sm hover:underline"
+        className="mb-6 inline-flex items-center gap-2 text-sm font-medium hover:underline"
         style={{ color: 'var(--text)' }}
       >
         <ArrowLeft className="h-4 w-4" aria-hidden="true" />
@@ -170,9 +170,10 @@ const SiteDetail = () => {
       <AsyncState loading={loading} error={error} empty={false}>
         {site && (
           <div className="space-y-6">
-            <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="cc-page-heading">
               <div>
-                <h1 className="flex items-center gap-2 text-2xl font-bold" style={{ color: 'var(--text-h)' }}>
+                <p className="cc-eyebrow">Настройки проекта</p>
+                <h1 className="cc-title flex items-center gap-2">
                   <Globe className="h-6 w-6" style={{ color: 'var(--accent)' }} aria-hidden="true" />
                   {site.name}
                 </h1>
@@ -191,8 +192,7 @@ const SiteDetail = () => {
                   type="button"
                   onClick={() => void handleToggleActive()}
                   disabled={saving}
-                  className="inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm transition hover:opacity-80 disabled:opacity-60"
-                  style={{ borderColor: 'var(--border)', color: 'var(--text-h)' }}
+                  className="cc-button-secondary"
                 >
                   <Power className="h-4 w-4" aria-hidden="true" />
                   {site.isActive ? 'Деактивировать' : 'Активировать'}
@@ -201,8 +201,7 @@ const SiteDetail = () => {
                   type="button"
                   onClick={() => setDeleteConfirmationVisible((current) => !current)}
                   disabled={saving}
-                  className="inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm transition hover:opacity-80 disabled:opacity-60"
-                  style={{ borderColor: 'var(--danger)', color: 'var(--danger)' }}
+                  className="cc-button-danger"
                 >
                   <Trash2 className="h-4 w-4" aria-hidden="true" />
                   Удалить
@@ -211,7 +210,7 @@ const SiteDetail = () => {
             </div>
 
             <section
-              className="rounded-lg border p-5 md:p-6"
+              className="cc-card p-5 md:p-6"
               style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}
             >
               <h2 className="mb-4 text-lg font-semibold" style={{ color: 'var(--text-h)' }}>
@@ -223,8 +222,7 @@ const SiteDetail = () => {
                     Название
                   </span>
                   <input
-                    className="w-full rounded-lg border px-4 py-3 outline-none"
-                    style={{ backgroundColor: 'var(--code-bg)', borderColor: 'var(--border)', color: 'var(--text-h)' }}
+                    className="cc-field"
                     value={name}
                     onChange={(event) => setName(event.target.value)}
                   />
@@ -234,8 +232,7 @@ const SiteDetail = () => {
                     Домен
                   </span>
                   <input
-                    className="w-full rounded-lg border px-4 py-3 outline-none"
-                    style={{ backgroundColor: 'var(--code-bg)', borderColor: 'var(--border)', color: 'var(--text-h)' }}
+                    className="cc-field"
                     value={domain}
                     onChange={(event) => setDomain(event.target.value)}
                   />
@@ -245,8 +242,7 @@ const SiteDetail = () => {
                     Режим модерации
                   </span>
                   <select
-                    className="w-full rounded-lg border px-4 py-3 outline-none"
-                    style={{ backgroundColor: 'var(--code-bg)', borderColor: 'var(--border)', color: 'var(--text-h)' }}
+                    className="cc-field"
                     value={moderationMode}
                     onChange={(event) => setModerationMode(event.target.value as ModerationMode)}
                   >
@@ -257,11 +253,10 @@ const SiteDetail = () => {
                 </label>
                 <label className="block md:col-span-2">
                   <span className="mb-2 block text-sm font-medium" style={{ color: 'var(--text-h)' }}>
-                    Allowed origins
+                    Разрешённые origins
                   </span>
                   <textarea
-                    className="min-h-28 w-full rounded-lg border px-4 py-3 outline-none"
-                    style={{ backgroundColor: 'var(--code-bg)', borderColor: 'var(--border)', color: 'var(--text-h)' }}
+                    className="cc-field min-h-28"
                     value={originsInput}
                     onChange={(event) => setOriginsInput(event.target.value)}
                   />
@@ -271,8 +266,7 @@ const SiteDetail = () => {
                 type="button"
                 onClick={() => void handleSaveSettings()}
                 disabled={saving}
-                className="mt-4 inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60"
-                style={{ backgroundColor: 'var(--accent)' }}
+                className="cc-button-primary mt-4"
               >
                 <Check className="h-4 w-4" aria-hidden="true" />
                 {saving ? 'Сохраняем...' : 'Сохранить настройки'}
@@ -280,7 +274,7 @@ const SiteDetail = () => {
             </section>
 
             <section
-              className="rounded-lg border p-5 md:p-6"
+              className="cc-card p-5 md:p-6"
               style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}
             >
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -289,14 +283,13 @@ const SiteDetail = () => {
                     Embed-код
                   </h2>
                   <p className="text-sm" style={{ color: 'var(--text)' }}>
-                    Вставьте snippet на страницу сайта, чтобы подключить виджет комментариев
+                    Вставьте этот фрагмент на страницу сайта, чтобы подключить виджет комментариев
                   </p>
                 </div>
                 <button
                   type="button"
                   onClick={() => void handleCopyEmbed()}
-                  className="inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm transition hover:opacity-80"
-                  style={{ borderColor: 'var(--border)', color: 'var(--text-h)' }}
+                  className="cc-button-secondary"
                 >
                   <Copy className="h-4 w-4" aria-hidden="true" />
                   Скопировать
@@ -311,7 +304,7 @@ const SiteDetail = () => {
                     {embedCode.embedCode}
                   </pre>
                   <p className="mt-3 text-sm" style={{ color: 'var(--text)' }}>
-                    Script URL: {embedCode.scriptUrl}
+                    URL скрипта: {embedCode.scriptUrl}
                   </p>
                 </>
               )}
@@ -319,7 +312,7 @@ const SiteDetail = () => {
 
             {deleteConfirmationVisible && (
               <section
-                className="rounded-lg border p-5 md:p-6"
+                className="rounded-lg border p-5 shadow-sm md:p-6"
                 style={{ backgroundColor: 'var(--danger-bg)', borderColor: 'var(--danger)' }}
               >
                 <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
@@ -332,7 +325,7 @@ const SiteDetail = () => {
                       <strong style={{ color: 'var(--text-h)' }}>{site.domain}</strong>.
                     </p>
                     <input
-                      className="mt-4 w-full rounded-lg border px-4 py-3 outline-none"
+                      className="cc-field mt-4"
                       style={{
                         backgroundColor: 'var(--surface)',
                         borderColor: 'var(--danger)',
@@ -346,7 +339,7 @@ const SiteDetail = () => {
                     type="button"
                     onClick={() => void handleDeleteSite()}
                     disabled={saving || deleteConfirmation !== site.domain}
-                    className="inline-flex items-center justify-center gap-2 rounded-lg px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
+                    className="inline-flex items-center justify-center gap-2 rounded-lg px-4 py-3 text-sm font-semibold text-white transition hover:-translate-y-0.5 disabled:opacity-50"
                     style={{ backgroundColor: 'var(--danger)' }}
                   >
                     <Trash2 className="h-4 w-4" aria-hidden="true" />

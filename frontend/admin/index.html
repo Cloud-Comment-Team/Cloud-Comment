@@ -8,6 +8,16 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      (() => {
+        const storageKey = 'cloud-comment.admin.theme'
+        const storedTheme = window.localStorage.getItem(storageKey)
+        const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+        const theme = storedTheme === 'light' || storedTheme === 'dark' ? storedTheme : systemTheme
+        document.documentElement.dataset.theme = theme
+        document.documentElement.style.colorScheme = theme
+      })()
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

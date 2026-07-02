@@ -19,8 +19,8 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
     const helperId = `${inputId}-helper`
     const helperText = error ?? success ?? hint
     const describedBy = [inputProps['aria-describedby'], helperId].filter(Boolean).join(' ') || undefined
-    const helperColor = error ? '#a8071a' : success ? '#237804' : 'var(--text)'
-    const borderColor = error ? '#ff7875' : success ? '#95de64' : 'var(--border)'
+    const helperColor = error ? 'var(--danger)' : success ? 'var(--success)' : 'var(--text)'
+    const borderColor = error ? 'var(--danger)' : success ? 'var(--success)' : 'var(--border)'
     const helperMotion = reducedMotion
       ? {}
       : {
@@ -39,7 +39,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
           {icon && (
             <span
               className="pointer-events-none absolute left-3 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center"
-              style={{ color: error ? '#a8071a' : success ? '#237804' : 'var(--text)' }}
+                style={{ color: error ? 'var(--danger)' : success ? 'var(--success)' : 'var(--text)' }}
             >
               {icon}
             </span>
@@ -55,6 +55,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
               backgroundColor: 'var(--code-bg)',
               borderColor,
               color: 'var(--text-h)',
+              boxShadow: 'none',
               ...style,
             }}
           />

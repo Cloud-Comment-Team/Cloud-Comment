@@ -3,7 +3,8 @@ import { renderWidget } from "./render";
 import type {
   CloudCommentWidgetApi,
   CloudCommentWidgetInstance,
-  CloudCommentWidgetOptions
+  CloudCommentWidgetOptions,
+  WidgetTheme
 } from "./types";
 
 const DEFAULT_TARGET_ID = "cloud-comment-widget";
@@ -46,8 +47,13 @@ function normalizeOptions(options: CloudCommentWidgetOptions): Required<CloudCom
     siteId: options.siteId,
     apiBaseUrl: options.apiBaseUrl ?? DEFAULT_API_BASE_URL,
     pageUrl: options.pageUrl ?? window.location.href,
-    target: options.target ?? `#${DEFAULT_TARGET_ID}`
+    target: options.target ?? `#${DEFAULT_TARGET_ID}`,
+    theme: normalizeTheme(options.theme)
   };
+}
+
+function normalizeTheme(theme?: string): WidgetTheme {
+  return theme === "light" || theme === "dark" || theme === "auto" ? theme : "auto";
 }
 
 function init(options: CloudCommentWidgetOptions): CloudCommentWidgetInstance {
@@ -68,7 +74,8 @@ function autoInit(): CloudCommentWidgetInstance | null {
     siteId,
     apiBaseUrl: script.dataset.apiBaseUrl,
     pageUrl: script.dataset.pageUrl,
-    target: script.dataset.target
+    target: script.dataset.target,
+    theme: normalizeTheme(script.dataset.theme)
   });
 }
 
