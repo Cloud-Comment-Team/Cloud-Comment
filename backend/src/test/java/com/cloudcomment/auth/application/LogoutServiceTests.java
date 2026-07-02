@@ -103,5 +103,19 @@ class LogoutServiceTests {
             this.revokedAt = revokedAt;
             return revocationResult;
         }
+
+        @Override
+        public int revokeAllSessions(UUID userId, Instant revokedAt) {
+            return 0;
+        }
+
+        @Override
+        public boolean isActiveAccount(UUID userId) {
+            return true;
+        }
+
+        @Override
+        public void markAccountDeleted(UUID userId, String anonymizedEmail, String unusablePasswordHash, Instant deletedAt) {
+        }
     }
 }

@@ -153,5 +153,19 @@ class LoginServiceTests {
         public com.cloudcomment.auth.persistence.SessionRevocationResult revokeSession(String tokenHash, Instant revokedAt) {
             throw new UnsupportedOperationException("login tests do not revoke sessions");
         }
+
+        @Override
+        public int revokeAllSessions(UUID userId, Instant revokedAt) {
+            return 0;
+        }
+
+        @Override
+        public boolean isActiveAccount(UUID userId) {
+            return true;
+        }
+
+        @Override
+        public void markAccountDeleted(UUID userId, String anonymizedEmail, String unusablePasswordHash, Instant deletedAt) {
+        }
     }
 }

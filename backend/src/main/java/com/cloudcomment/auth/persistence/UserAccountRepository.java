@@ -22,4 +22,10 @@ public interface UserAccountRepository {
     void createSession(UUID userId, String tokenHash, Instant expiresAt);
 
     SessionRevocationResult revokeSession(String tokenHash, Instant revokedAt);
+
+    int revokeAllSessions(UUID userId, Instant revokedAt);
+
+    boolean isActiveAccount(UUID userId);
+
+    void markAccountDeleted(UUID userId, String anonymizedEmail, String unusablePasswordHash, Instant deletedAt);
 }

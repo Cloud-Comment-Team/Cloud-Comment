@@ -73,6 +73,7 @@ class JdbcUserAccountRepository implements UserAccountRepository {
                   and s.revoked_at is null
                   and s.expires_at > ?
                   and u.is_enabled = true
+                  and u.deleted_at is null
                 """,
             this::mapUserProfileRow,
             tokenHash,
@@ -168,6 +169,67 @@ class JdbcUserAccountRepository implements UserAccountRepository {
         return Boolean.TRUE.equals(alreadyRevoked)
             ? SessionRevocationResult.ALREADY_REVOKED
             : SessionRevocationResult.NOT_FOUND_OR_EXPIRED;
+    }
+
+    @Override
+    public int revokeAllSessions(UUID userId, Instant revokedAt) {
+        OffsetDateTime revokedAtOffset = OffsetDateTime.ofInstant(revokedAt, ZoneOffset.UTC);
+        return jdbcTemplate.update(
+            """
+                update auth_sessions
+                set revoked_at = greatest(?, created_at)
+                where user_id = ?
+                  and revoked_at is null
+                """,
+            revokedAtOffset,
+            userId
+        );
+    }
+
+    @Override
+    public boolean isActiveAccount(UUID userId) {
+        Boolean active = jdbcTemplate.queryForObject(
+            """
+                select exists(
+                    select 1
+                    from app_users
+                    where id = ?
+                      and is_enabled = true
+                      and deleted_at is null
+                )
+                """,
+            Boolean.class,
+            userId
+        );
+        return Boolean.TRUE.equals(active);
+    }
+
+    @Override
+    public void markAccountDeleted(
+        UUID userId,
+        String anonymizedEmail,
+        String unusablePasswordHash,
+        Instant deletedAt
+    ) {
+        int updated = jdbcTemplate.update(
+            """
+                update app_users
+                set email = ?,
+                    password_hash = ?,
+                    is_enabled = false,
+                    deleted_at = ?,
+                    updated_at = now()
+                where id = ?
+                  and deleted_at is null
+                """,
+            anonymizedEmail,
+            unusablePasswordHash,
+            OffsetDateTime.ofInstant(deletedAt, ZoneOffset.UTC),
+            userId
+        );
+        if (updated == 0) {
+            throw new IllegalStateException("Account is already deleted or missing: " + userId);
+        }
     }
 
     private RegisteredUser mapRegisteredUser(ResultSet resultSet, int rowNumber) throws SQLException {
