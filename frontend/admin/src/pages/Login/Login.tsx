@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { SubmitErrorHandler, SubmitHandler } from 'react-hook-form'
 import { useForm, useWatch } from 'react-hook-form'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { Eye, EyeOff, Lock, LogIn, Mail } from 'lucide-react'
+import { Eye, EyeOff, Lock, Mail } from 'lucide-react'
 
 import { getApiErrorMessage } from '../../api/auth'
 import { getFieldFeedback, validateEmail, validatePassword } from '../../auth/formValidation'
@@ -121,7 +121,6 @@ const Login = () => {
           </Link>
         </>
       }
-      icon={<LogIn className="h-6 w-6" aria-hidden="true" />}
       serverError={serverError}
       title="Вход в админку"
     >

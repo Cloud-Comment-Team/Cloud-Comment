@@ -1,5 +1,6 @@
 import { Menu } from 'lucide-react'
 
+import { BrandMark } from '../brand/BrandLogo'
 import { ThemeToggle } from '../../theme'
 
 interface HeaderProps {
@@ -23,7 +24,8 @@ const Header = ({ onMenuClick }: HeaderProps) => {
           <Menu className="h-5 w-5" aria-hidden="true" />
         </button>
 
-        <div className="min-w-0 flex-1 text-left">
+        <div className="flex min-w-0 flex-1 items-center gap-2 text-left">
+          <BrandMark className="h-8 w-8 rounded-md shadow-sm" />
           <p className="text-sm font-semibold" style={{ color: 'var(--text-h)' }}>
             CloudComment
           </p>
