@@ -1,0 +1,22 @@
+{$CLOUD_COMMENT_SITE_ADDRESS:http://team13.st.ifbest.org} {
+	encode gzip
+
+	handle /api/* {
+		reverse_proxy 127.0.0.1:8080
+	}
+
+	handle_path /widget/* {
+		root * {$CLOUD_COMMENT_WIDGET_ROOT:/home/team13/cloud-comment/current/www/widget}
+		file_server
+	}
+
+	handle {
+		root * {$CLOUD_COMMENT_ADMIN_ROOT:/home/team13/cloud-comment/current/www/admin}
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+:80 {
+	redir {$CLOUD_COMMENT_PUBLIC_BASE_URL:http://team13.st.ifbest.org}{uri}
+}

@@ -1,0 +1,133 @@
+name: CD
+
+on:
+  workflow_run:
+    workflows:
+      - CI
+    branches:
+      - main
+    types:
+      - completed
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy Production
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+
+    env:
+      DEPLOY_HOST: ${{ vars.CLOUD_COMMENT_DEPLOY_HOST }}
+      DEPLOY_PORT: ${{ vars.CLOUD_COMMENT_DEPLOY_PORT }}
+      DEPLOY_USER: ${{ vars.CLOUD_COMMENT_DEPLOY_USER }}
+      DEPLOY_PATH: ${{ vars.CLOUD_COMMENT_DEPLOY_PATH }}
+      PUBLIC_BASE_URL: ${{ vars.CLOUD_COMMENT_PUBLIC_BASE_URL }}
+      DEPLOY_SSH_KEY: ${{ secrets.CLOUD_COMMENT_DEPLOY_SSH_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Validate deploy configuration
+        run: |
+          test -n "$DEPLOY_HOST"
+          test -n "$DEPLOY_PORT"
+          test -n "$DEPLOY_USER"
+          test -n "$DEPLOY_PATH"
+          test -n "$PUBLIC_BASE_URL"
+          test -n "$DEPLOY_SSH_KEY"
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build backend jar
+        working-directory: backend
+        run: |
+          chmod +x ./gradlew
+          ./gradlew clean bootJar --no-daemon
+
+      - name: Set up Node for admin
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/admin/package-lock.json
+
+      - name: Build admin
+        working-directory: frontend/admin
+        env:
+          VITE_CLOUD_COMMENT_API_BASE_URL: ${{ env.PUBLIC_BASE_URL }}/api
+        run: |
+          npm ci
+          npm run build
+
+      - name: Set up Node for widget
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: widget-frontend/package-lock.json
+
+      - name: Build widget
+        working-directory: widget-frontend
+        env:
+          VITE_CLOUD_COMMENT_API_BASE_URL: ${{ env.PUBLIC_BASE_URL }}/api
+        run: |
+          npm ci
+          npm run build
+
+      - name: Prepare deploy package
+        run: |
+          rm -rf .deploy-package
+          mkdir -p .deploy-package/backend .deploy-package/www/admin .deploy-package/www/widget
+          jar_file="$(find backend/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*plain*' | head -n 1)"
+          test -n "$jar_file"
+          cp "$jar_file" .deploy-package/backend/app.jar
+          cp -R frontend/admin/dist/. .deploy-package/www/admin/
+          cp -R widget-frontend/dist/widget/. .deploy-package/www/widget/
+          cp -R deploy .deploy-package/deploy
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          install -m 600 /dev/null ~/.ssh/cloud-comment-deploy
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/cloud-comment-deploy
+          ssh-keyscan -p "$DEPLOY_PORT" "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+
+      - name: Upload release
+        run: |
+          ssh -i ~/.ssh/cloud-comment-deploy -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
+            "if ! command -v rsync >/dev/null 2>&1; then sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y rsync; fi; mkdir -p '$DEPLOY_PATH/current'"
+          rsync -az --delete \
+            -e "ssh -i ~/.ssh/cloud-comment-deploy -p $DEPLOY_PORT" \
+            .deploy-package/ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/current/"
+
+      - name: Apply server config and restart
+        run: |
+          ssh -i ~/.ssh/cloud-comment-deploy -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
+            "sudo APP_DIR='$DEPLOY_PATH' APP_USER='$DEPLOY_USER' CLOUD_COMMENT_PUBLIC_BASE_URL='$PUBLIC_BASE_URL' bash '$DEPLOY_PATH/current/deploy/server/bootstrap.sh'"
+
+      - name: Smoke check
+        run: |
+          for attempt in {1..30}; do
+            if curl -fsS "$PUBLIC_BASE_URL/api/health"; then
+              exit 0
+            fi
+            sleep 5
+          done
+          exit 1
