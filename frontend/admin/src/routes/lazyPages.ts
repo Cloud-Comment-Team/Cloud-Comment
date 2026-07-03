@@ -1,5 +1,6 @@
 import { lazy } from 'react'
 
+export const AccountDeletionConfirm = lazy(() => import('../pages/Account/AccountDeletionConfirm'))
 export const AccountSettings = lazy(() => import('../pages/Account/AccountSettings'))
 export const Comments = lazy(() => import('../pages/Comments/Comments'))
 export const Dashboard = lazy(() => import('../pages/Dashboard/Dashboard'))

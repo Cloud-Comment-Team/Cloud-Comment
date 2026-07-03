@@ -3,7 +3,18 @@ import { createBrowserRouter } from 'react-router-dom'
 
 import ProtectedRoute from '../components/auth/ProtectedRoute'
 import Layout from '../components/layout/Layout'
-import { Comments, AccountSettings, Dashboard, Login, Moderation, Register, SiteCreate, SiteDetail, SitesList } from './lazyPages'
+import {
+  AccountDeletionConfirm,
+  AccountSettings,
+  Comments,
+  Dashboard,
+  Login,
+  Moderation,
+  Register,
+  SiteCreate,
+  SiteDetail,
+  SitesList,
+} from './lazyPages'
 
 function routeElement(element: ReactNode) {
   return (
@@ -27,6 +38,10 @@ export const router = createBrowserRouter([
   {
     path: '/register',
     element: routeElement(<Register />),
+  },
+  {
+    path: '/account/deletion-confirm',
+    element: routeElement(<AccountDeletionConfirm />),
   },
   {
     path: '/',
