@@ -62,7 +62,10 @@ public class AccountDeletionRequestService {
 
         AccountDeletionRequest request = deletionRequestRepository.findActiveByUserId(currentUser.id(), now)
             .map(existing -> deletionRequestRepository.rotateToken(existing.id(), tokenHash, expiresAt, now))
-            .orElseGet(() -> deletionRequestRepository.create(currentUser.id(), tokenHash, expiresAt));
+            .orElseGet(() -> {
+                deletionRequestRepository.cancelPendingForUser(currentUser.id(), now);
+                return deletionRequestRepository.create(currentUser.id(), tokenHash, expiresAt);
+            });
 
         sendConfirmationEmail(currentUser.email(), token, expiresAt);
         return AccountDeletionRequestView.from(request);

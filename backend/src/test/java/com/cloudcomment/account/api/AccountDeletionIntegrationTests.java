@@ -140,6 +140,83 @@ class AccountDeletionIntegrationTests {
     }
 
     @Test
+    void createDeletionRequestCancelsExpiredPendingRequestBeforeCreatingNewOne() throws Exception {
+        String email = "refresh-expired-" + UUID.randomUUID() + "@example.com";
+        mockMvc.perform(post("/api/auth/register")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "email": "%s",
+                      "password": "strong-password"
+                    }
+                    """.formatted(email)))
+            .andExpect(status().isCreated());
+
+        String loginResponse = mockMvc.perform(post("/api/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "email": "%s",
+                      "password": "strong-password"
+                    }
+                    """.formatted(email)))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+        String sessionToken = extractJsonField(loginResponse, "token");
+        UUID userId = UUID.fromString(extractJsonField(loginResponse, "user", "id"));
+
+        mockMvc.perform(post("/api/account/deletion-requests")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + sessionToken))
+            .andExpect(status().isCreated());
+        String expiredToken = extractConfirmationToken(loggingMailSender.lastSentMessage().textBody());
+
+        jdbcTemplate.update(
+            """
+                update account_deletion_requests
+                set expires_at = now() - interval '1 minute'
+                where user_id = ?
+                """,
+            userId
+        );
+
+        mockMvc.perform(post("/api/account/deletion-requests")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + sessionToken))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.status", is("PENDING")));
+
+        String newToken = extractConfirmationToken(loggingMailSender.lastSentMessage().textBody());
+        assertThat(newToken).isNotEqualTo(expiredToken);
+
+        Integer cancelledRequests = jdbcTemplate.queryForObject(
+            """
+                select count(*)
+                from account_deletion_requests
+                where user_id = ?
+                  and cancelled_at is not null
+                """,
+            Integer.class,
+            userId
+        );
+        assertThat(cancelledRequests).isOne();
+
+        Integer activeRequests = jdbcTemplate.queryForObject(
+            """
+                select count(*)
+                from account_deletion_requests
+                where user_id = ?
+                  and confirmed_at is null
+                  and cancelled_at is null
+                  and expires_at > now()
+                """,
+            Integer.class,
+            userId
+        );
+        assertThat(activeRequests).isOne();
+    }
+
+    @Test
     void confirmRejectsExpiredAndReusedTokens() throws Exception {
         String email = "expired-" + UUID.randomUUID() + "@example.com";
         mockMvc.perform(post("/api/auth/register")

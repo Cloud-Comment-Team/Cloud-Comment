@@ -51,6 +51,7 @@ class AccountDeletionRequestServiceTests {
         AccountDeletionRequestView view = service.createOrRefresh(currentUser(userId));
 
         assertThat(repository.createdCount).isZero();
+        assertThat(repository.cancelledCount).isZero();
         assertThat(repository.rotatedRequestId).isEqualTo(requestId);
         assertThat(view.id()).isEqualTo(requestId);
         assertThat(view.status()).isEqualTo("PENDING");
@@ -76,6 +77,9 @@ class AccountDeletionRequestServiceTests {
         AccountDeletionRequestView view = service.createOrRefresh(currentUser(userId));
 
         assertThat(repository.createdCount).isOne();
+        assertThat(repository.cancelledCount).isOne();
+        assertThat(repository.cancelledUserId).isEqualTo(userId);
+        assertThat(repository.cancelledAt).isEqualTo(NOW);
         assertThat(repository.createdUserId).isEqualTo(userId);
         assertThat(view.userId()).isEqualTo(userId);
         assertThat(mailSender.lastSentMessage()).isNotNull();
@@ -91,6 +95,9 @@ class AccountDeletionRequestServiceTests {
         private int createdCount;
         private UUID createdUserId;
         private UUID rotatedRequestId;
+        private int cancelledCount;
+        private UUID cancelledUserId;
+        private Instant cancelledAt;
 
         private CapturingDeletionRequestRepository(Optional<AccountDeletionRequest> activeRequest) {
             this.activeRequest = activeRequest;
@@ -146,6 +153,9 @@ class AccountDeletionRequestServiceTests {
 
         @Override
         public void cancelPendingForUser(UUID userId, Instant cancelledAt) {
+            cancelledCount++;
+            cancelledUserId = userId;
+            this.cancelledAt = cancelledAt;
         }
     }
 
