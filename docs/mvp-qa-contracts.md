@@ -188,6 +188,11 @@ Response `204`, body отсутствует.
 | `/api/account/deletion-requests/current` | `GET` | bearer | Return active deletion request status, if any |
 | `/api/account/deletion-confirmations` | `POST` | public | Confirm account deletion with one-time token from email |
 
+Frontend confirmation route:
+
+- `/account/deletion-confirm?token=...` automatically confirms the token from email.
+- `/account/deletion-confirm` shows a manual token input for users who prefer not to open email links or whose mail client strips query parameters.
+
 #### `POST /api/account/deletion-requests`
 
 Response `201`:

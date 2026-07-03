@@ -89,18 +89,21 @@ public class AccountDeletionRequestService {
         String confirmationUrl = mailProperties.confirmationBaseUrl() + "?token=" + token;
         mailSender.send(new MailMessage(
             email,
-            "Confirm Cloud-Comment account deletion",
+            "Подтверждение удаления аккаунта CloudComment",
             """
-                You requested deletion of your Cloud-Comment account.
+                Вы запросили удаление аккаунта CloudComment.
 
-                Confirm deletion by submitting this one-time token:
+                Чтобы подтвердить удаление, откройте ссылку:
                 %s
 
-                Or open this link:
+                Если вы не хотите переходить по ссылке, откройте страницу подтверждения:
                 %s
 
-                The token expires at %s UTC.
-                """.formatted(token, confirmationUrl, expiresAt)
+                И вставьте одноразовый код:
+                %s
+
+                Код действует до %s UTC.
+                """.formatted(confirmationUrl, mailProperties.confirmationBaseUrl(), token, expiresAt)
         ));
     }
 

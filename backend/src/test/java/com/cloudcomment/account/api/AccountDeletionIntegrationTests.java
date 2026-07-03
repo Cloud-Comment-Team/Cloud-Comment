@@ -31,7 +31,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Testcontainers(disabledWithoutDocker = true)
 class AccountDeletionIntegrationTests {
 
-    private static final Pattern TOKEN_PATTERN = Pattern.compile("Confirm deletion by submitting this one-time token:\\s*(\\S+)");
+    private static final Pattern TOKEN_PATTERN = Pattern.compile("И вставьте одноразовый код:\\s*(\\S+)");
 
     @Container
     @ServiceConnection

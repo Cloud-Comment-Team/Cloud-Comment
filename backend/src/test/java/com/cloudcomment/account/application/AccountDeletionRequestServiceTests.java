@@ -57,7 +57,11 @@ class AccountDeletionRequestServiceTests {
         assertThat(view.status()).isEqualTo("PENDING");
         assertThat(mailSender.lastSentMessage()).isNotNull();
         assertThat(mailSender.lastSentMessage().to()).isEqualTo("owner@example.com");
-        assertThat(mailSender.lastSentMessage().textBody()).contains("Confirm deletion");
+        assertThat(mailSender.lastSentMessage().subject()).isEqualTo("Подтверждение удаления аккаунта CloudComment");
+        assertThat(mailSender.lastSentMessage().textBody())
+            .contains("Чтобы подтвердить удаление, откройте ссылку:")
+            .contains("Если вы не хотите переходить по ссылке")
+            .contains("http://localhost/confirm");
     }
 
     @Test

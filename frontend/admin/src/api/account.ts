@@ -25,6 +25,10 @@ export async function getCurrentAccountDeletionRequest(): Promise<AccountDeletio
   }
 }
 
+export async function confirmAccountDeletion(token: string): Promise<void> {
+  await apiClient.post('/account/deletion-confirmations', { token })
+}
+
 function isNotFoundError(error: unknown): boolean {
   return (
     typeof error === 'object' &&
