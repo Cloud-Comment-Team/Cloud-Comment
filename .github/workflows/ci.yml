@@ -13,9 +13,46 @@ permissions:
   pull-requests: write
 
 jobs:
+  changes:
+    name: Detect Changed Areas
+    runs-on: ubuntu-latest
+
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      compose: ${{ steps.filter.outputs.compose }}
+      frontend_admin: ${{ steps.filter.outputs.frontend_admin }}
+      widget: ${{ steps.filter.outputs.widget }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed areas
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+              - '.github/scripts/**'
+            frontend_admin:
+              - 'frontend/admin/**'
+            widget:
+              - 'widget-frontend/**'
+            compose:
+              - 'docker-compose.yml'
+              - '.env.example'
+              - 'docker/**'
+              - 'backend/Dockerfile'
+              - 'backend/.dockerignore'
+
   backend:
     name: Backend Tests And Coverage
     runs-on: ubuntu-latest
+    needs: changes
+    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.backend == 'true'
 
     steps:
       - name: Checkout head
@@ -120,6 +157,8 @@ jobs:
   frontend-admin:
     name: Admin Frontend
     runs-on: ubuntu-latest
+    needs: changes
+    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.frontend_admin == 'true'
 
     steps:
       - name: Checkout
@@ -147,6 +186,8 @@ jobs:
   widget:
     name: Widget Frontend
     runs-on: ubuntu-latest
+    needs: changes
+    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.widget == 'true'
 
     steps:
       - name: Checkout
@@ -174,6 +215,8 @@ jobs:
   compose:
     name: Docker Compose Config
     runs-on: ubuntu-latest
+    needs: changes
+    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.compose == 'true'
 
     steps:
       - name: Checkout
