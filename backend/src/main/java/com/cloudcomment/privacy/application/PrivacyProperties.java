@@ -26,10 +26,10 @@ public record PrivacyProperties(
             termsUrl = "/legal/terms.html";
         }
         if (personalDataNoticeUrl == null || personalDataNoticeUrl.isBlank()) {
-            personalDataNoticeUrl = "/docs/personal-data-notice.md";
+            personalDataNoticeUrl = "/legal/personal-data-notice.html";
         }
         if (dataExportInfoUrl == null || dataExportInfoUrl.isBlank()) {
-            dataExportInfoUrl = "/docs/personal-data-notice.md#data-export";
+            dataExportInfoUrl = "/legal/personal-data-notice.html#data-export";
         }
     }
 }

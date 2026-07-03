@@ -88,6 +88,21 @@ Admin frontend использует `apiClient` с `baseURL = VITE_CLOUD_COMMENT
 
 Widget register uses the same request body as admin register (see below).
 
+#### `GET /api/privacy/consent-requirements`
+
+Response `200`:
+
+```json
+{
+  "privacyPolicyVersion": "2026-07-01",
+  "termsVersion": "2026-07-01",
+  "privacyPolicyUrl": "/legal/privacy-policy.html",
+  "termsUrl": "/legal/terms.html",
+  "personalDataNoticeUrl": "/legal/personal-data-notice.html",
+  "dataExportInfoUrl": "/legal/personal-data-notice.html#data-export"
+}
+```
+
 #### `POST /api/auth/register`
 
 Request:

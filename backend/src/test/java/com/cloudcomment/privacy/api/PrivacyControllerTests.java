@@ -32,14 +32,16 @@ class PrivacyControllerTests {
             "2026-07-01",
             "/legal/privacy-policy.html",
             "/legal/terms.html",
-            "/docs/personal-data-notice.md",
-            "/docs/personal-data-notice.md#data-export"
+            "/legal/personal-data-notice.html",
+            "/legal/personal-data-notice.html#data-export"
         ));
 
         mockMvc.perform(get("/api/privacy/consent-requirements"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.privacyPolicyVersion", is("2026-07-01")))
             .andExpect(jsonPath("$.termsVersion", is("2026-07-01")))
-            .andExpect(jsonPath("$.privacyPolicyUrl", is("/legal/privacy-policy.html")));
+            .andExpect(jsonPath("$.privacyPolicyUrl", is("/legal/privacy-policy.html")))
+            .andExpect(jsonPath("$.personalDataNoticeUrl", is("/legal/personal-data-notice.html")))
+            .andExpect(jsonPath("$.dataExportInfoUrl", is("/legal/personal-data-notice.html#data-export")));
     }
 }
