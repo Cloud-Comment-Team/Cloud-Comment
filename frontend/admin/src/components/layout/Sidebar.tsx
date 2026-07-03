@@ -1,6 +1,7 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { Globe, LayoutDashboard, LogOut, MessageSquare, Settings, Shield, X } from 'lucide-react'
+import { Globe, LayoutDashboard, LogOut, Settings, Shield, X } from 'lucide-react'
 
+import { BrandMark } from '../brand/BrandLogo'
 import { useAuthStore } from '../../store'
 import { ThemeToggle } from '../../theme'
 
@@ -49,12 +50,7 @@ const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
       >
         <div className="flex h-full flex-col">
           <div className="flex min-h-16 items-center gap-3 border-b px-4" style={{ borderColor: 'var(--border)' }}>
-            <div
-              className="flex h-10 w-10 items-center justify-center rounded-lg shadow-sm"
-              style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-contrast)' }}
-            >
-              <MessageSquare className="h-5 w-5" aria-hidden="true" />
-            </div>
+            <BrandMark className="h-10 w-10 shadow-sm" />
             <div className="min-w-0 flex-1 text-left">
               <p className="truncate text-sm font-semibold" style={{ color: 'var(--text-h)' }}>
                 CloudComment

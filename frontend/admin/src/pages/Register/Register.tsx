@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { SubmitErrorHandler, SubmitHandler } from 'react-hook-form'
 import { useForm, useWatch } from 'react-hook-form'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
-import { Eye, EyeOff, Lock, Mail, UserPlus } from 'lucide-react'
+import { Eye, EyeOff, Lock, Mail } from 'lucide-react'
 
 import { getApiErrorMessage, register as registerUser } from '../../api/auth'
 import { getConsentRequirements, type ConsentRequirements } from '../../api/privacy'
@@ -181,7 +181,6 @@ const Register = () => {
           </Link>
         </>
       }
-      icon={<UserPlus className="h-6 w-6" aria-hidden="true" />}
       serverError={serverError ?? requirementsError}
       title="Регистрация"
     >

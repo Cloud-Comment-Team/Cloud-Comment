@@ -1,10 +1,10 @@
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import type { ReactNode } from 'react'
 
+import { BrandLogo, BrandMark } from '../brand/BrandLogo'
 import { ThemeToggle } from '../../theme'
 
 interface AuthFormShellProps {
-  icon: ReactNode
   title: string
   description: string
   serverError?: string | null
@@ -13,7 +13,6 @@ interface AuthFormShellProps {
 }
 
 export function AuthFormShell({
-  icon,
   title,
   description,
   serverError,
@@ -36,12 +35,9 @@ export function AuthFormShell({
       >
         <div className="hidden min-h-[520px] flex-col justify-between p-8 lg:flex" style={{ backgroundColor: 'var(--surface-strong)', color: 'var(--text-inverse)' }}>
           <div>
-            <div className="mb-8 inline-flex h-12 w-12 items-center justify-center rounded-lg" style={{ backgroundColor: 'rgba(255,255,255,0.12)' }}>
-              {icon}
+            <div className="mb-8 inline-flex rounded-lg bg-white p-3 shadow-xl">
+              <BrandLogo className="h-auto w-56" />
             </div>
-            <p className="mb-3 text-sm font-semibold" style={{ color: 'var(--accent)' }}>
-              CloudComment
-            </p>
             <h2 className="max-w-sm text-3xl font-bold leading-tight">
               Центр управления комментариями для всех ваших сайтов
             </h2>
@@ -62,9 +58,9 @@ export function AuthFormShell({
           <header className="mb-8 text-left">
             <div
               className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-lg lg:hidden"
-              style={{ backgroundColor: 'var(--accent-bg)', color: 'var(--accent)' }}
+              style={{ backgroundColor: 'var(--surface)', color: 'var(--accent)' }}
             >
-              {icon}
+              <BrandMark className="h-12 w-12" />
             </div>
             <h1
               className="mb-2 font-semibold"
