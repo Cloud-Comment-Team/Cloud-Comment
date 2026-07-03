@@ -5,6 +5,7 @@ import com.cloudcomment.account.persistence.AccountDeletionRequestRepository;
 import com.cloudcomment.auth.application.AuthenticatedUser;
 import com.cloudcomment.auth.application.SessionTokenHasher;
 import com.cloudcomment.auth.persistence.UserAccountRepository;
+import com.cloudcomment.privacy.application.NoopPrivacyAuditService;
 import com.cloudcomment.shared.mail.LoggingMailSender;
 import com.cloudcomment.shared.mail.MailProperties;
 import org.junit.jupiter.api.Test;
@@ -45,6 +46,7 @@ class AccountDeletionRequestServiceTests {
             new SessionTokenHasher(),
             mailSender,
             new MailProperties("log", "noreply@test.local", "http://localhost/confirm", null),
+            new NoopPrivacyAuditService(),
             CLOCK
         );
 
@@ -75,6 +77,7 @@ class AccountDeletionRequestServiceTests {
             new SessionTokenHasher(),
             mailSender,
             new MailProperties("log", "noreply@test.local", "http://localhost/confirm", null),
+            new NoopPrivacyAuditService(),
             CLOCK
         );
 
@@ -160,6 +163,16 @@ class AccountDeletionRequestServiceTests {
             cancelledCount++;
             cancelledUserId = userId;
             this.cancelledAt = cancelledAt;
+        }
+
+        @Override
+        public int cancelExpiredPending(Instant now, Instant cancelledAt) {
+            return 0;
+        }
+
+        @Override
+        public int deleteInactiveBefore(Instant cutoff) {
+            return 0;
         }
     }
 

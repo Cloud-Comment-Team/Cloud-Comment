@@ -1,0 +1,10 @@
+package com.cloudcomment.privacy.domain;
+
+public enum PrivacyEventType {
+    CONSENT_ACCEPTED,
+    ACCOUNT_DELETION_REQUESTED,
+    ACCOUNT_DELETION_CONFIRMED,
+    ACCOUNT_DELETED,
+    PERSONAL_DATA_EXPORTED,
+    RETENTION_CLEANUP_COMPLETED
+}

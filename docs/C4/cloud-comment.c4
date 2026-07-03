@@ -198,6 +198,8 @@ model {
 
       authModule = component 'Auth module' 'Регистрация, вход, проверка токена и текущий пользователь'
 
+      accountPrivacyModule = component 'Account privacy lifecycle module' 'Согласия, экспорт персональных данных, email-confirmed удаление, анонимизация и retention cleanup'
+
       accessPolicyModule = component 'Access policy module' 'Проверка владения ресурсами для Admin API'
 
       projectModule = component 'Project module' 'MVP-термин проекта, который маппится на site без отдельной таблицы'
@@ -224,7 +226,7 @@ model {
 
       cacheModule = component 'Cache module' 'Кэширование публичной конфигурации и доменных правил'
 
-      auditLogModule = component 'Audit log module' 'Запись действий владельца сайта и модерации'
+      auditLogModule = component 'Audit log module' 'Запись действий владельца сайта, модерации и privacy lifecycle events'
 
       observabilityModule = component 'Observability module' 'Структурные логи, метрики и технические события'
     }
@@ -306,6 +308,8 @@ model {
 
   cloudComment.backendApi.adminApiController -[internal]-> cloudComment.backendApi.authModule 'Проверяет сессию по bearer-токену'
 
+  cloudComment.backendApi.adminApiController -[internal]-> cloudComment.backendApi.accountPrivacyModule 'Обслуживает account privacy API'
+
   cloudComment.backendApi.adminApiController -[internal]-> cloudComment.backendApi.accessPolicyModule 'Проверяет владение ресурсом'
 
   cloudComment.backendApi.adminApiController -[internal]-> cloudComment.backendApi.projectModule 'Маппит проект MVP на site'
@@ -332,6 +336,10 @@ model {
 
   cloudComment.backendApi.authModule -[stores]-> cloudComment.backendApi.persistenceModule 'Сохраняет пользователей и токены'
 
+  cloudComment.backendApi.accountPrivacyModule -[stores]-> cloudComment.backendApi.persistenceModule 'Читает personal data snapshot, удаляет owned sites, анонимизирует комментарии и чистит retention'
+
+  cloudComment.backendApi.accountPrivacyModule -[internal]-> cloudComment.backendApi.auditLogModule 'Пишет privacy events без raw tokens/passwords'
+
   cloudComment.backendApi.accessPolicyModule -[reads]-> cloudComment.backendApi.persistenceModule 'Проверяет владение по sites.owner_id и связям ресурсов'
 
   cloudComment.backendApi.pageModule -[stores]-> cloudComment.backendApi.persistenceModule 'Сохраняет страницы сайта'
@@ -354,7 +362,7 @@ model {
 
   cloudComment.backendApi.persistenceModule -[stores]-> cloudComment.postgres 'Работает с базой данных'
 
-  cloudComment.backendApi.auditLogModule -[stores]-> cloudComment.postgres 'Сохраняет аудит действий'
+  cloudComment.backendApi.auditLogModule -[stores]-> cloudComment.postgres 'Сохраняет audit/privacy_events'
 
   cloudComment.backendApi.observabilityModule -[logs]-> cloudComment.observabilityStack 'Пишет логи и метрики'
 }

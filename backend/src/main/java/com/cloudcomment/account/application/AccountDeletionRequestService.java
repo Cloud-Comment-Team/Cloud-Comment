@@ -5,6 +5,8 @@ import com.cloudcomment.account.persistence.AccountDeletionRequestRepository;
 import com.cloudcomment.auth.application.AuthenticatedUser;
 import com.cloudcomment.auth.application.SessionTokenHasher;
 import com.cloudcomment.auth.persistence.UserAccountRepository;
+import com.cloudcomment.privacy.application.PrivacyAuditService;
+import com.cloudcomment.privacy.domain.PrivacyEventType;
 import com.cloudcomment.shared.error.ApiErrorCode;
 import com.cloudcomment.shared.error.ApplicationException;
 import com.cloudcomment.shared.mail.MailMessage;
@@ -18,6 +20,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -31,6 +34,7 @@ public class AccountDeletionRequestService {
     private final SessionTokenHasher sessionTokenHasher;
     private final MailSender mailSender;
     private final MailProperties mailProperties;
+    private final PrivacyAuditService privacyAuditService;
     private final Clock clock;
     private final SecureRandom secureRandom;
 
@@ -40,6 +44,7 @@ public class AccountDeletionRequestService {
         SessionTokenHasher sessionTokenHasher,
         MailSender mailSender,
         MailProperties mailProperties,
+        PrivacyAuditService privacyAuditService,
         Clock clock
     ) {
         this.deletionRequestRepository = deletionRequestRepository;
@@ -47,6 +52,7 @@ public class AccountDeletionRequestService {
         this.sessionTokenHasher = sessionTokenHasher;
         this.mailSender = mailSender;
         this.mailProperties = mailProperties;
+        this.privacyAuditService = privacyAuditService;
         this.clock = clock;
         this.secureRandom = new SecureRandom();
     }
@@ -68,6 +74,10 @@ public class AccountDeletionRequestService {
             });
 
         sendConfirmationEmail(currentUser.email(), token, expiresAt);
+        privacyAuditService.record(currentUser.id(), PrivacyEventType.ACCOUNT_DELETION_REQUESTED, Map.of(
+            "requestId", request.id().toString(),
+            "expiresAt", expiresAt.toString()
+        ));
         return AccountDeletionRequestView.from(request);
     }
 

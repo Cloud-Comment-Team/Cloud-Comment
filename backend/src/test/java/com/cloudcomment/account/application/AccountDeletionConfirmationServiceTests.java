@@ -4,6 +4,7 @@ import com.cloudcomment.account.domain.AccountDeletionRequest;
 import com.cloudcomment.account.persistence.AccountDeletionRequestRepository;
 import com.cloudcomment.auth.application.SessionTokenHasher;
 import com.cloudcomment.auth.persistence.UserAccountRepository;
+import com.cloudcomment.privacy.application.NoopPrivacyAuditService;
 import com.cloudcomment.shared.error.ApplicationException;
 import org.junit.jupiter.api.Test;
 
@@ -37,6 +38,7 @@ class AccountDeletionConfirmationServiceTests {
             deletionService,
             userRepository,
             new SessionTokenHasher(),
+            new NoopPrivacyAuditService(),
             CLOCK
         );
 
@@ -125,6 +127,7 @@ class AccountDeletionConfirmationServiceTests {
             deletionService,
             userRepository,
             new SessionTokenHasher(),
+            new NoopPrivacyAuditService(),
             CLOCK
         );
     }
@@ -187,6 +190,16 @@ class AccountDeletionConfirmationServiceTests {
         @Override
         public void cancelPendingForUser(UUID userId, Instant cancelledAt) {
         }
+
+        @Override
+        public int cancelExpiredPending(Instant now, Instant cancelledAt) {
+            return 0;
+        }
+
+        @Override
+        public int deleteInactiveBefore(Instant cutoff) {
+            return 0;
+        }
     }
 
     private static class CapturingAccountDeletionService extends AccountDeletionService {
@@ -194,12 +207,13 @@ class AccountDeletionConfirmationServiceTests {
         private UUID deletedUserId;
 
         private CapturingAccountDeletionService() {
-            super(null, null, CLOCK);
+            super(null, null, null, null, CLOCK);
         }
 
         @Override
-        public void deleteAccount(UUID userId) {
+        public AccountDeletionReport deleteAccount(UUID userId) {
             this.deletedUserId = userId;
+            return new AccountDeletionReport(0, 0, 0, 0);
         }
     }
 

@@ -19,10 +19,10 @@ public class LoggingMailSender implements MailSender {
     public void send(MailMessage message) {
         lastSentMessage.set(message);
         log.info(
-            "Mail suppressed in log mode: to={} subject={} body={}",
+            "Mail suppressed in log mode: to={} subject={} bodyLength={}",
             message.to(),
             message.subject(),
-            message.textBody()
+            message.textBody().length()
         );
     }
 

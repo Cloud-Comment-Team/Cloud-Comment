@@ -21,4 +21,8 @@ public interface AccountDeletionRequestRepository {
     boolean tryMarkConfirmed(UUID requestId, Instant confirmedAt);
 
     void cancelPendingForUser(UUID userId, Instant cancelledAt);
+
+    int cancelExpiredPending(Instant now, Instant cancelledAt);
+
+    int deleteInactiveBefore(Instant cutoff);
 }

@@ -31,6 +31,9 @@ cloud-comment:
     terms-url: ${CLOUD_COMMENT_TERMS_URL:/legal/terms.html}
     personal-data-notice-url: ${CLOUD_COMMENT_PERSONAL_DATA_NOTICE_URL:/legal/personal-data-notice.html}
     data-export-info-url: ${CLOUD_COMMENT_DATA_EXPORT_INFO_URL:/legal/personal-data-notice.html#data-export}
+    session-retention-days: ${CLOUD_COMMENT_SESSION_RETENTION_DAYS:30}
+    deletion-request-retention-days: ${CLOUD_COMMENT_DELETION_REQUEST_RETENTION_DAYS:30}
+    retention-cleanup-cron: ${CLOUD_COMMENT_RETENTION_CLEANUP_CRON:0 0 3 * * *}
 
 server:
   port: ${SERVER_PORT:8080}

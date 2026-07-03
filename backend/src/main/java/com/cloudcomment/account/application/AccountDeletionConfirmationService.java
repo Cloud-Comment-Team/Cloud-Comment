@@ -4,6 +4,8 @@ import com.cloudcomment.account.domain.AccountDeletionRequest;
 import com.cloudcomment.account.persistence.AccountDeletionRequestRepository;
 import com.cloudcomment.auth.application.SessionTokenHasher;
 import com.cloudcomment.auth.persistence.UserAccountRepository;
+import com.cloudcomment.privacy.application.PrivacyAuditService;
+import com.cloudcomment.privacy.domain.PrivacyEventType;
 import com.cloudcomment.shared.error.ApiErrorCode;
 import com.cloudcomment.shared.error.ApplicationException;
 import org.springframework.stereotype.Service;
@@ -11,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.Map;
 
 @Service
 public class AccountDeletionConfirmationService {
@@ -19,6 +22,7 @@ public class AccountDeletionConfirmationService {
     private final AccountDeletionService accountDeletionService;
     private final UserAccountRepository userAccountRepository;
     private final SessionTokenHasher sessionTokenHasher;
+    private final PrivacyAuditService privacyAuditService;
     private final Clock clock;
 
     public AccountDeletionConfirmationService(
@@ -26,12 +30,14 @@ public class AccountDeletionConfirmationService {
         AccountDeletionService accountDeletionService,
         UserAccountRepository userAccountRepository,
         SessionTokenHasher sessionTokenHasher,
+        PrivacyAuditService privacyAuditService,
         Clock clock
     ) {
         this.deletionRequestRepository = deletionRequestRepository;
         this.accountDeletionService = accountDeletionService;
         this.userAccountRepository = userAccountRepository;
         this.sessionTokenHasher = sessionTokenHasher;
+        this.privacyAuditService = privacyAuditService;
         this.clock = clock;
     }
 
@@ -57,6 +63,9 @@ public class AccountDeletionConfirmationService {
         if (!deletionRequestRepository.tryMarkConfirmed(request.id(), now)) {
             throw tokenAlreadyUsed();
         }
+        privacyAuditService.record(request.userId(), PrivacyEventType.ACCOUNT_DELETION_CONFIRMED, Map.of(
+            "requestId", request.id().toString()
+        ));
         accountDeletionService.deleteAccount(request.userId());
     }
 
