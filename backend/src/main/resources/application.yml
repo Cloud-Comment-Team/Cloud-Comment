@@ -24,6 +24,13 @@ cloud-comment:
       username: ${CLOUD_COMMENT_MAIL_SMTP_USERNAME:}
       password: ${CLOUD_COMMENT_MAIL_SMTP_PASSWORD:}
       starttls: ${CLOUD_COMMENT_MAIL_SMTP_STARTTLS:true}
+  privacy:
+    privacy-policy-version: ${CLOUD_COMMENT_PRIVACY_POLICY_VERSION:2026-07-01}
+    terms-version: ${CLOUD_COMMENT_TERMS_VERSION:2026-07-01}
+    privacy-policy-url: ${CLOUD_COMMENT_PRIVACY_POLICY_URL:/legal/privacy-policy.html}
+    terms-url: ${CLOUD_COMMENT_TERMS_URL:/legal/terms.html}
+    personal-data-notice-url: ${CLOUD_COMMENT_PERSONAL_DATA_NOTICE_URL:/docs/personal-data-notice.md}
+    data-export-info-url: ${CLOUD_COMMENT_DATA_EXPORT_INFO_URL:/docs/personal-data-notice.md#data-export}
 
 server:
   port: ${SERVER_PORT:8080}

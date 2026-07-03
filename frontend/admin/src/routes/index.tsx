@@ -3,7 +3,7 @@ import { createBrowserRouter } from 'react-router-dom'
 
 import ProtectedRoute from '../components/auth/ProtectedRoute'
 import Layout from '../components/layout/Layout'
-import { Comments, Dashboard, Login, Moderation, Register, SiteCreate, SiteDetail, SitesList } from './lazyPages'
+import { Comments, AccountSettings, Dashboard, Login, Moderation, Register, SiteCreate, SiteDetail, SitesList } from './lazyPages'
 
 function routeElement(element: ReactNode) {
   return (
@@ -41,6 +41,7 @@ export const router = createBrowserRouter([
           { path: 'sites/:siteId', element: routeElement(<SiteDetail />) },
           { path: 'comments', element: routeElement(<Comments />) },
           { path: 'moderation', element: routeElement(<Moderation />) },
+          { path: 'account', element: routeElement(<AccountSettings />) },
         ],
       },
     ],

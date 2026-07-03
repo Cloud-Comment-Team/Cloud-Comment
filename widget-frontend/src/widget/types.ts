@@ -45,6 +45,15 @@ export type PublicWidgetConfig = {
   moderationMode: ModerationMode;
 };
 
+export type ConsentRequirements = {
+  privacyPolicyVersion: string;
+  termsVersion: string;
+  privacyPolicyUrl: string;
+  termsUrl: string;
+  personalDataNoticeUrl: string;
+  dataExportInfoUrl: string;
+};
+
 export type PaginatedResponse<T> = {
   items: T[];
   page: number;
