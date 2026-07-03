@@ -1,6 +1,7 @@
 package com.cloudcomment.privacy.application;
 
 import com.cloudcomment.privacy.domain.ConsentSource;
+import com.cloudcomment.privacy.domain.PrivacyEventType;
 import com.cloudcomment.privacy.persistence.UserConsentRepository;
 import com.cloudcomment.shared.error.ApiErrorCode;
 import com.cloudcomment.shared.error.ApplicationException;
@@ -9,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -16,15 +18,18 @@ public class ConsentService {
 
     private final UserConsentRepository userConsentRepository;
     private final PrivacyProperties privacyProperties;
+    private final PrivacyAuditService privacyAuditService;
     private final Clock clock;
 
     public ConsentService(
         UserConsentRepository userConsentRepository,
         PrivacyProperties privacyProperties,
+        PrivacyAuditService privacyAuditService,
         Clock clock
     ) {
         this.userConsentRepository = userConsentRepository;
         this.privacyProperties = privacyProperties;
+        this.privacyAuditService = privacyAuditService;
         this.clock = clock;
     }
 
@@ -64,5 +69,10 @@ public class ConsentService {
             source,
             acceptedAt
         );
+        privacyAuditService.record(userId, PrivacyEventType.CONSENT_ACCEPTED, Map.of(
+            "privacyPolicyVersion", consent.privacyPolicyVersion(),
+            "termsVersion", consent.termsVersion(),
+            "source", source.name()
+        ));
     }
 }

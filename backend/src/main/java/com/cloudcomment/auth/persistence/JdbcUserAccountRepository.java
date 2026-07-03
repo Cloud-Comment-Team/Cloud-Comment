@@ -216,6 +216,7 @@ class JdbcUserAccountRepository implements UserAccountRepository {
                 update app_users
                 set email = ?,
                     password_hash = ?,
+                    display_name = null,
                     is_enabled = false,
                     deleted_at = ?,
                     updated_at = now()

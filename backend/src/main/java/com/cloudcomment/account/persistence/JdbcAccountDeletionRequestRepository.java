@@ -141,6 +141,37 @@ class JdbcAccountDeletionRequestRepository implements AccountDeletionRequestRepo
         );
     }
 
+    @Override
+    @Transactional
+    public int cancelExpiredPending(Instant now, Instant cancelledAt) {
+        return jdbcTemplate.update(
+            """
+                update account_deletion_requests
+                set cancelled_at = ?
+                where confirmed_at is null
+                  and cancelled_at is null
+                  and expires_at <= ?
+                """,
+            OffsetDateTime.ofInstant(cancelledAt, ZoneOffset.UTC),
+            OffsetDateTime.ofInstant(now, ZoneOffset.UTC)
+        );
+    }
+
+    @Override
+    @Transactional
+    public int deleteInactiveBefore(Instant cutoff) {
+        OffsetDateTime cutoffOffset = OffsetDateTime.ofInstant(cutoff, ZoneOffset.UTC);
+        return jdbcTemplate.update(
+            """
+                delete from account_deletion_requests
+                where (confirmed_at is not null and confirmed_at < ?)
+                   or (cancelled_at is not null and cancelled_at < ?)
+                """,
+            cutoffOffset,
+            cutoffOffset
+        );
+    }
+
     private AccountDeletionRequest mapRow(ResultSet resultSet, int rowNumber) throws SQLException {
         return new AccountDeletionRequest(
             resultSet.getObject("id", UUID.class),

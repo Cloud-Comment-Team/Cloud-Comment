@@ -9,7 +9,10 @@ public record PrivacyProperties(
     String privacyPolicyUrl,
     String termsUrl,
     String personalDataNoticeUrl,
-    String dataExportInfoUrl
+    String dataExportInfoUrl,
+    int sessionRetentionDays,
+    int deletionRequestRetentionDays,
+    String retentionCleanupCron
 ) {
 
     public PrivacyProperties {
@@ -30,6 +33,15 @@ public record PrivacyProperties(
         }
         if (dataExportInfoUrl == null || dataExportInfoUrl.isBlank()) {
             dataExportInfoUrl = "/legal/personal-data-notice.html#data-export";
+        }
+        if (sessionRetentionDays <= 0) {
+            sessionRetentionDays = 30;
+        }
+        if (deletionRequestRetentionDays <= 0) {
+            deletionRequestRetentionDays = 30;
+        }
+        if (retentionCleanupCron == null || retentionCleanupCron.isBlank()) {
+            retentionCleanupCron = "0 0 3 * * *";
         }
     }
 }

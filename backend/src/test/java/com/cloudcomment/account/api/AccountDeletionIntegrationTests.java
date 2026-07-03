@@ -136,6 +136,115 @@ class AccountDeletionIntegrationTests {
     }
 
     @Test
+    void personalDataExportReturnsOwnSnapshotAndWritesAuditEvent() throws Exception {
+        String email = "export-" + UUID.randomUUID() + "@example.com";
+        String password = "strong-password";
+
+        mockMvc.perform(post("/api/auth/register")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(registerRequestJson(email, password)))
+            .andExpect(status().isCreated());
+
+        String loginResponse = login(email, password);
+        String sessionToken = extractJsonField(loginResponse, "token");
+        UUID userId = UUID.fromString(extractJsonField(loginResponse, "user", "id"));
+
+        UUID siteId = insertSite(userId, "export-" + UUID.randomUUID() + ".example.com");
+        UUID pageId = insertPage(siteId, "https://export.example.com/page");
+        insertComment(pageId, userId, email, "Personal data comment", "APPROVED");
+
+        String response = mockMvc.perform(get("/api/account/personal-data")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + sessionToken))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.account.id", is(userId.toString())))
+            .andExpect(jsonPath("$.account.email", is(email)))
+            .andExpect(jsonPath("$.sessions.active", is(1)))
+            .andExpect(jsonPath("$.resources.ownedSites", is(1)))
+            .andExpect(jsonPath("$.resources.ownedPages", is(1)))
+            .andExpect(jsonPath("$.resources.ownedComments", is(1)))
+            .andExpect(jsonPath("$.resources.authoredComments", is(1)))
+            .andExpect(jsonPath("$.consents[0].privacyPolicyVersion", is("2026-07-01")))
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+        assertThat(response).doesNotContain("password").doesNotContain("token");
+        assertThat(countPrivacyEvents(userId, "PERSONAL_DATA_EXPORTED")).isOne();
+    }
+
+    @Test
+    void accountDeletionAnonymizesRelatedPersonalDataAndWritesAuditEvents() throws Exception {
+        String ownerEmail = "owner-" + UUID.randomUUID() + "@example.com";
+        String deletedEmail = "commenter-" + UUID.randomUUID() + "@example.com";
+        String password = "strong-password";
+
+        mockMvc.perform(post("/api/auth/register")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(registerRequestJson(ownerEmail, password)))
+            .andExpect(status().isCreated());
+        mockMvc.perform(post("/api/auth/register")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(registerRequestJson(deletedEmail, password)))
+            .andExpect(status().isCreated());
+
+        UUID ownerId = UUID.fromString(extractJsonField(login(ownerEmail, password), "user", "id"));
+        String deletedLoginResponse = login(deletedEmail, password);
+        String deletedSessionToken = extractJsonField(deletedLoginResponse, "token");
+        UUID deletedUserId = UUID.fromString(extractJsonField(deletedLoginResponse, "user", "id"));
+
+        UUID ownedSiteId = insertSite(deletedUserId, "owned-" + UUID.randomUUID() + ".example.com");
+        UUID ownerSiteId = insertSite(ownerId, "foreign-" + UUID.randomUUID() + ".example.com");
+        UUID ownerPageId = insertPage(ownerSiteId, "https://foreign.example.com/page");
+        UUID foreignCommentId = insertComment(ownerPageId, deletedUserId, deletedEmail, "Remove my data", "APPROVED");
+        UUID moderationActionId = insertModerationAction(foreignCommentId, deletedUserId);
+
+        mockMvc.perform(post("/api/account/deletion-requests")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + deletedSessionToken))
+            .andExpect(status().isCreated());
+        String confirmationToken = extractConfirmationToken(loggingMailSender.lastSentMessage().textBody());
+
+        mockMvc.perform(post("/api/account/deletion-confirmations")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "token": "%s"
+                    }
+                    """.formatted(confirmationToken)))
+            .andExpect(status().isNoContent());
+
+        assertThat(countRows("select count(*) from sites where id = ?", ownedSiteId)).isZero();
+        assertThat(countRows("select count(*) from sites where id = ?", ownerSiteId)).isOne();
+
+        jdbcTemplate.queryForObject(
+            """
+                select author_user_id is null,
+                       author_email is null,
+                       author_name,
+                       body
+                from comments
+                where id = ?
+                """,
+            (resultSet, rowNumber) -> {
+                assertThat(resultSet.getBoolean(1)).isTrue();
+                assertThat(resultSet.getBoolean(2)).isTrue();
+                assertThat(resultSet.getString(3)).isEqualTo("Deleted user");
+                assertThat(resultSet.getString(4)).isEqualTo("Comment deleted by user");
+                return true;
+            },
+            foreignCommentId
+        );
+
+        Boolean moderatorCleared = jdbcTemplate.queryForObject(
+            "select moderator_id is null from moderation_actions where id = ?",
+            Boolean.class,
+            moderationActionId
+        );
+        assertThat(moderatorCleared).isTrue();
+        assertThat(countPrivacyEvents(deletedUserId, "ACCOUNT_DELETION_CONFIRMED")).isOne();
+        assertThat(countPrivacyEvents(deletedUserId, "ACCOUNT_DELETED")).isOne();
+    }
+
+    @Test
     void createDeletionRequestCancelsExpiredPendingRequestBeforeCreatingNewOne() throws Exception {
         String email = "refresh-expired-" + UUID.randomUUID() + "@example.com";
         mockMvc.perform(post("/api/auth/register")
@@ -295,6 +404,98 @@ class AccountDeletionIntegrationTests {
         Matcher matcher = TOKEN_PATTERN.matcher(body);
         assertThat(matcher.find()).isTrue();
         return matcher.group(1);
+    }
+
+    private String login(String email, String password) throws Exception {
+        return mockMvc.perform(post("/api/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "email": "%s",
+                      "password": "%s"
+                    }
+                    """.formatted(email, password)))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    }
+
+    private UUID insertSite(UUID ownerId, String domain) {
+        return jdbcTemplate.queryForObject(
+            """
+                insert into sites (owner_id, name, domain, public_key, moderation_mode, is_active)
+                values (?, ?, ?, ?, 'PRE_MODERATION', true)
+                returning id
+                """,
+            UUID.class,
+            ownerId,
+            "Privacy Test Site",
+            domain,
+            publicKey()
+        );
+    }
+
+    private UUID insertPage(UUID siteId, String pageUrl) {
+        return jdbcTemplate.queryForObject(
+            """
+                insert into pages (site_id, url)
+                values (?, ?)
+                returning id
+                """,
+            UUID.class,
+            siteId,
+            pageUrl
+        );
+    }
+
+    private UUID insertComment(UUID pageId, UUID authorUserId, String authorEmail, String body, String status) {
+        return jdbcTemplate.queryForObject(
+            """
+                insert into comments (page_id, author_user_id, author_email, author_name, body, status)
+                values (?, ?, ?, ?, ?, ?)
+                returning id
+                """,
+            UUID.class,
+            pageId,
+            authorUserId,
+            authorEmail,
+            authorEmail,
+            body,
+            status
+        );
+    }
+
+    private UUID insertModerationAction(UUID commentId, UUID moderatorId) {
+        return jdbcTemplate.queryForObject(
+            """
+                insert into moderation_actions (comment_id, moderator_id, action, from_status, to_status)
+                values (?, ?, 'APPROVE', 'PENDING', 'APPROVED')
+                returning id
+                """,
+            UUID.class,
+            commentId,
+            moderatorId
+        );
+    }
+
+    private int countRows(String sql, UUID id) {
+        Integer count = jdbcTemplate.queryForObject(sql, Integer.class, id);
+        return count == null ? 0 : count;
+    }
+
+    private int countPrivacyEvents(UUID userId, String eventType) {
+        return jdbcTemplate.queryForObject(
+            "select count(*) from privacy_events where user_id = ? and event_type = ?",
+            Integer.class,
+            userId,
+            eventType
+        );
+    }
+
+    private String publicKey() {
+        return (UUID.randomUUID().toString().replace("-", "")
+            + UUID.randomUUID().toString().replace("-", "")).substring(0, 64);
     }
 
     private String extractJsonField(String json, String field) {

@@ -3,6 +3,8 @@ package com.cloudcomment.account.api;
 import com.cloudcomment.account.application.AccountDeletionConfirmationService;
 import com.cloudcomment.account.application.AccountDeletionRequestService;
 import com.cloudcomment.account.application.AccountDeletionRequestView;
+import com.cloudcomment.account.application.PersonalDataExportService;
+import com.cloudcomment.account.application.PersonalDataSnapshot;
 import com.cloudcomment.auth.application.AuthenticatedUser;
 import com.cloudcomment.shared.web.security.CurrentUser;
 import com.cloudcomment.shared.web.security.PublicApi;
@@ -21,13 +23,16 @@ class AccountController {
 
     private final AccountDeletionRequestService deletionRequestService;
     private final AccountDeletionConfirmationService deletionConfirmationService;
+    private final PersonalDataExportService personalDataExportService;
 
     AccountController(
         AccountDeletionRequestService deletionRequestService,
-        AccountDeletionConfirmationService deletionConfirmationService
+        AccountDeletionConfirmationService deletionConfirmationService,
+        PersonalDataExportService personalDataExportService
     ) {
         this.deletionRequestService = deletionRequestService;
         this.deletionConfirmationService = deletionConfirmationService;
+        this.personalDataExportService = personalDataExportService;
     }
 
     @PostMapping("/deletion-requests")
@@ -41,6 +46,12 @@ class AccountController {
     @GetMapping("/deletion-requests/current")
     AccountDeletionRequestResponse getCurrentDeletionRequest(@CurrentUser AuthenticatedUser currentUser) {
         return AccountDeletionRequestResponse.from(deletionRequestService.getCurrent(currentUser));
+    }
+
+    @GetMapping("/personal-data")
+    PersonalDataResponse exportPersonalData(@CurrentUser AuthenticatedUser currentUser) {
+        PersonalDataSnapshot snapshot = personalDataExportService.export(currentUser);
+        return PersonalDataResponse.from(snapshot);
     }
 
     @PublicApi

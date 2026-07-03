@@ -3,6 +3,8 @@ package com.cloudcomment.account.api;
 import com.cloudcomment.account.application.AccountDeletionConfirmationService;
 import com.cloudcomment.account.application.AccountDeletionRequestService;
 import com.cloudcomment.account.application.AccountDeletionRequestView;
+import com.cloudcomment.account.application.PersonalDataExportService;
+import com.cloudcomment.account.application.PersonalDataSnapshot;
 import com.cloudcomment.auth.application.AuthenticatedUser;
 import com.cloudcomment.auth.application.CurrentUserService;
 import org.junit.jupiter.api.Test;
@@ -47,6 +49,9 @@ class AccountControllerTests {
     @MockitoBean
     private AccountDeletionConfirmationService deletionConfirmationService;
 
+    @MockitoBean
+    private PersonalDataExportService personalDataExportService;
+
     @Test
     void createDeletionRequestRequiresBearerAuthentication() throws Exception {
         mockMvc.perform(post("/api/account/deletion-requests"))
@@ -86,6 +91,45 @@ class AccountControllerTests {
                 .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.status", is("PENDING")));
+    }
+
+    @Test
+    void exportPersonalDataReturnsCurrentUserSnapshot() throws Exception {
+        AuthenticatedUser currentUser = currentUser();
+        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(personalDataExportService.export(currentUser)).thenReturn(new PersonalDataSnapshot(
+            new PersonalDataSnapshot.AccountProfile(
+                currentUser.id(),
+                currentUser.email(),
+                null,
+                true,
+                TIMESTAMP,
+                TIMESTAMP,
+                null
+            ),
+            currentUser.roles().stream().toList(),
+            java.util.List.of(),
+            new PersonalDataSnapshot.Sessions(1, 0, 0),
+            new PersonalDataSnapshot.Resources(0, 0, 0, 0, 0),
+            null,
+            TIMESTAMP
+        ));
+
+        mockMvc.perform(get("/api/account/personal-data")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.account.id", is(currentUser.id().toString())))
+            .andExpect(jsonPath("$.account.email", is(currentUser.email())))
+            .andExpect(jsonPath("$.sessions.active", is(1)));
+    }
+
+    @Test
+    void exportPersonalDataRequiresBearerAuthentication() throws Exception {
+        mockMvc.perform(get("/api/account/personal-data"))
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.error.code", is("INVALID_SESSION")));
+
+        verifyNoInteractions(personalDataExportService);
     }
 
     @Test

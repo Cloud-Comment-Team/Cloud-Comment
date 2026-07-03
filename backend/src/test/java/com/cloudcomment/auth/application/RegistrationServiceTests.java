@@ -2,6 +2,7 @@ package com.cloudcomment.auth.application;
 
 import com.cloudcomment.privacy.application.ConsentService;
 import com.cloudcomment.privacy.application.ConsentTestSupport;
+import com.cloudcomment.privacy.application.NoopPrivacyAuditService;
 import com.cloudcomment.privacy.application.PrivacyProperties;
 import com.cloudcomment.privacy.application.RegistrationConsent;
 import com.cloudcomment.privacy.domain.ConsentSource;
@@ -104,7 +105,8 @@ class RegistrationServiceTests {
     ) {
         ConsentService consentService = new ConsentService(
             consentRepository,
-            new PrivacyProperties(null, null, null, null, null, null),
+            new PrivacyProperties(null, null, null, null, null, null, 0, 0, null),
+            new NoopPrivacyAuditService(),
             CLOCK
         );
         return new RegistrationService(repository, new BCryptPasswordEncoder(), consentService);
