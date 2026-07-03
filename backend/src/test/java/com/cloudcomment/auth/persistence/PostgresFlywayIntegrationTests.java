@@ -60,7 +60,8 @@ class PostgresFlywayIntegrationTests {
                 'pages',
                 'comments',
                 'moderation_actions',
-                'account_deletion_requests'
+                'account_deletion_requests',
+                'user_consents'
             )
             """, Integer.class);
         Integer roleRows = jdbcTemplate.queryForObject("""
@@ -70,9 +71,9 @@ class PostgresFlywayIntegrationTests {
             """, Integer.class);
 
         assertThat(databaseVersion).contains("PostgreSQL");
-        assertThat(schemaHistoryRows).isEqualTo(5);
+        assertThat(schemaHistoryRows).isEqualTo(6);
         assertThat(smokeTableRows).isZero();
-        assertThat(coreTableRows).isEqualTo(10);
+        assertThat(coreTableRows).isEqualTo(11);
         assertThat(roleRows).isEqualTo(3);
     }
 

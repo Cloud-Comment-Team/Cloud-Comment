@@ -17,6 +17,7 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   await page.getByLabel('Email').fill(email)
   await page.getByLabel('Пароль', { exact: true }).fill(PASSWORD)
   await page.getByLabel('Повторите пароль').fill(PASSWORD)
+  await page.getByRole('checkbox').check()
   await page.getByRole('button', { name: 'Зарегистрироваться' }).click()
 
   await expect(page).toHaveURL(/\/login$/)

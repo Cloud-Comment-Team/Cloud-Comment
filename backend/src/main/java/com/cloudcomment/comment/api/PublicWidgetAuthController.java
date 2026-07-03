@@ -8,6 +8,8 @@ import com.cloudcomment.auth.application.LoginService;
 import com.cloudcomment.auth.application.RegisteredUser;
 import com.cloudcomment.auth.application.RegistrationService;
 import com.cloudcomment.comment.application.DomainPolicyService;
+import com.cloudcomment.privacy.application.RegistrationConsent;
+import com.cloudcomment.privacy.domain.ConsentSource;
 import com.cloudcomment.shared.web.security.PublicApi;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -40,7 +42,12 @@ class PublicWidgetAuthController {
         @Valid @RequestBody RegisterUserRequest request
     ) {
         domainPolicyService.validate(siteId, origin);
-        RegisteredUser user = registrationService.register(request.email(), request.password());
+        RegisteredUser user = registrationService.register(
+            request.email(),
+            request.password(),
+            RegistrationConsent.from(request),
+            ConsentSource.WIDGET
+        );
         return ResponseEntity.status(HttpStatus.CREATED).body(RegisterUserResponse.from(user));
     }
 

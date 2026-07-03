@@ -6,6 +6,9 @@ import com.cloudcomment.auth.application.LoginResult;
 import com.cloudcomment.auth.application.LoginService;
 import com.cloudcomment.auth.application.RegisteredUser;
 import com.cloudcomment.auth.application.RegistrationService;
+import com.cloudcomment.privacy.application.ConsentTestSupport;
+import com.cloudcomment.privacy.application.RegistrationConsent;
+import com.cloudcomment.privacy.domain.ConsentSource;
 import com.cloudcomment.comment.application.DomainPolicyService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,6 +25,8 @@ import java.util.UUID;
 
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.is;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -83,17 +88,17 @@ class PublicWidgetAuthControllerTests {
             TIMESTAMP
         );
         when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
-        when(registrationService.register(EMAIL, PASSWORD)).thenReturn(user);
+        when(registrationService.register(
+            eq(EMAIL),
+            eq(PASSWORD),
+            any(RegistrationConsent.class),
+            eq(ConsentSource.WIDGET)
+        )).thenReturn(user);
 
         mockMvc.perform(post("/api/public/sites/{siteId}/auth/register", siteId)
                 .header(HttpHeaders.ORIGIN, ORIGIN)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("""
-                    {
-                      "email": "%s",
-                      "password": "%s"
-                    }
-                    """.formatted(EMAIL, PASSWORD)))
+                .content(ConsentTestSupport.registerRequestJson(EMAIL, PASSWORD)))
             .andExpect(status().isCreated())
             .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, ORIGIN))
             .andExpect(jsonPath("$.id", is(user.id().toString())))
@@ -101,7 +106,12 @@ class PublicWidgetAuthControllerTests {
             .andExpect(jsonPath("$.roles[0]", is("COMMENTER")));
 
         verify(domainPolicyService).validate(siteId, ORIGIN);
-        verify(registrationService).register(EMAIL, PASSWORD);
+        verify(registrationService).register(
+            eq(EMAIL),
+            eq(PASSWORD),
+            any(RegistrationConsent.class),
+            eq(ConsentSource.WIDGET)
+        );
         verifyNoInteractions(currentUserService, loginService);
     }
 

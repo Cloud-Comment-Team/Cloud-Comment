@@ -9,6 +9,8 @@ import com.cloudcomment.auth.application.LoginService;
 import com.cloudcomment.auth.application.LogoutService;
 import com.cloudcomment.auth.application.RegisteredUser;
 import com.cloudcomment.auth.application.RegistrationService;
+import com.cloudcomment.privacy.application.RegistrationConsent;
+import com.cloudcomment.privacy.domain.ConsentSource;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -44,7 +46,12 @@ public class AuthController {
     @PublicApi
     @PostMapping("/register")
     ResponseEntity<RegisterUserResponse> register(@Valid @RequestBody RegisterUserRequest request) {
-        RegisteredUser user = registrationService.register(request.email(), request.password());
+        RegisteredUser user = registrationService.register(
+            request.email(),
+            request.password(),
+            RegistrationConsent.from(request),
+            ConsentSource.ADMIN
+        );
         return ResponseEntity.status(HttpStatus.CREATED).body(RegisterUserResponse.from(user));
     }
 

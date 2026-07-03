@@ -4,6 +4,7 @@ import { widgetStyles } from "./styles";
 import type {
   CloudCommentWidgetInstance,
   CloudCommentWidgetOptions,
+  ConsentRequirements,
   LoginResponse,
   PublicComment,
   PublicWidgetConfig,
@@ -19,6 +20,7 @@ type WidgetState = {
   authenticating: boolean;
   comments: PublicComment[];
   config: PublicWidgetConfig | null;
+  consentRequirements: ConsentRequirements | null;
   token: string | null;
   userEmail: string | null;
   error: string | null;
@@ -51,6 +53,7 @@ export function renderWidget(
     authenticating: false,
     comments: [],
     config: null,
+    consentRequirements: null,
     token: getStoredAuthToken(),
     userEmail: null,
     error: null,
@@ -74,9 +77,14 @@ export function renderWidget(
     render();
 
     try {
-      const [config, comments] = await Promise.all([api.getConfig(), api.listComments()]);
+      const [config, comments, consentRequirements] = await Promise.all([
+        api.getConfig(),
+        api.listComments(),
+        api.getConsentRequirements()
+      ]);
       state.config = config;
       state.comments = comments.items;
+      state.consentRequirements = consentRequirements;
     } catch (error) {
       state.error = getErrorMessage(error);
     } finally {
@@ -85,7 +93,7 @@ export function renderWidget(
     }
   }
 
-  async function authenticate(email: string, password: string): Promise<void> {
+  async function authenticate(email: string, password: string, consentAccepted: boolean): Promise<void> {
     state.authenticating = true;
     state.authError = null;
     render();
@@ -93,7 +101,21 @@ export function renderWidget(
     try {
       let loginResponse: LoginResponse;
       if (state.authMode === "register") {
-        await api.register(email, password);
+        if (!consentAccepted) {
+          throw new WidgetApiError("Необходимо согласие на обработку персональных данных.");
+        }
+        const requirements = state.consentRequirements;
+        if (!requirements) {
+          throw new WidgetApiError("Требования согласия ещё загружаются. Попробуйте снова.");
+        }
+        await api.register({
+          email,
+          password,
+          acceptedPrivacyPolicy: true,
+          acceptedTerms: true,
+          privacyPolicyVersion: requirements.privacyPolicyVersion,
+          termsVersion: requirements.termsVersion
+        });
         loginResponse = await api.login(email, password);
       } else {
         loginResponse = await api.login(email, password);
@@ -152,7 +174,11 @@ export function renderWidget(
 
     if (form.dataset.cloudCommentForm === "auth") {
       const formData = new FormData(form);
-      void authenticate(String(formData.get("email") ?? ""), String(formData.get("password") ?? ""));
+      void authenticate(
+        String(formData.get("email") ?? ""),
+        String(formData.get("password") ?? ""),
+        formData.get("consent") === "on"
+      );
       return;
     }
 
@@ -448,6 +474,45 @@ function renderAuthSection(state: WidgetState): HTMLElement {
   password.required = true;
   password.minLength = 8;
   password.maxLength = 72;
+
+  if (state.authMode === "register") {
+    const consentLabel = document.createElement("label");
+    consentLabel.className = "cloud-comment__consent";
+
+    const consent = document.createElement("input");
+    consent.type = "checkbox";
+    consent.name = "consent";
+    consent.required = true;
+
+    const consentText = document.createElement("span");
+    consentText.className = "cloud-comment__consent-text";
+    consentText.textContent = "Согласен(на) на обработку персональных данных";
+
+    if (state.consentRequirements) {
+      const privacyLink = document.createElement("a");
+      privacyLink.href = state.consentRequirements.privacyPolicyUrl;
+      privacyLink.target = "_blank";
+      privacyLink.rel = "noreferrer";
+      privacyLink.textContent = "политика";
+
+      const termsLink = document.createElement("a");
+      termsLink.href = state.consentRequirements.termsUrl;
+      termsLink.target = "_blank";
+      termsLink.rel = "noreferrer";
+      termsLink.textContent = "условия";
+
+      consentText.replaceChildren(
+        "Согласен(на) на обработку ПДн (",
+        privacyLink,
+        ", ",
+        termsLink,
+        ")"
+      );
+    }
+
+    consentLabel.append(consent, consentText);
+    form.append(consentLabel);
+  }
 
   const submit = document.createElement("button");
   submit.className = "cloud-comment__button cloud-comment__button--secondary";

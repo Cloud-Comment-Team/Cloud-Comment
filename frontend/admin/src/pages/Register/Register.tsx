@@ -5,6 +5,7 @@ import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { Eye, EyeOff, Lock, Mail, UserPlus } from 'lucide-react'
 
 import { getApiErrorMessage, register as registerUser } from '../../api/auth'
+import { getConsentRequirements, type ConsentRequirements } from '../../api/privacy'
 import {
   getFieldFeedback,
   validateEmail,
@@ -19,12 +20,14 @@ interface RegisterFormState {
   email: string
   password: string
   confirmPassword: string
+  acceptedConsent: boolean
 }
 
 const initialFormState: RegisterFormState = {
   email: '',
   password: '',
   confirmPassword: '',
+  acceptedConsent: false,
 }
 
 const Register = () => {
@@ -32,6 +35,8 @@ const Register = () => {
   const status = useAuthStore((state) => state.status)
   const [showPassword, setShowPassword] = useState(false)
   const [serverError, setServerError] = useState<string | null>(null)
+  const [requirements, setRequirements] = useState<ConsentRequirements | null>(null)
+  const [requirementsError, setRequirementsError] = useState<string | null>(null)
   const {
     register,
     control,
@@ -54,6 +59,10 @@ const Register = () => {
   const passwordField = register('password', { validate: validatePassword, onChange: clearServerError })
   const confirmPasswordField = register('confirmPassword', {
     validate: (value) => validatePasswordConfirmation(value, password),
+    onChange: clearServerError,
+  })
+  const consentField = register('acceptedConsent', {
+    validate: (value) => value === true || 'Необходимо согласие на обработку персональных данных',
     onChange: clearServerError,
   })
   const emailFeedback = getFieldFeedback(
@@ -79,6 +88,29 @@ const Register = () => {
   )
 
   useEffect(() => {
+    let cancelled = false
+
+    async function loadRequirements() {
+      try {
+        const response = await getConsentRequirements()
+        if (!cancelled) {
+          setRequirements(response)
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setRequirementsError(getApiErrorMessage(err, 'Не удалось загрузить требования согласия.'))
+        }
+      }
+    }
+
+    void loadRequirements()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
     if (dirtyFields.confirmPassword) {
       void trigger('confirmPassword')
     }
@@ -88,13 +120,26 @@ const Register = () => {
     return <Navigate to="/" replace />
   }
 
-  const handleValidSubmit: SubmitHandler<RegisterFormState> = async ({ email: formEmail, password: formPassword }) => {
+  const handleValidSubmit: SubmitHandler<RegisterFormState> = async ({
+    email: formEmail,
+    password: formPassword,
+    acceptedConsent,
+  }) => {
+    if (!requirements) {
+      setServerError('Требования согласия ещё загружаются. Подождите и попробуйте снова.')
+      return
+    }
+
     setServerError(null)
 
     try {
       await registerUser({
         email: formEmail.trim(),
         password: formPassword,
+        acceptedPrivacyPolicy: acceptedConsent,
+        acceptedTerms: acceptedConsent,
+        privacyPolicyVersion: requirements.privacyPolicyVersion,
+        termsVersion: requirements.termsVersion,
       })
       navigate('/login', { replace: true })
     } catch (err) {
@@ -117,6 +162,11 @@ const Register = () => {
 
     if (fieldErrors.confirmPassword) {
       setFocus('confirmPassword')
+      return
+    }
+
+    if (fieldErrors.acceptedConsent) {
+      setFocus('acceptedConsent')
     }
   }
 
@@ -132,7 +182,7 @@ const Register = () => {
         </>
       }
       icon={<UserPlus className="h-6 w-6" aria-hidden="true" />}
-      serverError={serverError}
+      serverError={serverError ?? requirementsError}
       title="Регистрация"
     >
       <form className="space-y-5 text-left" onSubmit={handleSubmit(handleValidSubmit, handleInvalidSubmit)} noValidate>
@@ -187,7 +237,50 @@ const Register = () => {
           {...confirmPasswordField}
         />
 
-        <AuthSubmitButton isSubmitting={isSubmitting} submittingLabel="Создаем аккаунт...">
+        <label className="flex items-start gap-3 text-left text-sm" style={{ color: 'var(--text)' }}>
+          <input
+            className="mt-1 h-4 w-4 shrink-0 rounded border"
+            style={{ borderColor: 'var(--border)', accentColor: 'var(--accent)' }}
+            type="checkbox"
+            {...consentField}
+          />
+          <span>
+            Я согласен(на) на обработку персональных данных и принимаю{' '}
+            {requirements ? (
+              <>
+                <a
+                  className="font-medium hover:underline"
+                  href={requirements.privacyPolicyUrl}
+                  rel="noreferrer"
+                  style={{ color: 'var(--accent)' }}
+                  target="_blank"
+                >
+                  политику конфиденциальности
+                </a>{' '}
+                и{' '}
+                <a
+                  className="font-medium hover:underline"
+                  href={requirements.termsUrl}
+                  rel="noreferrer"
+                  style={{ color: 'var(--accent)' }}
+                  target="_blank"
+                >
+                  условия использования
+                </a>
+              </>
+            ) : (
+              'политику конфиденциальности и условия использования'
+            )}
+            .
+          </span>
+        </label>
+        {errors.acceptedConsent?.message && (
+          <p className="text-sm" style={{ color: 'var(--danger)' }}>
+            {errors.acceptedConsent.message}
+          </p>
+        )}
+
+        <AuthSubmitButton isSubmitting={isSubmitting || !requirements} submittingLabel="Создаем аккаунт...">
           Зарегистрироваться
         </AuthSubmitButton>
       </form>

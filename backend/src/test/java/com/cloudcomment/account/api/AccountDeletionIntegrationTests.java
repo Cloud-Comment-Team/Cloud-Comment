@@ -18,6 +18,7 @@ import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import static com.cloudcomment.privacy.application.ConsentTestSupport.registerRequestJson;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.is;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -52,12 +53,7 @@ class AccountDeletionIntegrationTests {
 
         mockMvc.perform(post("/api/auth/register")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("""
-                    {
-                      "email": "%s",
-                      "password": "%s"
-                    }
-                    """.formatted(email, password)))
+                .content(registerRequestJson(email, password)))
             .andExpect(status().isCreated());
 
         String loginResponse = mockMvc.perform(post("/api/auth/login")
@@ -144,12 +140,7 @@ class AccountDeletionIntegrationTests {
         String email = "refresh-expired-" + UUID.randomUUID() + "@example.com";
         mockMvc.perform(post("/api/auth/register")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("""
-                    {
-                      "email": "%s",
-                      "password": "strong-password"
-                    }
-                    """.formatted(email)))
+                .content(registerRequestJson(email, "strong-password")))
             .andExpect(status().isCreated());
 
         String loginResponse = mockMvc.perform(post("/api/auth/login")
@@ -221,12 +212,7 @@ class AccountDeletionIntegrationTests {
         String email = "expired-" + UUID.randomUUID() + "@example.com";
         mockMvc.perform(post("/api/auth/register")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("""
-                    {
-                      "email": "%s",
-                      "password": "strong-password"
-                    }
-                    """.formatted(email)))
+                .content(registerRequestJson(email, "strong-password")))
             .andExpect(status().isCreated());
 
         String loginResponse = mockMvc.perform(post("/api/auth/login")

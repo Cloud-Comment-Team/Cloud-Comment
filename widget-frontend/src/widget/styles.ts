@@ -394,6 +394,26 @@ export const widgetStyles = `
   gap: 10px;
 }
 
+.cloud-comment__consent {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--cc-text);
+}
+
+.cloud-comment__consent input {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.cloud-comment__consent-text a {
+  color: var(--cc-accent-strong);
+  text-decoration: underline;
+}
+
 @keyframes cloud-comment-enter {
   from {
     opacity: 0;

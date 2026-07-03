@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { Globe, LayoutDashboard, LogOut, MessageSquare, Shield, X } from 'lucide-react'
+import { Globe, LayoutDashboard, LogOut, MessageSquare, Settings, Shield, X } from 'lucide-react'
 
 import { useAuthStore } from '../../store'
 import { ThemeToggle } from '../../theme'
@@ -8,6 +8,7 @@ const navigation = [
   { name: 'Дашборд', href: '/', icon: LayoutDashboard },
   { name: 'Сайты', href: '/sites', icon: Globe },
   { name: 'Модерация', href: '/moderation', icon: Shield },
+  { name: 'Аккаунт', href: '/account', icon: Settings },
 ]
 
 interface SidebarProps {

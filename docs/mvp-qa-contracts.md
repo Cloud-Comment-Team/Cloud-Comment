@@ -80,6 +80,29 @@ Admin frontend использует `apiClient` с `baseURL = VITE_CLOUD_COMMENT
 | `/api/auth/logout` | `POST` | self-auth bearer required | Revoke current session token |
 | `/api/auth/me` | `GET` | bearer | Return current authenticated user |
 
+### Privacy
+
+| Route | Method | Auth | Purpose |
+| --- | --- | --- | --- |
+| `/api/privacy/consent-requirements` | `GET` | public | Current consent document versions and URLs |
+
+Widget register uses the same request body as admin register (see below).
+
+#### `GET /api/privacy/consent-requirements`
+
+Response `200`:
+
+```json
+{
+  "privacyPolicyVersion": "2026-07-01",
+  "termsVersion": "2026-07-01",
+  "privacyPolicyUrl": "/legal/privacy-policy.html",
+  "termsUrl": "/legal/terms.html",
+  "personalDataNoticeUrl": "/legal/personal-data-notice.html",
+  "dataExportInfoUrl": "/legal/personal-data-notice.html#data-export"
+}
+```
+
 #### `POST /api/auth/register`
 
 Request:
@@ -87,9 +110,15 @@ Request:
 ```json
 {
   "email": "owner@example.com",
-  "password": "strong-password"
+  "password": "strong-password",
+  "acceptedPrivacyPolicy": true,
+  "acceptedTerms": true,
+  "privacyPolicyVersion": "2026-07-01",
+  "termsVersion": "2026-07-01"
 }
 ```
+
+Missing required consent or outdated document version → `400 VALIDATION_FAILED`.
 
 Response `201`:
 

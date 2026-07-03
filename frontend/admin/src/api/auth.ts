@@ -9,6 +9,10 @@ export interface LoginCredentials {
 export interface RegisterCredentials {
   email: string
   password: string
+  acceptedPrivacyPolicy: boolean
+  acceptedTerms: boolean
+  privacyPolicyVersion: string
+  termsVersion: string
 }
 
 export type RegisterResponse = AuthUser

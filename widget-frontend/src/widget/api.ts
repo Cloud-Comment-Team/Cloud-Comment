@@ -21,12 +21,31 @@ export class WidgetApiError extends Error {
   }
 }
 
+export type ConsentRequirements = {
+  privacyPolicyVersion: string;
+  termsVersion: string;
+  privacyPolicyUrl: string;
+  termsUrl: string;
+  personalDataNoticeUrl: string;
+  dataExportInfoUrl: string;
+};
+
+export type RegisterPayload = {
+  email: string;
+  password: string;
+  acceptedPrivacyPolicy: boolean;
+  acceptedTerms: boolean;
+  privacyPolicyVersion: string;
+  termsVersion: string;
+};
+
 export type WidgetApiClient = {
   getConfig: () => Promise<PublicWidgetConfig>;
+  getConsentRequirements: () => Promise<ConsentRequirements>;
   listComments: () => Promise<PaginatedResponse<PublicComment>>;
   createComment: (content: string, token: string) => Promise<PublicComment>;
   login: (email: string, password: string) => Promise<LoginResponse>;
-  register: (email: string, password: string) => Promise<void>;
+  register: (payload: RegisterPayload) => Promise<void>;
 };
 
 export function createWidgetApiClient(
@@ -64,6 +83,7 @@ export function createWidgetApiClient(
 
   return {
     getConfig: () => request<PublicWidgetConfig>(`${siteBasePath}/config`),
+    getConsentRequirements: () => request<ConsentRequirements>("/privacy/consent-requirements"),
     listComments: () => {
       const params = new URLSearchParams({
         pageUrl,
@@ -93,13 +113,13 @@ export function createWidgetApiClient(
         },
         body: JSON.stringify({ email, password })
       }),
-    register: (email, password) =>
+    register: (payload) =>
       request<void>(`${siteBasePath}/auth/register`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ email, password })
+        body: JSON.stringify(payload)
       })
   };
 }

@@ -9,6 +9,9 @@ import com.cloudcomment.auth.application.LoginService;
 import com.cloudcomment.auth.application.LogoutService;
 import com.cloudcomment.auth.application.RegisteredUser;
 import com.cloudcomment.auth.application.RegistrationService;
+import com.cloudcomment.privacy.application.ConsentTestSupport;
+import com.cloudcomment.privacy.application.RegistrationConsent;
+import com.cloudcomment.privacy.domain.ConsentSource;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -24,6 +27,7 @@ import java.util.UUID;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.is;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
@@ -56,17 +60,16 @@ class AuthControllerTests {
     void registerCreatesUserWithoutPasswordInResponse() throws Exception {
         UUID id = UUID.randomUUID();
         Instant timestamp = Instant.parse("2026-06-23T12:00:00Z");
-        when(registrationService.register(eq("User@Example.com"), eq("strong-password")))
-            .thenReturn(new RegisteredUser(id, "user@example.com", Set.of("COMMENTER"), timestamp, timestamp));
+        when(registrationService.register(
+            eq("User@Example.com"),
+            eq("strong-password"),
+            any(RegistrationConsent.class),
+            eq(ConsentSource.ADMIN)
+        )).thenReturn(new RegisteredUser(id, "user@example.com", Set.of("COMMENTER"), timestamp, timestamp));
 
         mockMvc.perform(post("/api/auth/register")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("""
-                    {
-                      "email": "User@Example.com",
-                      "password": "strong-password"
-                    }
-                    """))
+                .content(ConsentTestSupport.registerRequestJson("User@Example.com", "strong-password")))
             .andExpect(status().isCreated())
             .andExpect(jsonPath("$.id", is(id.toString())))
             .andExpect(jsonPath("$.email", is("user@example.com")))
@@ -94,17 +97,16 @@ class AuthControllerTests {
 
     @Test
     void registerReturnsConflictWhenEmailAlreadyUsed() throws Exception {
-        when(registrationService.register(eq("used@example.com"), eq("strong-password")))
-            .thenThrow(new ApplicationException(ApiErrorCode.EMAIL_ALREADY_USED, "Email is already used"));
+        when(registrationService.register(
+            eq("used@example.com"),
+            eq("strong-password"),
+            any(RegistrationConsent.class),
+            eq(ConsentSource.ADMIN)
+        )).thenThrow(new ApplicationException(ApiErrorCode.EMAIL_ALREADY_USED, "Email is already used"));
 
         mockMvc.perform(post("/api/auth/register")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("""
-                    {
-                      "email": "used@example.com",
-                      "password": "strong-password"
-                    }
-                    """))
+                .content(ConsentTestSupport.registerRequestJson("used@example.com", "strong-password")))
             .andExpect(status().isConflict())
             .andExpect(jsonPath("$.error.code", is("EMAIL_ALREADY_USED")))
             .andExpect(jsonPath("$.error.message", is("Email is already used")))
