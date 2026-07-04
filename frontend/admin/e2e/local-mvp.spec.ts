@@ -10,6 +10,8 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   const siteName = `E2E Site ${suffix}`
   const domain = `e2e-${suffix}.example.com`
   const commentText = `E2E comment ${suffix}`
+  const apiReplyText = `E2E API reply ${suffix}`
+  const pendingWidgetReplyText = `E2E widget pending reply ${suffix}`
   const pageUrl = `${ADMIN_ORIGIN}/external-page/${suffix}`
 
   await page.goto('/register')
@@ -67,6 +69,26 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
     status: 'APPROVED',
   })
 
+  const createReplyResponse = await request.post(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Origin: ADMIN_ORIGIN,
+    },
+    data: {
+      pageUrl,
+      parentId: createdComment.id,
+      content: apiReplyText,
+    },
+  })
+  await expect(createReplyResponse).toBeOK()
+  const createdReply = await createReplyResponse.json()
+  expect(createdReply).toMatchObject({
+    siteId,
+    parentId: createdComment.id,
+    content: apiReplyText,
+    status: 'APPROVED',
+  })
+
   const listCommentsResponse = await request.get(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
     headers: {
       Origin: ADMIN_ORIGIN,
@@ -84,6 +106,22 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
     content: commentText,
     status: 'APPROVED',
   })
+  expect(commentsPage.items[0].replies).toHaveLength(1)
+  expect(commentsPage.items[0].replies[0]).toMatchObject({
+    content: apiReplyText,
+    parentId: createdComment.id,
+    status: 'APPROVED',
+  })
+
+  const enablePreModerationResponse = await request.patch(`${API_BASE_URL}/sites/${siteId}`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    data: {
+      moderationMode: 'PRE_MODERATION',
+    },
+  })
+  await expect(enablePreModerationResponse).toBeOK()
 
   await page.goto('/')
   await page.evaluate(
@@ -107,7 +145,29 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   )
 
   const widget = page.locator('#cloud-comment-widget')
-  await expect(widget.locator('.cloud-comment__title')).toHaveText('Comments')
-  await expect(widget.locator('.cloud-comment__meta')).toContainText(`site: ${siteId}`)
-  await expect(widget.locator('.cloud-comment__meta')).toContainText(`page: ${pageUrl}`)
+  await expect(widget.locator('.cloud-comment__title')).toHaveText('Комментарии')
+  await expect(widget.locator('.cloud-comment__comment-content')).toContainText([commentText, apiReplyText])
+
+  await widget.locator('.cloud-comment__reply-button').first().click()
+  await expect(widget.locator('.cloud-comment__reply-context')).toBeVisible()
+  await widget.locator('textarea[name="comment"]').fill(pendingWidgetReplyText)
+  await widget.locator('.cloud-comment__form .cloud-comment__button').click()
+
+  await expect(widget.locator('.cloud-comment__message--notice')).toBeVisible()
+  await expect(widget.locator('.cloud-comment__comment-content')).toContainText(pendingWidgetReplyText)
+  await expect(widget.locator('.cloud-comment__status')).toBeVisible()
+
+  const publicCommentsAfterPendingReply = await request.get(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
+    headers: {
+      Origin: ADMIN_ORIGIN,
+    },
+    params: {
+      pageUrl,
+      page: '1',
+      pageSize: '20',
+    },
+  })
+  await expect(publicCommentsAfterPendingReply).toBeOK()
+  const commentsAfterPendingReply = await publicCommentsAfterPendingReply.json()
+  expect(JSON.stringify(commentsAfterPendingReply)).not.toContain(pendingWidgetReplyText)
 })

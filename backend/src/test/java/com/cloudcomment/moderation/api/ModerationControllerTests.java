@@ -11,6 +11,7 @@ import com.cloudcomment.moderation.domain.CommentSortField;
 import com.cloudcomment.moderation.domain.CommentStatus;
 import com.cloudcomment.moderation.domain.ModerationAction;
 import com.cloudcomment.moderation.domain.ModerationActionType;
+import com.cloudcomment.moderation.domain.ParentComment;
 import com.cloudcomment.moderation.domain.SortOrder;
 import com.cloudcomment.shared.error.ApiErrorCode;
 import com.cloudcomment.shared.error.ApplicationException;
@@ -101,6 +102,38 @@ class ModerationControllerTests {
             .andExpect(jsonPath("$.pageSize", is(20)))
             .andExpect(jsonPath("$.totalItems", is(1)))
             .andExpect(jsonPath("$.totalPages", is(1)));
+    }
+
+    @Test
+    void listCommentsReturnsParentSummaryForReply() throws Exception {
+        AuthenticatedUser currentUser = currentUser();
+        Comment comment = replyComment(currentUser.id());
+        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(moderationService.listComments(
+            eq(currentUser),
+            eq(new ModerationCommentFilters(
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                CommentSortField.CREATED_AT,
+                SortOrder.DESC
+            )),
+            eq(1),
+            eq(20)
+        )).thenReturn(new ModerationCommentPage(List.of(comment), 1, 20, 1));
+
+        mockMvc.perform(get("/api/moderation/comments")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.items[0].parentId", is(comment.parentId().toString())))
+            .andExpect(jsonPath("$.items[0].parent.id", is(comment.parent().id().toString())))
+            .andExpect(jsonPath("$.items[0].parent.author.email", is("parent@example.com")))
+            .andExpect(jsonPath("$.items[0].parent.content", is("Parent comment")))
+            .andExpect(jsonPath("$.items[0].parent.status", is("APPROVED")));
     }
 
     @Test
@@ -204,6 +237,23 @@ class ModerationControllerTests {
     }
 
     @Test
+    void getCommentReturnsParentSummaryForReply() throws Exception {
+        AuthenticatedUser currentUser = currentUser();
+        Comment comment = replyComment(currentUser.id());
+        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(moderationService.getComment(currentUser, comment.id())).thenReturn(comment);
+
+        mockMvc.perform(get("/api/moderation/comments/{commentId}", comment.id())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.parentId", is(comment.parentId().toString())))
+            .andExpect(jsonPath("$.parent.id", is(comment.parent().id().toString())))
+            .andExpect(jsonPath("$.parent.author.email", is("parent@example.com")))
+            .andExpect(jsonPath("$.parent.content", is("Parent comment")))
+            .andExpect(jsonPath("$.parent.status", is("APPROVED")));
+    }
+
+    @Test
     void applyActionReturnsCreatedModerationAction() throws Exception {
         AuthenticatedUser currentUser = currentUser();
         UUID commentId = UUID.randomUUID();
@@ -270,8 +320,32 @@ class ModerationControllerTests {
             UUID.randomUUID(),
             "https://example.com/page",
             null,
+            null,
             new CommentAuthor(ownerId, "author@example.com", "Author"),
             "Comment body",
+            CommentStatus.PENDING,
+            TIMESTAMP,
+            TIMESTAMP
+        );
+    }
+
+    private Comment replyComment(UUID ownerId) {
+        UUID parentId = UUID.randomUUID();
+        return new Comment(
+            UUID.randomUUID(),
+            UUID.randomUUID(),
+            UUID.randomUUID(),
+            "https://example.com/page",
+            parentId,
+            new ParentComment(
+                parentId,
+                new CommentAuthor(UUID.randomUUID(), "parent@example.com", "Parent"),
+                "Parent comment",
+                CommentStatus.APPROVED,
+                TIMESTAMP
+            ),
+            new CommentAuthor(ownerId, "reply@example.com", "Reply Author"),
+            "Reply body",
             CommentStatus.PENDING,
             TIMESTAMP,
             TIMESTAMP

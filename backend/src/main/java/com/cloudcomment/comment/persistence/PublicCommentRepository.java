@@ -20,7 +20,7 @@ public interface PublicCommentRepository {
 
     CommentPage findApprovedComments(UUID siteId, UUID pageId, int page, int pageSize);
 
-    boolean existsApprovedCommentOnPage(UUID pageId, UUID commentId);
+    boolean existsApprovedRootCommentOnPage(UUID pageId, UUID commentId);
 
     CommentView createComment(
         UUID siteId,

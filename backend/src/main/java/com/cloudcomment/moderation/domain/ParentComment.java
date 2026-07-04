@@ -3,17 +3,11 @@ package com.cloudcomment.moderation.domain;
 import java.time.Instant;
 import java.util.UUID;
 
-public record Comment(
+public record ParentComment(
     UUID id,
-    UUID siteId,
-    UUID pageId,
-    String pageUrl,
-    UUID parentId,
-    ParentComment parent,
     CommentAuthor author,
     String body,
     CommentStatus status,
-    Instant createdAt,
-    Instant updatedAt
+    Instant createdAt
 ) {
 }

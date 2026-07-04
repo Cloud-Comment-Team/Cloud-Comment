@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import toast from 'react-hot-toast'
-import { CalendarClock, Check, EyeOff, Filter, Globe, Hash, Link2, RotateCcw, Search, ShieldAlert, X } from 'lucide-react'
+import { CalendarClock, Check, CornerDownRight, EyeOff, Filter, Globe, Hash, Link2, RotateCcw, Search, ShieldAlert, X } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
 import { getApiErrorMessage } from '../../api/auth'
@@ -100,6 +100,10 @@ function getInitials(value: string): string {
 
 function shortenId(value: string): string {
   return `${value.slice(0, 8)}...${value.slice(-6)}`
+}
+
+function parentAuthorLabel(comment: Comment): string {
+  return comment.parent?.author?.displayName || comment.parent?.author?.email || 'Автор комментария'
 }
 
 function MetadataItem({
@@ -436,6 +440,31 @@ const Moderation = () => {
                   <MetadataItem icon={CalendarClock} label="Создан" value={formatDateTime(comment.createdAt)} />
                   <MetadataItem icon={Hash} label="ID страницы" value={shortenId(comment.pageId)} title={comment.pageId} />
                 </div>
+
+                {comment.parent && (
+                  <div className="border-b px-4 py-4" style={{ borderColor: statusStyle.border }}>
+                    <div
+                      className="rounded-lg border p-3"
+                      style={{ backgroundColor: statusStyle.metaBackground, borderColor: statusStyle.border }}
+                    >
+                      <div className="mb-2 flex flex-wrap items-center gap-2 text-xs" style={{ color: 'var(--text)' }}>
+                        <CornerDownRight className="h-4 w-4" style={{ color: statusStyle.accent }} aria-hidden="true" />
+                        <span className="font-semibold uppercase" style={{ color: 'var(--text-h)' }}>
+                          Ответ на комментарий
+                        </span>
+                        <span>{parentAuthorLabel(comment)}</span>
+                        <Badge tone={statusTones[comment.parent.status]}>{statusLabels[comment.parent.status]}</Badge>
+                        <span>{formatDateTime(comment.parent.createdAt)}</span>
+                      </div>
+                      <p
+                        className="line-clamp-3 whitespace-pre-wrap text-sm leading-6"
+                        style={{ color: 'var(--text-h)' }}
+                      >
+                        {comment.parent.content}
+                      </p>
+                    </div>
+                  </div>
+                )}
 
                 <div className="px-4 py-4">
                   <p className="mb-2 text-xs font-semibold uppercase" style={{ color: 'var(--text)' }}>

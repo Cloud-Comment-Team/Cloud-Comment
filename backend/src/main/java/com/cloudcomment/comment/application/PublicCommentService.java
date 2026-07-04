@@ -62,7 +62,7 @@ public class PublicCommentService {
         assertSameOrigin(normalizedPageUrl, access.origin());
         String normalizedContent = normalizeContent(content);
         UUID pageId = publicCommentRepository.findOrCreatePage(access.siteId(), normalizedPageUrl);
-        if (parentId != null && !publicCommentRepository.existsApprovedCommentOnPage(pageId, parentId)) {
+        if (parentId != null && !publicCommentRepository.existsApprovedRootCommentOnPage(pageId, parentId)) {
             throw notFound();
         }
 
