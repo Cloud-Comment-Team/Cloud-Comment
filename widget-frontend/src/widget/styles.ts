@@ -348,6 +348,123 @@ export const widgetStyles = `
   box-shadow: var(--cc-shadow);
 }
 
+.cloud-comment__account {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--cc-border-soft);
+  border-radius: 8px;
+  background: var(--cc-surface-muted);
+  padding: 14px;
+}
+
+.cloud-comment__account[hidden] {
+  display: none;
+}
+
+.cloud-comment__account-summary {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.cloud-comment__avatar--account {
+  width: 34px;
+  height: 34px;
+}
+
+.cloud-comment__account-text {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.cloud-comment__account-text strong {
+  overflow-wrap: anywhere;
+  color: var(--cc-text-heading);
+  font-size: 14px;
+}
+
+.cloud-comment__account-text span {
+  color: var(--cc-text);
+  font-size: 12px;
+}
+
+.cloud-comment__account-actions,
+.cloud-comment__delete-actions,
+.cloud-comment__account-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.cloud-comment__account-button {
+  border: 1px solid var(--cc-border);
+  border-radius: 8px;
+  background: var(--cc-surface);
+  color: var(--cc-text-heading);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 8px 10px;
+  transition:
+    border-color 150ms ease,
+    background 150ms ease,
+    color 150ms ease,
+    transform 150ms ease;
+}
+
+.cloud-comment__account-button:hover {
+  border-color: var(--cc-accent-border);
+  background: var(--cc-accent-soft);
+  color: var(--cc-accent);
+  transform: translateY(-1px);
+}
+
+.cloud-comment__account-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+  transform: none;
+}
+
+.cloud-comment__account-button--danger {
+  border-color: var(--cc-danger-border);
+  color: var(--cc-danger-text);
+}
+
+.cloud-comment__account-button--danger:hover {
+  border-color: var(--cc-danger-border);
+  background: var(--cc-danger-bg);
+  color: var(--cc-danger-text);
+}
+
+.cloud-comment__account-links a {
+  color: var(--cc-accent);
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.cloud-comment__account-links a:hover {
+  text-decoration: underline;
+}
+
+.cloud-comment__delete-confirm {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--cc-danger-border);
+  border-radius: 8px;
+  background: var(--cc-danger-bg);
+  padding: 12px;
+}
+
+.cloud-comment__delete-confirm p {
+  margin: 0;
+  color: var(--cc-danger-text);
+  font-size: 13px;
+}
+
 .cloud-comment__auth {
   display: grid;
   gap: 12px;

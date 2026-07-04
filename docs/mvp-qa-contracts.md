@@ -325,6 +325,10 @@ Frontend route map зафиксирован в `frontend/admin/src/routes/index.
 | `/api/public/sites/{siteId}/config` | `GET` | public + origin check | Public widget configuration |
 | `/api/public/sites/{siteId}/auth/register` | `POST` | public + origin check | Create a visitor account from the widget |
 | `/api/public/sites/{siteId}/auth/login` | `POST` | public + origin check | Exchange widget visitor credentials for bearer token |
+| `/api/public/sites/{siteId}/auth/me` | `GET` | bearer + origin check | Return current widget visitor profile |
+| `/api/public/sites/{siteId}/auth/logout` | `POST` | self-auth bearer + origin check | Revoke current widget visitor session |
+| `/api/public/sites/{siteId}/account/personal-data` | `GET` | bearer + origin check | Export current widget visitor personal data |
+| `/api/public/sites/{siteId}/account/deletion-requests` | `POST` | bearer + origin check | Request account deletion email confirmation from the widget |
 | `/api/public/sites/{siteId}/pages/comments` | `GET` | public + origin check | List comments for a page |
 | `/api/public/sites/{siteId}/pages/comments` | `POST` | bearer + origin check | Create a comment for authenticated visitor |
 
@@ -351,6 +355,7 @@ Request для create:
 - Bad/missing/disallowed origin, inactive/missing site и parent comment не с этой страницы возвращают `404 NOT_FOUND` с `Resource not found`.
 - Публичный список возвращает только `APPROVED`; `PENDING`, `REJECTED`, `HIDDEN`, `SPAM` не видны в виджете.
 - Embedded widget auth uses site-scoped `/api/public/sites/{siteId}/auth/*` aliases, not `/api/auth/*`, so browser CORS preflight is checked against the same domain policy.
+- Самообслуживание аккаунта в виджете использует site-scoped aliases `/api/public/sites/{siteId}/account/*`, а не `/api/account/*`: экспорт персональных данных и запрос удаления работают с external origin без ослабления глобального CORS.
 - Создание комментария требует bearer token; guest-flow в MVP не поддерживается.
 
 ### Public widget surface (static)

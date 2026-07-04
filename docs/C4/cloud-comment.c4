@@ -328,6 +328,8 @@ model {
 
   cloudComment.backendApi.publicWidgetController -[internal]-> cloudComment.backendApi.commentModule 'Создает и получает комментарии'
 
+  cloudComment.backendApi.publicWidgetController -[internal]-> cloudComment.backendApi.accountPrivacyModule 'Обслуживает самообслуживание аккаунта в виджете: профиль, logout, экспорт данных и запрос удаления'
+
   cloudComment.backendApi.publicWidgetController -[internal]-> cloudComment.backendApi.antiSpamModule 'Проверяет базовую антиспам-защиту'
 
   cloudComment.backendApi.projectModule -[internal]-> cloudComment.backendApi.siteModule 'Использует site как проект MVP'

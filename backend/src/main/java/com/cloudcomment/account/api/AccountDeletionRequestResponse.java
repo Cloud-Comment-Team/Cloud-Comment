@@ -13,7 +13,7 @@ public record AccountDeletionRequestResponse(
     Instant expiresAt
 ) {
 
-    static AccountDeletionRequestResponse from(AccountDeletionRequestView view) {
+    public static AccountDeletionRequestResponse from(AccountDeletionRequestView view) {
         return new AccountDeletionRequestResponse(
             view.id(),
             view.userId(),
