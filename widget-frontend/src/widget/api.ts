@@ -45,7 +45,7 @@ export type WidgetApiClient = {
   getConfig: () => Promise<PublicWidgetConfig>;
   getConsentRequirements: () => Promise<ConsentRequirements>;
   listComments: () => Promise<PaginatedResponse<PublicComment>>;
-  createComment: (content: string, token: string) => Promise<PublicComment>;
+  createComment: (content: string, parentId: string | null, token: string) => Promise<PublicComment>;
   getCurrentUser: (token: string) => Promise<AuthUser>;
   login: (email: string, password: string) => Promise<LoginResponse>;
   register: (payload: RegisterPayload) => Promise<void>;
@@ -98,7 +98,7 @@ export function createWidgetApiClient(
       });
       return request<PaginatedResponse<PublicComment>>(`${siteBasePath}/pages/comments?${params}`);
     },
-    createComment: (content, token) =>
+    createComment: (content, parentId, token) =>
       request<PublicComment>(`${siteBasePath}/pages/comments`, {
         method: "POST",
         headers: {
@@ -107,7 +107,7 @@ export function createWidgetApiClient(
         },
         body: JSON.stringify({
           pageUrl,
-          parentId: null,
+          parentId,
           content
         })
       }),

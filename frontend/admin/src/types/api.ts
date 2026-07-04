@@ -56,12 +56,21 @@ export interface CommentAuthor {
   displayName: string | null
 }
 
+export interface ParentComment {
+  id: string
+  author: CommentAuthor | null
+  content: string
+  status: CommentStatus
+  createdAt: string
+}
+
 export interface Comment {
   id: string
   siteId: string
   pageId: string
   pageUrl: string
   parentId: string | null
+  parent: ParentComment | null
   author: CommentAuthor | null
   content: string
   status: CommentStatus

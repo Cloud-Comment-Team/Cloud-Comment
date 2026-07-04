@@ -13,6 +13,10 @@ import type {
 
 type AuthMode = "login" | "register";
 type ResolvedWidgetTheme = "light" | "dark";
+type ReplyTarget = {
+  id: string;
+  authorLabel: string;
+};
 
 type WidgetState = {
   loading: boolean;
@@ -30,6 +34,7 @@ type WidgetState = {
   notice: string | null;
   authMode: AuthMode;
   deleteConfirming: boolean;
+  replyingTo: ReplyTarget | null;
 };
 
 export function renderWidget(
@@ -65,7 +70,8 @@ export function renderWidget(
     accountError: null,
     notice: null,
     authMode: "login",
-    deleteConfirming: false
+    deleteConfirming: false,
+    replyingTo: null
   };
   let destroyed = false;
 
@@ -244,6 +250,7 @@ export function renderWidget(
     state.token = null;
     state.userEmail = null;
     state.deleteConfirming = false;
+    state.replyingTo = null;
     removeStoredAuthToken();
   }
 
@@ -254,19 +261,29 @@ export function renderWidget(
       return;
     }
 
+    const parentId = state.replyingTo?.id ?? null;
+    const replyAuthor = state.replyingTo?.authorLabel ?? null;
     state.submitting = true;
     state.error = null;
     state.notice = null;
     render();
 
     try {
-      const createdComment = await api.createComment(content, state.token);
+      const createdComment = await api.createComment(content, parentId, state.token);
       const refreshedComments = await api.listComments();
-      state.comments = mergeCreatedComment(createdComment, refreshedComments.items);
+      state.comments = parentId
+        ? mergeCreatedReply(createdComment, refreshedComments.items, parentId, state.comments)
+        : mergeCreatedComment(createdComment, refreshedComments.items);
+      state.replyingTo = null;
       state.notice =
         createdComment.status === "APPROVED"
           ? "Комментарий опубликован."
           : "Комментарий отправлен и ждет модерации.";
+      if (parentId) {
+        state.notice = createdComment.status === "APPROVED"
+          ? "Ответ опубликован."
+          : `Ответ для ${replyAuthor ?? "комментария"} отправлен и ждет модерации.`;
+      }
     } catch (error) {
       if (error instanceof WidgetApiError && error.status === 401) {
         clearAuthState();
@@ -318,6 +335,28 @@ export function renderWidget(
       state.authMode = button.dataset.authMode;
       state.authError = null;
       render();
+      return;
+    }
+
+    if (button.dataset.replyAction === "cancel") {
+      state.replyingTo = null;
+      render();
+      return;
+    }
+
+    if (button.dataset.replyTo) {
+      if (!state.token) {
+        state.authError = "Войдите или зарегистрируйтесь, чтобы ответить.";
+        render();
+        return;
+      }
+      state.replyingTo = {
+        id: button.dataset.replyTo,
+        authorLabel: button.dataset.replyAuthor || "комментарий"
+      };
+      state.error = null;
+      render();
+      shell.querySelector<HTMLTextAreaElement>("[data-cloud-comment-form='comment'] textarea")?.focus();
       return;
     }
 
@@ -470,14 +509,14 @@ function renderBody(state: WidgetState, options: Required<CloudCommentWidgetOpti
   if (state.loading) {
     body.append(renderMessage("Загружаем комментарии...", "muted"));
   } else {
-    body.append(renderCommentList(state.comments));
+    body.append(renderCommentList(state.comments, state));
   }
 
   body.append(renderCommentForm(state), renderAccountSection(state, options), renderAuthSection(state));
   return body;
 }
 
-function renderCommentList(comments: PublicComment[]): HTMLElement {
+function renderCommentList(comments: PublicComment[], state: WidgetState): HTMLElement {
   const list = document.createElement("div");
   list.className = "cloud-comment__list";
 
@@ -490,25 +529,27 @@ function renderCommentList(comments: PublicComment[]): HTMLElement {
   }
 
   for (const comment of comments) {
-    list.append(renderComment(comment));
+    list.append(renderComment(comment, state, 0));
   }
 
   return list;
 }
 
-function renderComment(comment: PublicComment): HTMLElement {
+function renderComment(comment: PublicComment, state: WidgetState, depth: number): HTMLElement {
   const article = document.createElement("article");
   article.className = "cloud-comment__comment";
 
   const header = document.createElement("header");
   header.className = "cloud-comment__comment-header";
 
+  const authorLabel = getAuthorLabel(comment);
+
   const avatar = document.createElement("span");
   avatar.className = "cloud-comment__avatar";
-  avatar.textContent = getInitials(comment.author.displayName || comment.author.email);
+  avatar.textContent = getInitials(authorLabel);
 
   const author = document.createElement("strong");
-  author.textContent = comment.author.displayName || comment.author.email;
+  author.textContent = authorLabel;
 
   const date = document.createElement("time");
   date.dateTime = comment.createdAt;
@@ -527,13 +568,30 @@ function renderComment(comment: PublicComment): HTMLElement {
   content.className = "cloud-comment__comment-content";
   content.textContent = comment.content;
 
-  article.append(header, content);
+  const footer = document.createElement("footer");
+  footer.className = "cloud-comment__comment-footer";
 
-  if (comment.replies.length > 0) {
+  if (depth === 0 && comment.status === "APPROVED") {
+    const replyButton = document.createElement("button");
+    replyButton.className = "cloud-comment__reply-button";
+    replyButton.type = "button";
+    replyButton.dataset.replyTo = comment.id;
+    replyButton.dataset.replyAuthor = authorLabel;
+    replyButton.textContent = state.replyingTo?.id === comment.id ? "Отвечаем" : "Ответить";
+    replyButton.disabled = state.submitting;
+    footer.append(replyButton);
+  }
+
+  article.append(header, content);
+  if (footer.childNodes.length > 0) {
+    article.append(footer);
+  }
+
+  if (depth === 0 && comment.replies.length > 0) {
     const replies = document.createElement("div");
     replies.className = "cloud-comment__replies";
     for (const reply of comment.replies) {
-      replies.append(renderComment(reply));
+      replies.append(renderComment(reply, state, depth + 1));
     }
     article.append(replies);
   }
@@ -546,11 +604,32 @@ function renderCommentForm(state: WidgetState): HTMLElement {
   form.className = "cloud-comment__form";
   form.dataset.cloudCommentForm = "comment";
 
+  if (state.replyingTo) {
+    const replyContext = document.createElement("div");
+    replyContext.className = "cloud-comment__reply-context";
+
+    const replyText = document.createElement("span");
+    replyText.textContent = `Ответ для ${state.replyingTo.authorLabel}`;
+
+    const cancelReply = document.createElement("button");
+    cancelReply.type = "button";
+    cancelReply.className = "cloud-comment__reply-cancel";
+    cancelReply.dataset.replyAction = "cancel";
+    cancelReply.textContent = "Отмена";
+    cancelReply.disabled = state.submitting;
+
+    replyContext.append(replyText, cancelReply);
+    form.append(replyContext);
+  }
+
   const textarea = document.createElement("textarea");
   textarea.className = "cloud-comment__textarea";
   textarea.name = "comment";
   textarea.placeholder = state.token ? "Напишите комментарий" : "Войдите, чтобы написать комментарий";
   textarea.setAttribute("aria-label", "Написать комментарий");
+  if (state.replyingTo) {
+    textarea.placeholder = "Напишите ответ";
+  }
   textarea.maxLength = 5000;
   textarea.disabled = state.submitting || !state.token;
 
@@ -787,6 +866,46 @@ function renderMessage(message: string, tone: "error" | "notice" | "muted"): HTM
   element.className = `cloud-comment__message cloud-comment__message--${tone}`;
   element.textContent = message;
   return element;
+}
+
+function getAuthorLabel(comment: PublicComment): string {
+  return comment.author.displayName || comment.author.email;
+}
+
+function mergeCreatedReply(
+  createdComment: PublicComment,
+  refreshedComments: PublicComment[],
+  parentId: string,
+  previousComments: PublicComment[]
+): PublicComment[] {
+  const merged = addReplyToRoot(refreshedComments, parentId, createdComment);
+  if (merged.added) {
+    return merged.comments;
+  }
+  return addReplyToRoot(previousComments, parentId, createdComment).comments;
+}
+
+function addReplyToRoot(
+  comments: PublicComment[],
+  parentId: string,
+  reply: PublicComment
+): { comments: PublicComment[]; added: boolean } {
+  let added = false;
+  const nextComments = comments.map((comment) => {
+    if (comment.id !== parentId) {
+      return comment;
+    }
+    if (comment.replies.some((existingReply) => existingReply.id === reply.id)) {
+      added = true;
+      return comment;
+    }
+    added = true;
+    return {
+      ...comment,
+      replies: [...comment.replies, reply]
+    };
+  });
+  return { comments: nextComments, added };
 }
 
 function mergeCreatedComment(createdComment: PublicComment, comments: PublicComment[]): PublicComment[] {

@@ -187,6 +187,35 @@ class PublicCommentControllerTests {
     }
 
     @Test
+    void createCommentPassesParentIdToService() throws Exception {
+        UUID siteId = UUID.randomUUID();
+        UUID pageId = UUID.randomUUID();
+        UUID parentId = UUID.randomUUID();
+        AuthenticatedUser currentUser = currentUser();
+        CommentView created = comment(siteId, pageId, parentId, CommentStatus.PENDING);
+        when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(publicCommentService.createComment(currentUser, siteId, ORIGIN, PAGE_URL, parentId, "Reply body"))
+            .thenReturn(created);
+
+        mockMvc.perform(post("/api/public/sites/{siteId}/pages/comments", siteId)
+                .header(HttpHeaders.ORIGIN, ORIGIN)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "pageUrl": "%s",
+                      "parentId": "%s",
+                      "content": "Reply body"
+                    }
+                    """.formatted(PAGE_URL, parentId)))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.id", is(created.id().toString())))
+            .andExpect(jsonPath("$.parentId", is(parentId.toString())))
+            .andExpect(jsonPath("$.content", is("Hello world")));
+    }
+
+    @Test
     void serviceNotFoundIsReturnedAsUnifiedNotFound() throws Exception {
         UUID siteId = UUID.randomUUID();
         when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);

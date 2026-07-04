@@ -102,7 +102,7 @@ class DomainPolicyServiceTests {
         }
 
         @Override
-        public boolean existsApprovedCommentOnPage(UUID pageId, UUID commentId) {
+        public boolean existsApprovedRootCommentOnPage(UUID pageId, UUID commentId) {
             throw new UnsupportedOperationException();
         }
 

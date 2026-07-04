@@ -10,6 +10,7 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   const siteName = `E2E Site ${suffix}`
   const domain = `e2e-${suffix}.example.com`
   const commentText = `E2E comment ${suffix}`
+  const replyText = `E2E reply ${suffix}`
   const pageUrl = `${ADMIN_ORIGIN}/external-page/${suffix}`
 
   await page.goto('/register')
@@ -67,6 +68,26 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
     status: 'APPROVED',
   })
 
+  const createReplyResponse = await request.post(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Origin: ADMIN_ORIGIN,
+    },
+    data: {
+      pageUrl,
+      parentId: createdComment.id,
+      content: replyText,
+    },
+  })
+  await expect(createReplyResponse).toBeOK()
+  const createdReply = await createReplyResponse.json()
+  expect(createdReply).toMatchObject({
+    siteId,
+    parentId: createdComment.id,
+    content: replyText,
+    status: 'APPROVED',
+  })
+
   const listCommentsResponse = await request.get(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
     headers: {
       Origin: ADMIN_ORIGIN,
@@ -82,6 +103,12 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   expect(commentsPage.items).toHaveLength(1)
   expect(commentsPage.items[0]).toMatchObject({
     content: commentText,
+    status: 'APPROVED',
+  })
+  expect(commentsPage.items[0].replies).toHaveLength(1)
+  expect(commentsPage.items[0].replies[0]).toMatchObject({
+    content: replyText,
+    parentId: createdComment.id,
     status: 'APPROVED',
   })
 
@@ -107,7 +134,6 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   )
 
   const widget = page.locator('#cloud-comment-widget')
-  await expect(widget.locator('.cloud-comment__title')).toHaveText('Comments')
-  await expect(widget.locator('.cloud-comment__meta')).toContainText(`site: ${siteId}`)
-  await expect(widget.locator('.cloud-comment__meta')).toContainText(`page: ${pageUrl}`)
+  await expect(widget.locator('.cloud-comment__title')).toHaveText('Комментарии')
+  await expect(widget.locator('.cloud-comment__comment-content')).toContainText([commentText, replyText])
 })

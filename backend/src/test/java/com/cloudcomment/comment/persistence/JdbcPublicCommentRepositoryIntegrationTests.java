@@ -120,9 +120,10 @@ class JdbcPublicCommentRepositoryIntegrationTests {
             });
         });
 
-        assertThat(repository.existsApprovedCommentOnPage(pageId, approvedRoot.id())).isTrue();
-        assertThat(repository.existsApprovedCommentOnPage(pageId, pendingRoot.id())).isFalse();
-        assertThat(repository.existsApprovedCommentOnPage(pageId, UUID.randomUUID())).isFalse();
+        assertThat(repository.existsApprovedRootCommentOnPage(pageId, approvedRoot.id())).isTrue();
+        assertThat(repository.existsApprovedRootCommentOnPage(pageId, approvedReply.id())).isFalse();
+        assertThat(repository.existsApprovedRootCommentOnPage(pageId, pendingRoot.id())).isFalse();
+        assertThat(repository.existsApprovedRootCommentOnPage(pageId, UUID.randomUUID())).isFalse();
     }
 
     private UUID insertUser(String label, String displayName) {

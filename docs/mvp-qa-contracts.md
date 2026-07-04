@@ -347,6 +347,8 @@ Request для create:
 }
 ```
 
+`parentId` is `null` for a root comment or an approved root comment id for a one-level reply. Invalid, foreign, or non-approved parent comments are masked as `404 NOT_FOUND`.
+
 Правила public widget API:
 
 - `siteId` берется из path и соответствует `data-site-id` в embed-code.
@@ -354,6 +356,7 @@ Request для create:
 - `pageUrl` должен быть absolute `http/https` URL того же origin, что и request `Origin`.
 - Bad/missing/disallowed origin, inactive/missing site и parent comment не с этой страницы возвращают `404 NOT_FOUND` с `Resource not found`.
 - Публичный список возвращает только `APPROVED`; `PENDING`, `REJECTED`, `HIDDEN`, `SPAM` не видны в виджете.
+- Approved replies are returned inside the root comment `replies` array. The widget exposes reply creation only from root comments and renders replies one level deep.
 - Embedded widget auth uses site-scoped `/api/public/sites/{siteId}/auth/*` aliases, not `/api/auth/*`, so browser CORS preflight is checked against the same domain policy.
 - Самообслуживание аккаунта в виджете использует site-scoped aliases `/api/public/sites/{siteId}/account/*`, а не `/api/account/*`: экспорт персональных данных и запрос удаления работают с external origin без ослабления глобального CORS.
 - Создание комментария требует bearer token; guest-flow в MVP не поддерживается.
@@ -441,6 +444,8 @@ Script attributes:
 ```
 
 `status`: `PENDING` | `APPROVED` | `REJECTED` | `HIDDEN` | `SPAM`.
+
+Moderation responses additionally include `parent` for reply comments. It contains the parent comment id, author summary, content, status, and creation time so the moderation card can show reply context.
 
 ### Pagination
 

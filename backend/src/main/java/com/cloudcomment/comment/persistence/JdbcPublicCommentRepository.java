@@ -156,13 +156,16 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
     }
 
     @Override
-    public boolean existsApprovedCommentOnPage(UUID pageId, UUID commentId) {
+    public boolean existsApprovedRootCommentOnPage(UUID pageId, UUID commentId) {
         Boolean exists = jdbcTemplate.queryForObject(
             """
                 select exists(
                     select 1
                     from comments
-                    where id = ? and page_id = ? and status = 'APPROVED'
+                    where id = ?
+                      and page_id = ?
+                      and status = 'APPROVED'
+                      and parent_id is null
                 )
                 """,
             Boolean.class,

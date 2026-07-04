@@ -6,6 +6,7 @@ import com.cloudcomment.moderation.domain.Comment;
 import com.cloudcomment.moderation.domain.CommentAuthor;
 import com.cloudcomment.moderation.domain.CommentSortField;
 import com.cloudcomment.moderation.domain.CommentStatus;
+import com.cloudcomment.moderation.domain.ParentComment;
 import com.cloudcomment.moderation.domain.SortOrder;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -41,11 +42,19 @@ class JdbcCommentRepository implements CommentRepository {
             c.body,
             c.status,
             c.created_at,
-            c.updated_at
+            c.updated_at,
+            pc.author_user_id as parent_author_user_id,
+            coalesce(pu.email, pc.author_email) as parent_author_email,
+            coalesce(pu.display_name, pc.author_name, pc.author_email, pu.email) as parent_author_display_name,
+            pc.body as parent_body,
+            pc.status as parent_status,
+            pc.created_at as parent_created_at
         from comments c
         join pages p on p.id = c.page_id
         join sites s on s.id = p.site_id
         left join app_users u on u.id = c.author_user_id
+        left join comments pc on pc.id = c.parent_id
+        left join app_users pu on pu.id = pc.author_user_id
         """;
 
     private final JdbcTemplate jdbcTemplate;
@@ -187,6 +196,7 @@ class JdbcCommentRepository implements CommentRepository {
             resultSet.getObject("page_id", UUID.class),
             resultSet.getString("page_url"),
             resultSet.getObject("parent_id", UUID.class),
+            mapParentComment(resultSet),
             new CommentAuthor(
                 authorUserId,
                 resultSet.getString("author_email"),
@@ -196,6 +206,24 @@ class JdbcCommentRepository implements CommentRepository {
             CommentStatus.valueOf(resultSet.getString("status")),
             toInstant(resultSet, "created_at"),
             toInstant(resultSet, "updated_at")
+        );
+    }
+
+    private ParentComment mapParentComment(ResultSet resultSet) throws SQLException {
+        UUID parentId = resultSet.getObject("parent_id", UUID.class);
+        if (parentId == null) {
+            return null;
+        }
+        return new ParentComment(
+            parentId,
+            new CommentAuthor(
+                resultSet.getObject("parent_author_user_id", UUID.class),
+                resultSet.getString("parent_author_email"),
+                resultSet.getString("parent_author_display_name")
+            ),
+            resultSet.getString("parent_body"),
+            CommentStatus.valueOf(resultSet.getString("parent_status")),
+            toInstant(resultSet, "parent_created_at")
         );
     }
 

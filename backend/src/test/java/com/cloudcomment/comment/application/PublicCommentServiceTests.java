@@ -61,9 +61,32 @@ class PublicCommentServiceTests {
         assertThat(repository.createdPageUrl).isEqualTo("https://example.com/blog/post-1");
         assertThat(repository.createdAuthorUserId).isEqualTo(user.id());
         assertThat(repository.createdAuthorEmail).isEqualTo(user.email());
+        assertThat(repository.createdParentId).isNull();
         assertThat(repository.createdContent).isEqualTo("Hello world");
         assertThat(repository.createdStatus).isEqualTo(CommentStatus.PENDING);
         assertThat(comment.status()).isEqualTo(CommentStatus.PENDING);
+    }
+
+    @Test
+    void createReplyChecksParentAndPassesParentIdToRepository() {
+        CapturingRepository repository = new CapturingRepository();
+        PublicCommentService service = service(repository, ModerationMode.POST_MODERATION);
+        UUID siteId = UUID.randomUUID();
+        UUID parentId = UUID.randomUUID();
+
+        CommentView comment = service.createComment(
+            currentUser(),
+            siteId,
+            "https://example.com",
+            "https://example.com/page",
+            parentId,
+            "Reply"
+        );
+
+        assertThat(repository.checkedParentPageId).isEqualTo(repository.pageId);
+        assertThat(repository.checkedParentId).isEqualTo(parentId);
+        assertThat(repository.createdParentId).isEqualTo(parentId);
+        assertThat(comment.parentId()).isEqualTo(parentId);
     }
 
     @Test
@@ -139,6 +162,9 @@ class PublicCommentServiceTests {
         private String findPageUrl;
         private UUID createdSiteId;
         private String createdPageUrl;
+        private UUID checkedParentPageId;
+        private UUID checkedParentId;
+        private UUID createdParentId;
         private UUID createdAuthorUserId;
         private String createdAuthorEmail;
         private String createdContent;
@@ -173,7 +199,9 @@ class PublicCommentServiceTests {
         }
 
         @Override
-        public boolean existsApprovedCommentOnPage(UUID pageId, UUID commentId) {
+        public boolean existsApprovedRootCommentOnPage(UUID pageId, UUID commentId) {
+            checkedParentPageId = pageId;
+            checkedParentId = commentId;
             return parentExists;
         }
 
@@ -188,6 +216,7 @@ class PublicCommentServiceTests {
             String content,
             CommentStatus status
         ) {
+            createdParentId = parentId;
             createdAuthorUserId = authorUserId;
             createdAuthorEmail = authorEmail;
             createdContent = content;
