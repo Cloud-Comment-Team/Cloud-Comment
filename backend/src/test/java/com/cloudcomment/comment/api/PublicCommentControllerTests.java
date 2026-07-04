@@ -128,6 +128,24 @@ class PublicCommentControllerTests {
     }
 
     @Test
+    void listCommentsIgnoresInvalidOptionalBearerViewer() throws Exception {
+        UUID siteId = UUID.randomUUID();
+        when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
+        when(currentUserService.getCurrentUser(eq("expired-session-token")))
+            .thenThrow(new ApplicationException(ApiErrorCode.INVALID_SESSION, "Invalid or expired session"));
+        when(publicCommentService.listComments(siteId, ORIGIN, PAGE_URL, 1, 20, Optional.empty()))
+            .thenReturn(new CommentPage(List.of(), 1, 20, 0));
+
+        mockMvc.perform(get("/api/public/sites/{siteId}/pages/comments", siteId)
+                .header(HttpHeaders.ORIGIN, ORIGIN)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer expired-session-token")
+                .param("pageUrl", PAGE_URL))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.items", empty()))
+            .andExpect(jsonPath("$.totalItems", is(0)));
+    }
+
+    @Test
     void listCommentsRejectsInvalidPageUrlWithValidationEnvelope() throws Exception {
         UUID siteId = UUID.randomUUID();
         when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
@@ -273,6 +291,49 @@ class PublicCommentControllerTests {
     }
 
     @Test
+    void setReactionWithNullTypeClearsExistingReaction() throws Exception {
+        UUID siteId = UUID.randomUUID();
+        UUID commentId = UUID.randomUUID();
+        AuthenticatedUser currentUser = currentUser();
+        when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(publicCommentService.setReaction(currentUser, siteId, ORIGIN, commentId, null))
+            .thenReturn(List.of());
+
+        mockMvc.perform(put("/api/public/sites/{siteId}/comments/{commentId}/reaction", siteId, commentId)
+                .header(HttpHeaders.ORIGIN, ORIGIN)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "type": null
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.reactions", empty()));
+    }
+
+    @Test
+    void updateOwnCommentRequiresBearerToken() throws Exception {
+        UUID siteId = UUID.randomUUID();
+        UUID commentId = UUID.randomUUID();
+        when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
+
+        mockMvc.perform(patch("/api/public/sites/{siteId}/comments/{commentId}", siteId, commentId)
+                .header(HttpHeaders.ORIGIN, ORIGIN)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "content": "Updated body"
+                    }
+                    """))
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.error.code", is("INVALID_SESSION")));
+
+        verifyNoInteractions(publicCommentService);
+    }
+
+    @Test
     void updateOwnCommentReturnsUpdatedCommentForAuthenticatedUser() throws Exception {
         UUID siteId = UUID.randomUUID();
         UUID pageId = UUID.randomUUID();
@@ -297,6 +358,45 @@ class PublicCommentControllerTests {
             .andExpect(jsonPath("$.id", is(commentId.toString())))
             .andExpect(jsonPath("$.content", is("Updated body")))
             .andExpect(jsonPath("$.status", is("PENDING")));
+    }
+
+    @Test
+    void updateOwnCommentRejectsInvalidContentWithValidationEnvelope() throws Exception {
+        UUID siteId = UUID.randomUUID();
+        UUID commentId = UUID.randomUUID();
+        AuthenticatedUser currentUser = currentUser();
+        when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+
+        mockMvc.perform(patch("/api/public/sites/{siteId}/comments/{commentId}", siteId, commentId)
+                .header(HttpHeaders.ORIGIN, ORIGIN)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "content": "   "
+                    }
+                    """))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code", is("VALIDATION_FAILED")))
+            .andExpect(jsonPath("$.error.path", is("/api/public/sites/" + siteId + "/comments/" + commentId)))
+            .andExpect(jsonPath("$.error.fields").isNotEmpty());
+
+        verifyNoInteractions(publicCommentService);
+    }
+
+    @Test
+    void deleteOwnCommentRequiresBearerToken() throws Exception {
+        UUID siteId = UUID.randomUUID();
+        UUID commentId = UUID.randomUUID();
+        when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
+
+        mockMvc.perform(delete("/api/public/sites/{siteId}/comments/{commentId}", siteId, commentId)
+                .header(HttpHeaders.ORIGIN, ORIGIN))
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.error.code", is("INVALID_SESSION")));
+
+        verifyNoInteractions(publicCommentService);
     }
 
     @Test

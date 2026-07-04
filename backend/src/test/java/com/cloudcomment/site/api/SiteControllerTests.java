@@ -7,8 +7,13 @@ import com.cloudcomment.shared.error.ApplicationException;
 import com.cloudcomment.site.application.EmbedCode;
 import com.cloudcomment.site.application.SitePage;
 import com.cloudcomment.site.application.SiteService;
+import com.cloudcomment.site.domain.AutoModerationSettings;
+import com.cloudcomment.site.domain.AutoModerationStrictness;
 import com.cloudcomment.site.domain.ModerationMode;
 import com.cloudcomment.site.domain.Site;
+import com.cloudcomment.site.domain.WidgetCornerRadius;
+import com.cloudcomment.site.domain.WidgetStyle;
+import com.cloudcomment.site.domain.WidgetTheme;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -88,6 +93,15 @@ class SiteControllerTests {
             .andExpect(jsonPath("$.items[0].publicKey", is("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")))
             .andExpect(jsonPath("$.items[0].moderationMode", is("PRE_MODERATION")))
             .andExpect(jsonPath("$.items[0].isActive", is(true)))
+            .andExpect(jsonPath("$.items[0].widgetStyle.theme", is("AUTO")))
+            .andExpect(jsonPath("$.items[0].widgetStyle.accentColor", is(WidgetStyle.DEFAULT_ACCENT_COLOR)))
+            .andExpect(jsonPath("$.items[0].widgetStyle.cornerRadius", is("MEDIUM")))
+            .andExpect(jsonPath("$.items[0].autoModeration.enabled", is(true)))
+            .andExpect(jsonPath("$.items[0].autoModeration.strictness", is("BALANCED")))
+            .andExpect(jsonPath("$.items[0].autoModeration.blockedWords", empty()))
+            .andExpect(jsonPath("$.items[0].autoModeration.holdLinks", is(true)))
+            .andExpect(jsonPath("$.items[0].autoModeration.blockLinks", is(false)))
+            .andExpect(jsonPath("$.items[0].autoModeration.maxLinks", is(2)))
             .andExpect(jsonPath("$.items[0].allowedOrigins", contains("https://example.com")))
             .andExpect(jsonPath("$.page", is(1)))
             .andExpect(jsonPath("$.pageSize", is(20)))
@@ -147,6 +161,68 @@ class SiteControllerTests {
     }
 
     @Test
+    void createSitePassesWidgetStyleAndAutoModerationToService() throws Exception {
+        AuthenticatedUser currentUser = currentUser();
+        UUID siteId = UUID.randomUUID();
+        WidgetStyle widgetStyle = new WidgetStyle(WidgetTheme.DARK, "#123abc", WidgetCornerRadius.LARGE);
+        AutoModerationSettings autoModeration = new AutoModerationSettings(
+            true,
+            AutoModerationStrictness.STRICT,
+            List.of("casino", "spam"),
+            false,
+            true,
+            0
+        );
+        Site site = site(currentUser.id(), siteId, widgetStyle, autoModeration);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(siteService.createSite(
+            eq(currentUser),
+            eq("Example site"),
+            eq("example.com"),
+            eq(ModerationMode.POST_MODERATION),
+            eq(List.of("https://example.com")),
+            eq(widgetStyle),
+            eq(autoModeration)
+        )).thenReturn(site);
+
+        mockMvc.perform(post("/api/sites")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "name": "Example site",
+                      "domain": "example.com",
+                      "moderationMode": "POST_MODERATION",
+                      "allowedOrigins": ["https://example.com"],
+                      "widgetStyle": {
+                        "theme": "DARK",
+                        "accentColor": "#123abc",
+                        "cornerRadius": "LARGE"
+                      },
+                      "autoModeration": {
+                        "enabled": true,
+                        "strictness": "STRICT",
+                        "blockedWords": ["casino", "spam"],
+                        "holdLinks": false,
+                        "blockLinks": true,
+                        "maxLinks": 0
+                      }
+                    }
+                    """))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.id", is(siteId.toString())))
+            .andExpect(jsonPath("$.widgetStyle.theme", is("DARK")))
+            .andExpect(jsonPath("$.widgetStyle.accentColor", is("#123abc")))
+            .andExpect(jsonPath("$.widgetStyle.cornerRadius", is("LARGE")))
+            .andExpect(jsonPath("$.autoModeration.enabled", is(true)))
+            .andExpect(jsonPath("$.autoModeration.strictness", is("STRICT")))
+            .andExpect(jsonPath("$.autoModeration.blockedWords", contains("casino", "spam")))
+            .andExpect(jsonPath("$.autoModeration.holdLinks", is(false)))
+            .andExpect(jsonPath("$.autoModeration.blockLinks", is(true)))
+            .andExpect(jsonPath("$.autoModeration.maxLinks", is(0)));
+    }
+
+    @Test
     void createSiteRejectsInvalidRequestWithValidationEnvelope() throws Exception {
         AuthenticatedUser currentUser = currentUser();
         when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
@@ -166,6 +242,38 @@ class SiteControllerTests {
             .andExpect(jsonPath("$.error.code", is("VALIDATION_FAILED")))
             .andExpect(jsonPath("$.error.message", is("Request validation failed")))
             .andExpect(jsonPath("$.error.status", is(400)))
+            .andExpect(jsonPath("$.error.path", is("/api/sites")))
+            .andExpect(jsonPath("$.error.fields").isNotEmpty());
+
+        verifyNoInteractions(siteService);
+    }
+
+    @Test
+    void createSiteRejectsInvalidAutoModerationRequest() throws Exception {
+        AuthenticatedUser currentUser = currentUser();
+        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+
+        mockMvc.perform(post("/api/sites")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "name": "Example site",
+                      "domain": "example.com",
+                      "moderationMode": "PRE_MODERATION",
+                      "allowedOrigins": ["https://example.com"],
+                      "autoModeration": {
+                        "enabled": true,
+                        "strictness": "BALANCED",
+                        "blockedWords": ["%s"],
+                        "holdLinks": true,
+                        "blockLinks": false,
+                        "maxLinks": 21
+                      }
+                    }
+                    """.formatted("x".repeat(AutoModerationSettings.MAX_BLOCKED_WORD_LENGTH + 1))))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code", is("VALIDATION_FAILED")))
             .andExpect(jsonPath("$.error.path", is("/api/sites")))
             .andExpect(jsonPath("$.error.fields").isNotEmpty());
 
@@ -293,6 +401,56 @@ class SiteControllerTests {
     }
 
     @Test
+    void updateSitePassesWidgetStyleAndAutoModerationPatchToService() throws Exception {
+        AuthenticatedUser currentUser = currentUser();
+        UUID siteId = UUID.randomUUID();
+        WidgetStyle widgetStyle = new WidgetStyle(WidgetTheme.LIGHT, "#00ffaa", WidgetCornerRadius.SMALL);
+        AutoModerationSettings autoModeration = new AutoModerationSettings(
+            false,
+            AutoModerationStrictness.BALANCED,
+            List.of(),
+            false,
+            false,
+            2
+        );
+        Site updatedSite = site(currentUser.id(), siteId, widgetStyle, autoModeration);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(siteService.updateSite(
+            currentUser,
+            siteId,
+            null,
+            null,
+            null,
+            null,
+            widgetStyle,
+            autoModeration
+        )).thenReturn(updatedSite);
+
+        mockMvc.perform(patch("/api/sites/{siteId}", siteId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "widgetStyle": {
+                        "theme": "LIGHT",
+                        "accentColor": "#00ffaa",
+                        "cornerRadius": "SMALL"
+                      },
+                      "autoModeration": {
+                        "enabled": false,
+                        "holdLinks": false
+                      }
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.widgetStyle.theme", is("LIGHT")))
+            .andExpect(jsonPath("$.widgetStyle.accentColor", is("#00ffaa")))
+            .andExpect(jsonPath("$.widgetStyle.cornerRadius", is("SMALL")))
+            .andExpect(jsonPath("$.autoModeration.enabled", is(false)))
+            .andExpect(jsonPath("$.autoModeration.holdLinks", is(false)));
+    }
+
+    @Test
     void replaceAllowedOriginsReturnsUpdatedSite() throws Exception {
         AuthenticatedUser currentUser = currentUser();
         UUID siteId = UUID.randomUUID();
@@ -407,6 +565,10 @@ class SiteControllerTests {
     }
 
     private Site site(UUID ownerId, UUID siteId) {
+        return site(ownerId, siteId, WidgetStyle.defaultStyle(), AutoModerationSettings.defaultSettings());
+    }
+
+    private Site site(UUID ownerId, UUID siteId, WidgetStyle widgetStyle, AutoModerationSettings autoModeration) {
         return new Site(
             siteId,
             ownerId,
@@ -415,6 +577,8 @@ class SiteControllerTests {
             "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
             ModerationMode.PRE_MODERATION,
             true,
+            widgetStyle,
+            autoModeration,
             List.of("https://example.com"),
             CREATED_AT,
             UPDATED_AT

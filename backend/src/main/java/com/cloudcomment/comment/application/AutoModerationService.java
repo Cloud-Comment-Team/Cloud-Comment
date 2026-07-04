@@ -66,7 +66,7 @@ public class AutoModerationService {
         int linkCount = countLinks(content);
         if (linkCount > 0 && activeSettings.blockLinks()) {
             reasons.add("links are blocked");
-            score += 100;
+            score += 120;
         } else if (activeSettings.holdLinks() && linkCount > activeSettings.maxLinks()) {
             reasons.add("too many links: " + linkCount);
             score += activeSettings.strictness() == AutoModerationStrictness.STRICT ? 70 : 45;
