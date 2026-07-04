@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { Globe, LayoutDashboard, LogOut, Settings, Shield, X } from 'lucide-react'
+import { Globe, LayoutDashboard, LogOut, Shield, X } from 'lucide-react'
 
 import { BrandMark } from '../brand/BrandLogo'
 import { useAuthStore } from '../../store'
@@ -9,7 +9,6 @@ const navigation = [
   { name: 'Дашборд', href: '/', icon: LayoutDashboard },
   { name: 'Сайты', href: '/sites', icon: Globe },
   { name: 'Модерация', href: '/moderation', icon: Shield },
-  { name: 'Аккаунт', href: '/account', icon: Settings },
 ]
 
 interface SidebarProps {
@@ -92,12 +91,18 @@ const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
           </nav>
 
           <div className="space-y-3 border-t p-3" style={{ borderColor: 'var(--border)' }}>
-            <div
-              className="flex items-center gap-3 rounded-lg border p-3"
-              style={{ backgroundColor: 'var(--surface-muted)', borderColor: 'var(--border)' }}
+            <NavLink
+              to="/account"
+              onClick={onClose}
+              className="group flex items-center gap-3 rounded-lg border p-3 text-left transition hover:-translate-y-0.5 hover:shadow-sm"
+              style={({ isActive }) => ({
+                backgroundColor: isActive ? 'var(--accent-bg)' : 'var(--surface-muted)',
+                borderColor: isActive ? 'var(--accent-border)' : 'var(--border)',
+              })}
+              aria-label="Открыть настройки аккаунта"
             >
               <div
-                className="flex h-9 w-9 items-center justify-center rounded-full"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
                 style={{ backgroundColor: 'var(--accent-bg)', color: 'var(--accent)' }}
               >
                 <span className="text-xs font-semibold">{initials}</span>
@@ -110,7 +115,7 @@ const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
                   {user?.email ?? 'Аккаунт'}
                 </p>
               </div>
-            </div>
+            </NavLink>
 
             <div className="flex items-center gap-2">
               <button
