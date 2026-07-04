@@ -18,11 +18,12 @@ export const widgetStyles = `
   --cc-text: #475467;
   --cc-text-heading: #101828;
   --cc-placeholder: #8994a6;
-  --cc-accent: #0f766e;
-  --cc-accent-strong: #0d5f59;
-  --cc-accent-contrast: #ffffff;
-  --cc-accent-soft: #ecfdf3;
-  --cc-accent-border: #b9f0da;
+  --cc-radius: 8px;
+  --cc-accent: var(--cc-custom-accent, #0f766e);
+  --cc-accent-strong: color-mix(in srgb, var(--cc-accent) 84%, #000000);
+  --cc-accent-contrast: var(--cc-custom-accent-contrast, #ffffff);
+  --cc-accent-soft: color-mix(in srgb, var(--cc-accent) 12%, transparent);
+  --cc-accent-border: color-mix(in srgb, var(--cc-accent) 34%, transparent);
   --cc-success-bg: #f1fff7;
   --cc-success-text: #067647;
   --cc-warning-bg: #fff7ed;
@@ -44,11 +45,11 @@ export const widgetStyles = `
   --cc-text: #aab7c8;
   --cc-text-heading: #f5f8fc;
   --cc-placeholder: #7d8ca3;
-  --cc-accent: #5eead4;
-  --cc-accent-strong: #2dd4bf;
-  --cc-accent-contrast: #06221f;
-  --cc-accent-soft: rgba(94, 234, 212, 0.12);
-  --cc-accent-border: rgba(94, 234, 212, 0.28);
+  --cc-accent: var(--cc-custom-accent, #5eead4);
+  --cc-accent-strong: color-mix(in srgb, var(--cc-accent) 88%, #ffffff);
+  --cc-accent-contrast: var(--cc-custom-accent-contrast, #06221f);
+  --cc-accent-soft: color-mix(in srgb, var(--cc-accent) 14%, transparent);
+  --cc-accent-border: color-mix(in srgb, var(--cc-accent) 30%, transparent);
   --cc-success-bg: rgba(134, 239, 172, 0.13);
   --cc-success-text: #86efac;
   --cc-warning-bg: rgba(251, 191, 36, 0.13);
@@ -66,13 +67,25 @@ export const widgetStyles = `
   width: 100%;
   overflow: hidden;
   border: 1px solid var(--cc-border);
-  border-radius: 8px;
+  border-radius: var(--cc-radius);
   background: var(--cc-surface);
   color: var(--cc-text-heading);
   font-family: inherit;
   line-height: 1.5;
   box-shadow: var(--cc-shadow);
   animation: cloud-comment-enter 220ms ease-out both;
+}
+
+.cloud-comment[data-radius="small"] {
+  --cc-radius: 6px;
+}
+
+.cloud-comment[data-radius="medium"] {
+  --cc-radius: 10px;
+}
+
+.cloud-comment[data-radius="large"] {
+  --cc-radius: 18px;
 }
 
 .cloud-comment *,
@@ -136,7 +149,7 @@ export const widgetStyles = `
   gap: 6px;
   margin: 0;
   border: 1px dashed var(--cc-border);
-  border-radius: 8px;
+  border-radius: var(--cc-radius);
   background: var(--cc-surface-muted);
   padding: 22px;
   color: var(--cc-text);
@@ -146,7 +159,7 @@ export const widgetStyles = `
 
 .cloud-comment__message {
   margin: 0;
-  border-radius: 8px;
+  border-radius: var(--cc-radius);
   padding: 11px 13px;
   font-size: 14px;
   animation: cloud-comment-slide 180ms ease-out both;
@@ -174,7 +187,7 @@ export const widgetStyles = `
   display: grid;
   gap: 10px;
   border: 1px solid var(--cc-border-soft);
-  border-radius: 8px;
+  border-radius: var(--cc-radius);
   padding: 14px;
   background: var(--cc-surface);
   box-shadow: var(--cc-shadow-sm);
@@ -229,6 +242,62 @@ export const widgetStyles = `
 .cloud-comment__comment-footer {
   display: flex;
   justify-content: flex-start;
+}
+
+.cloud-comment__reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.cloud-comment__reaction {
+  display: inline-flex;
+  min-width: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid var(--cc-border);
+  border-radius: 999px;
+  background: var(--cc-surface-muted);
+  color: var(--cc-text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  padding: 6px 9px;
+  transition:
+    border-color 150ms ease,
+    background 150ms ease,
+    color 150ms ease,
+    transform 150ms ease;
+}
+
+.cloud-comment__reaction:hover {
+  border-color: var(--cc-accent-border);
+  background: var(--cc-accent-soft);
+  color: var(--cc-accent);
+  transform: translateY(-1px);
+}
+
+.cloud-comment__reaction--active {
+  border-color: var(--cc-accent-border);
+  background: var(--cc-accent);
+  color: var(--cc-accent-contrast);
+}
+
+.cloud-comment__reaction:disabled {
+  cursor: wait;
+  opacity: 0.72;
+  transform: none;
+}
+
+.cloud-comment__reaction-emoji {
+  font-size: 14px;
+}
+
+.cloud-comment__reaction-count {
+  font-variant-numeric: tabular-nums;
 }
 
 .cloud-comment__reply-button,
@@ -288,7 +357,7 @@ export const widgetStyles = `
   justify-content: space-between;
   gap: 10px;
   border: 1px solid var(--cc-accent-border);
-  border-radius: 8px;
+  border-radius: var(--cc-radius);
   background: var(--cc-accent-soft);
   color: var(--cc-accent);
   padding: 9px 11px;
@@ -311,7 +380,7 @@ export const widgetStyles = `
   width: 100%;
   min-width: 0;
   border: 1px solid var(--cc-border);
-  border-radius: 8px;
+  border-radius: var(--cc-radius);
   background: var(--cc-surface-soft);
   color: var(--cc-text-heading);
   font: inherit;
@@ -368,7 +437,7 @@ export const widgetStyles = `
 .cloud-comment__button {
   flex: 0 0 auto;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--cc-radius);
   background: var(--cc-accent);
   color: var(--cc-accent-contrast);
   cursor: pointer;
@@ -417,7 +486,7 @@ export const widgetStyles = `
   display: grid;
   gap: 12px;
   border: 1px solid var(--cc-border-soft);
-  border-radius: 8px;
+  border-radius: var(--cc-radius);
   background: var(--cc-surface-muted);
   padding: 14px;
 }
@@ -465,7 +534,7 @@ export const widgetStyles = `
 
 .cloud-comment__account-button {
   border: 1px solid var(--cc-border);
-  border-radius: 8px;
+  border-radius: var(--cc-radius);
   background: var(--cc-surface);
   color: var(--cc-text-heading);
   cursor: pointer;
@@ -519,7 +588,7 @@ export const widgetStyles = `
   display: grid;
   gap: 10px;
   border: 1px solid var(--cc-danger-border);
-  border-radius: 8px;
+  border-radius: var(--cc-radius);
   background: var(--cc-danger-bg);
   padding: 12px;
 }
@@ -543,7 +612,7 @@ export const widgetStyles = `
   grid-template-columns: repeat(2, minmax(0, 1fr));
   overflow: hidden;
   border: 1px solid var(--cc-border);
-  border-radius: 8px;
+  border-radius: var(--cc-radius);
   background: var(--cc-surface-muted);
   padding: 3px;
 }

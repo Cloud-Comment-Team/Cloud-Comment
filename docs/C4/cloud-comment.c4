@@ -204,7 +204,7 @@ model {
 
       projectModule = component 'Project module' 'MVP-термин проекта, который маппится на site без отдельной таблицы'
 
-      siteModule = component 'Site module' 'Сайты владельцев, allowed origins, режим модерации и public key'
+      siteModule = component 'Site module' 'Сайты владельцев, allowed origins, режим модерации, public key и настройки внешнего вида виджета'
 
       domainPolicyModule = component 'Domain policy module' 'Проверка разрешенных доменов для подключения виджета'
 
@@ -212,9 +212,9 @@ model {
 
       pageModule = component 'Page module' 'Определение страницы сайта и разделение обсуждений по URL'
 
-      widgetConfigModule = component 'Widget config module' 'Публичная конфигурация виджета для конкретного сайта'
+      widgetConfigModule = component 'Widget config module' 'Публичная конфигурация виджета и настройка темы/акцента для конкретного сайта'
 
-      commentModule = component 'Comment module' 'Создание, получение и хранение комментариев'
+      commentModule = component 'Comment module' 'Создание, получение, реакции и хранение комментариев'
 
       moderationModule = component 'Moderation module' 'Смена статусов комментариев и управление очередью модерации'
 

@@ -30,6 +30,7 @@ import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.is;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -120,7 +121,8 @@ class SiteControllerTests {
             eq("Example site"),
             eq("Example.COM"),
             eq(ModerationMode.PRE_MODERATION),
-            eq(List.of("https://Example.com"))
+            eq(List.of("https://Example.com")),
+            isNull()
         )).thenReturn(site);
 
         mockMvc.perform(post("/api/sites")
@@ -202,7 +204,8 @@ class SiteControllerTests {
             eq("Example site"),
             eq("example.com"),
             eq(ModerationMode.PRE_MODERATION),
-            eq(List.of("https://example.com"))
+            eq(List.of("https://example.com")),
+            isNull()
         )).thenThrow(new ApplicationException(ApiErrorCode.BUSINESS_ERROR, "Site domain already exists"));
 
         mockMvc.perform(post("/api/sites")
@@ -264,7 +267,8 @@ class SiteControllerTests {
             "Updated site",
             "updated.example.com",
             ModerationMode.POST_MODERATION,
-            false
+            false,
+            null
         )).thenReturn(updatedSite);
 
         mockMvc.perform(patch("/api/sites/{siteId}", siteId)

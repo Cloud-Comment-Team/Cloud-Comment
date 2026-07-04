@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import type { SubmitHandler } from 'react-hook-form'
 import { useForm, useWatch } from 'react-hook-form'
 import { Link, useNavigate } from 'react-router-dom'
@@ -7,10 +7,10 @@ import {
   CheckCircle2,
   CircleDashed,
   Code2,
-  Eye,
   Globe,
   Link2,
   MessageSquareText,
+  Palette,
   ShieldCheck,
   Sparkles,
 } from 'lucide-react'
@@ -19,7 +19,7 @@ import { getApiErrorMessage } from '../../api/auth'
 import { createSite } from '../../api/sites'
 import Input from '../../components/common/Input/Input'
 import { API_BASE_URL } from '../../config/env'
-import type { ModerationMode } from '../../types/api'
+import type { ModerationMode, WidgetCornerRadius, WidgetTheme } from '../../types/api'
 import { normalizeDomainInput, parseAllowedOriginsInput } from '../../utils/origins'
 import { moderationModeLabels } from '../../utils/moderationModeLabels'
 
@@ -28,9 +28,25 @@ interface SiteFormValues {
   domain: string
   moderationMode: ModerationMode
   allowedOrigins: string
+  widgetTheme: WidgetTheme
+  widgetAccentColor: string
+  widgetCornerRadius: WidgetCornerRadius
 }
 
 const WIDGET_SCRIPT_PATH = '/widget/cloud-comment-widget.js'
+const DEFAULT_WIDGET_ACCENT = '#0f766e'
+
+const widgetCornerRadiusPx: Record<WidgetCornerRadius, string> = {
+  SMALL: '6px',
+  MEDIUM: '12px',
+  LARGE: '20px',
+}
+
+const widgetThemeLabels: Record<WidgetTheme, string> = {
+  AUTO: 'Авто',
+  LIGHT: 'Светлая',
+  DARK: 'Темная',
+}
 
 const previewModeCopy: Record<ModerationMode, { badge: string; text: string }> = {
   PRE_MODERATION: {
@@ -62,6 +78,7 @@ const SiteCreate = () => {
     register,
     handleSubmit,
     control,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm<SiteFormValues>({
     defaultValues: {
@@ -69,6 +86,9 @@ const SiteCreate = () => {
       domain: '',
       moderationMode: 'PRE_MODERATION',
       allowedOrigins: '',
+      widgetTheme: 'AUTO',
+      widgetAccentColor: DEFAULT_WIDGET_ACCENT,
+      widgetCornerRadius: 'MEDIUM',
     },
   })
 
@@ -77,6 +97,13 @@ const SiteCreate = () => {
   const watchedDomain = watchedValues.domain ?? ''
   const watchedAllowedOrigins = watchedValues.allowedOrigins ?? ''
   const watchedModerationMode = watchedValues.moderationMode ?? 'PRE_MODERATION'
+  const watchedWidgetTheme = watchedValues.widgetTheme ?? 'AUTO'
+  const watchedWidgetAccentColor = watchedValues.widgetAccentColor ?? DEFAULT_WIDGET_ACCENT
+  const watchedWidgetCornerRadius = watchedValues.widgetCornerRadius ?? 'MEDIUM'
+  const previewAccentColor = /^#[0-9a-fA-F]{6}$/.test(watchedWidgetAccentColor)
+    ? watchedWidgetAccentColor
+    : DEFAULT_WIDGET_ACCENT
+  const previewRadius = widgetCornerRadiusPx[watchedWidgetCornerRadius]
   const normalizedDomain = normalizeDomainInput(watchedDomain)
   const parsedOrigins = useMemo(
     () => parseAllowedOriginsInput(watchedAllowedOrigins),
@@ -114,6 +141,11 @@ const SiteCreate = () => {
         domain,
         moderationMode: values.moderationMode,
         allowedOrigins,
+        widgetStyle: {
+          theme: values.widgetTheme,
+          accentColor: values.widgetAccentColor,
+          cornerRadius: values.widgetCornerRadius,
+        },
       })
       navigate(`/sites/${site.id}`)
     } catch (error) {
@@ -250,8 +282,77 @@ const SiteCreate = () => {
 
           <section className="cc-card p-5 md:p-6">
             <OnboardingStepHeader
-              icon={<Code2 className="h-5 w-5" aria-hidden="true" />}
+              icon={<Palette className="h-5 w-5" aria-hidden="true" />}
               index="03"
+              title="Внешний вид"
+              description="Настройте тему, акцентный цвет и мягкость карточек виджета."
+            />
+
+            <div className="mt-5 grid gap-4 md:grid-cols-3">
+              <label className="block text-left">
+                <span className="mb-2 block text-sm font-medium" style={{ color: 'var(--text-h)' }}>
+                  Тема виджета
+                </span>
+                <select className="cc-field" {...register('widgetTheme')}>
+                  <option value="AUTO">Авто</option>
+                  <option value="LIGHT">Светлая</option>
+                  <option value="DARK">Темная</option>
+                </select>
+              </label>
+
+              <label className="block text-left">
+                <span className="mb-2 block text-sm font-medium" style={{ color: 'var(--text-h)' }}>
+                  Акцент
+                </span>
+                <div className="flex gap-2">
+                  <input
+                    type="color"
+                    className="h-12 w-14 shrink-0 rounded-lg border bg-transparent p-1"
+                    style={{ borderColor: 'var(--border)' }}
+                    aria-label="Акцентный цвет"
+                    value={previewAccentColor}
+                    onChange={(event) => {
+                      setValue('widgetAccentColor', event.target.value, {
+                        shouldDirty: true,
+                        shouldValidate: true,
+                      })
+                    }}
+                  />
+                  <input
+                    className="cc-field"
+                    aria-label="HEX акцентного цвета"
+                    {...register('widgetAccentColor', {
+                      pattern: {
+                        value: /^#[0-9a-fA-F]{6}$/,
+                        message: 'Цвет должен быть в формате #RRGGBB',
+                      },
+                    })}
+                  />
+                </div>
+                {errors.widgetAccentColor && (
+                  <span className="mt-2 block text-sm" style={{ color: 'var(--danger)' }}>
+                    {errors.widgetAccentColor.message}
+                  </span>
+                )}
+              </label>
+
+              <label className="block text-left">
+                <span className="mb-2 block text-sm font-medium" style={{ color: 'var(--text-h)' }}>
+                  Скругления
+                </span>
+                <select className="cc-field" {...register('widgetCornerRadius')}>
+                  <option value="SMALL">Строже</option>
+                  <option value="MEDIUM">Мягко</option>
+                  <option value="LARGE">Максимально мягко</option>
+                </select>
+              </label>
+            </div>
+          </section>
+
+          <section className="cc-card p-5 md:p-6">
+            <OnboardingStepHeader
+              icon={<Code2 className="h-5 w-5" aria-hidden="true" />}
+              index="04"
               title="Запуск виджета"
               description="После создания админка выдаст готовый embed-код с site id и public API URL."
             />
@@ -283,9 +384,9 @@ const SiteCreate = () => {
               </div>
               <span
                 className="inline-flex h-10 w-10 items-center justify-center rounded-lg"
-                style={{ backgroundColor: 'var(--accent-bg)', color: 'var(--accent)' }}
+                style={{ backgroundColor: `${previewAccentColor}22`, color: previewAccentColor }}
               >
-                <Eye className="h-5 w-5" aria-hidden="true" />
+                <Palette className="h-5 w-5" aria-hidden="true" />
               </span>
             </div>
 
@@ -305,7 +406,7 @@ const SiteCreate = () => {
                   </div>
                   <span
                     className="rounded-full px-2.5 py-1 text-xs font-bold"
-                    style={{ backgroundColor: 'var(--accent-bg)', color: 'var(--accent)' }}
+                    style={{ backgroundColor: `${previewAccentColor}22`, color: previewAccentColor }}
                   >
                     {moderationModeLabels[previewModerationMode]}
                   </span>
@@ -334,7 +435,7 @@ const SiteCreate = () => {
 
               <div
                 className="rounded-lg border"
-                style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}
+                style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)', borderRadius: previewRadius }}
               >
                 <div className="flex items-center justify-between border-b px-4 py-3" style={{ borderColor: 'var(--border)' }}>
                   <div>
@@ -347,12 +448,18 @@ const SiteCreate = () => {
                   </div>
                   <span
                     className="rounded-full px-2.5 py-1 text-xs font-bold"
-                    style={{ backgroundColor: 'var(--accent-bg)', color: 'var(--accent)' }}
+                    style={{ backgroundColor: `${previewAccentColor}22`, color: previewAccentColor }}
                   >
                     CloudComment
                   </span>
                 </div>
-                <div className="space-y-3 p-4">
+                <div
+                  className="space-y-3 p-4"
+                  style={{
+                    '--preview-accent': previewAccentColor,
+                    '--preview-radius': previewRadius,
+                  } as CSSProperties}
+                >
                   <PreviewComment author="AL" title="Алиса" text="Классный материал! Оставлю вопрос по теме." />
                   <PreviewComment
                     author="OW"
@@ -363,10 +470,18 @@ const SiteCreate = () => {
                   />
                   <div
                     className="rounded-lg border px-3 py-3 text-sm"
-                    style={{ borderColor: 'var(--border)', color: 'var(--text)', backgroundColor: 'var(--code-bg)' }}
+                    style={{
+                      borderColor: 'var(--border)',
+                      borderRadius: 'var(--preview-radius)',
+                      color: 'var(--text)',
+                      backgroundColor: 'var(--code-bg)',
+                    }}
                   >
                     Напишите комментарий
                   </div>
+                  <p className="text-xs font-semibold" style={{ color: previewAccentColor }}>
+                    Стиль: {widgetThemeLabels[watchedWidgetTheme]}, {previewAccentColor}, {watchedWidgetCornerRadius.toLowerCase()}
+                  </p>
                 </div>
               </div>
             </div>
@@ -469,12 +584,13 @@ function PreviewComment({
       style={{
         backgroundColor: muted ? 'var(--surface-muted)' : 'var(--surface)',
         borderColor: 'var(--border)',
+        borderRadius: 'var(--preview-radius)',
       }}
     >
       <div className="mb-2 flex items-center gap-2">
         <span
           className="inline-flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold"
-          style={{ backgroundColor: 'var(--accent-bg)', color: 'var(--accent)' }}
+          style={{ backgroundColor: 'color-mix(in srgb, var(--preview-accent) 16%, transparent)', color: 'var(--preview-accent)' }}
         >
           {author}
         </span>

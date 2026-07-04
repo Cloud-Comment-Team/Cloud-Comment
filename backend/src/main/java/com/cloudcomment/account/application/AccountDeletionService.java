@@ -49,12 +49,14 @@ public class AccountDeletionService {
             anonymization.ownedSitesDeleted(),
             anonymization.authoredCommentsAnonymized(),
             anonymization.moderationActionsAnonymized(),
+            anonymization.commentReactionsDeleted(),
             sessionsRevoked
         );
         privacyAuditService.record(userId, PrivacyEventType.ACCOUNT_DELETED, Map.of(
             "ownedSitesDeleted", report.ownedSitesDeleted(),
             "authoredCommentsAnonymized", report.authoredCommentsAnonymized(),
             "moderationActionsAnonymized", report.moderationActionsAnonymized(),
+            "commentReactionsDeleted", report.commentReactionsDeleted(),
             "sessionsRevoked", report.sessionsRevoked()
         ));
         return report;

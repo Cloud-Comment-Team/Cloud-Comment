@@ -1,6 +1,8 @@
 import type {
   AccountDeletionRequest,
   AuthUser,
+  CommentReactionType,
+  CommentReactionsResponse,
   LoginResponse,
   PaginatedResponse,
   PublicComment,
@@ -44,8 +46,13 @@ export type RegisterPayload = {
 export type WidgetApiClient = {
   getConfig: () => Promise<PublicWidgetConfig>;
   getConsentRequirements: () => Promise<ConsentRequirements>;
-  listComments: () => Promise<PaginatedResponse<PublicComment>>;
+  listComments: (token?: string | null) => Promise<PaginatedResponse<PublicComment>>;
   createComment: (content: string, parentId: string | null, token: string) => Promise<PublicComment>;
+  setReaction: (
+    commentId: string,
+    type: CommentReactionType | null,
+    token: string
+  ) => Promise<CommentReactionsResponse>;
   getCurrentUser: (token: string) => Promise<AuthUser>;
   login: (email: string, password: string) => Promise<LoginResponse>;
   register: (payload: RegisterPayload) => Promise<void>;
@@ -90,13 +97,15 @@ export function createWidgetApiClient(
   return {
     getConfig: () => request<PublicWidgetConfig>(`${siteBasePath}/config`),
     getConsentRequirements: () => request<ConsentRequirements>("/privacy/consent-requirements"),
-    listComments: () => {
+    listComments: (token) => {
       const params = new URLSearchParams({
         pageUrl,
         page: "1",
         pageSize: "20"
       });
-      return request<PaginatedResponse<PublicComment>>(`${siteBasePath}/pages/comments?${params}`);
+      return request<PaginatedResponse<PublicComment>>(`${siteBasePath}/pages/comments?${params}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined
+      });
     },
     createComment: (content, parentId, token) =>
       request<PublicComment>(`${siteBasePath}/pages/comments`, {
@@ -110,6 +119,15 @@ export function createWidgetApiClient(
           parentId,
           content
         })
+      }),
+    setReaction: (commentId, type, token) =>
+      request<CommentReactionsResponse>(`${siteBasePath}/comments/${encodeURIComponent(commentId)}/reaction`, {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ type })
       }),
     getCurrentUser: (token) =>
       request<AuthUser>(`${siteBasePath}/auth/me`, {

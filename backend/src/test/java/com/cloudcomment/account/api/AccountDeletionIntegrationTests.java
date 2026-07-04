@@ -151,7 +151,8 @@ class AccountDeletionIntegrationTests {
 
         UUID siteId = insertSite(userId, "export-" + UUID.randomUUID() + ".example.com");
         UUID pageId = insertPage(siteId, "https://export.example.com/page");
-        insertComment(pageId, userId, email, "Personal data comment", "APPROVED");
+        UUID commentId = insertComment(pageId, userId, email, "Personal data comment", "APPROVED");
+        insertReaction(commentId, userId, "LOVE");
 
         String response = mockMvc.perform(get("/api/account/personal-data")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + sessionToken))
@@ -163,6 +164,7 @@ class AccountDeletionIntegrationTests {
             .andExpect(jsonPath("$.resources.ownedPages", is(1)))
             .andExpect(jsonPath("$.resources.ownedComments", is(1)))
             .andExpect(jsonPath("$.resources.authoredComments", is(1)))
+            .andExpect(jsonPath("$.resources.commentReactions", is(1)))
             .andExpect(jsonPath("$.consents[0].privacyPolicyVersion", is("2026-07-01")))
             .andReturn()
             .getResponse()
@@ -196,6 +198,7 @@ class AccountDeletionIntegrationTests {
         UUID ownerSiteId = insertSite(ownerId, "foreign-" + UUID.randomUUID() + ".example.com");
         UUID ownerPageId = insertPage(ownerSiteId, "https://foreign.example.com/page");
         UUID foreignCommentId = insertComment(ownerPageId, deletedUserId, deletedEmail, "Remove my data", "APPROVED");
+        insertReaction(foreignCommentId, deletedUserId, "WOW");
         UUID moderationActionId = insertModerationAction(foreignCommentId, deletedUserId);
 
         mockMvc.perform(post("/api/account/deletion-requests")
@@ -240,6 +243,7 @@ class AccountDeletionIntegrationTests {
             moderationActionId
         );
         assertThat(moderatorCleared).isTrue();
+        assertThat(countRows("select count(*) from comment_reactions where user_id = ?", deletedUserId)).isZero();
         assertThat(countPrivacyEvents(deletedUserId, "ACCOUNT_DELETION_CONFIRMED")).isOne();
         assertThat(countPrivacyEvents(deletedUserId, "ACCOUNT_DELETED")).isOne();
     }
@@ -476,6 +480,18 @@ class AccountDeletionIntegrationTests {
             UUID.class,
             commentId,
             moderatorId
+        );
+    }
+
+    private void insertReaction(UUID commentId, UUID userId, String reactionType) {
+        jdbcTemplate.update(
+            """
+                insert into comment_reactions (comment_id, user_id, reaction_type)
+                values (?, ?, ?)
+                """,
+            commentId,
+            userId,
+            reactionType
         );
     }
 

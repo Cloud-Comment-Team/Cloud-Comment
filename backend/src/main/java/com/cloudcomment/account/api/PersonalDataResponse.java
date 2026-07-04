@@ -84,7 +84,8 @@ public record PersonalDataResponse(
         int ownedPages,
         int ownedComments,
         int authoredComments,
-        int moderationActions
+        int moderationActions,
+        int commentReactions
     ) {
 
         static ResourcesResponse from(PersonalDataSnapshot.Resources resources) {
@@ -93,7 +94,8 @@ public record PersonalDataResponse(
                 resources.ownedPages(),
                 resources.ownedComments(),
                 resources.authoredComments(),
-                resources.moderationActions()
+                resources.moderationActions(),
+                resources.commentReactions()
             );
         }
     }

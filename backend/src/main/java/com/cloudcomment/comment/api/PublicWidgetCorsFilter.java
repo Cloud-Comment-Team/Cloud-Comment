@@ -32,7 +32,7 @@ class PublicWidgetCorsFilter extends OncePerRequestFilter {
     private static final Pattern PUBLIC_SITE_PATH = Pattern.compile(
         "^/api/public/sites/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?:/.*)?$"
     );
-    private static final String ALLOWED_METHODS = "GET, POST, OPTIONS";
+    private static final String ALLOWED_METHODS = "GET, POST, PUT, OPTIONS";
     private static final String ALLOWED_HEADERS = "Authorization, Content-Type, Accept";
     private static final String MAX_AGE_SECONDS = "3600";
 

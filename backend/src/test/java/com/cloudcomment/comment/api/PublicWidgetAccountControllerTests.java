@@ -71,7 +71,7 @@ class PublicWidgetAccountControllerTests {
             currentUser.roles().stream().toList(),
             List.of(),
             new PersonalDataSnapshot.Sessions(1, 0, 0),
-            new PersonalDataSnapshot.Resources(0, 0, 0, 1, 0),
+            new PersonalDataSnapshot.Resources(0, 0, 0, 1, 0, 0),
             null,
             TIMESTAMP
         );

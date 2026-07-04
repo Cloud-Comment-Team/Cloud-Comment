@@ -50,7 +50,8 @@ public record PersonalDataSnapshot(
         int ownedPages,
         int ownedComments,
         int authoredComments,
-        int moderationActions
+        int moderationActions,
+        int commentReactions
     ) {
     }
 

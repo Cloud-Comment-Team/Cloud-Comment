@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Check, Copy, Globe, Power, Trash2 } from 'lucide-react'
+import { ArrowLeft, Check, Copy, Globe, Palette, Power, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 import { getApiErrorMessage } from '../../api/auth'
 import { deleteSite, getEmbedCode, getSite, replaceAllowedOrigins, updateSite } from '../../api/sites'
 import { AsyncState } from '../../components/common/AsyncState'
 import { Badge } from '../../components/common/Badge'
-import type { EmbedCode, ModerationMode, Site } from '../../types/api'
+import type { EmbedCode, ModerationMode, Site, WidgetCornerRadius, WidgetTheme } from '../../types/api'
 import { formatOriginsInput, normalizeDomainInput, parseAllowedOriginsInput } from '../../utils/origins'
 import { moderationModeLabels } from '../../utils/moderationModeLabels'
 
@@ -22,9 +22,15 @@ const SiteDetail = () => {
   const [name, setName] = useState('')
   const [domain, setDomain] = useState('')
   const [moderationMode, setModerationMode] = useState<ModerationMode>('PRE_MODERATION')
+  const [widgetTheme, setWidgetTheme] = useState<WidgetTheme>('AUTO')
+  const [widgetAccentColor, setWidgetAccentColor] = useState('#0f766e')
+  const [widgetCornerRadius, setWidgetCornerRadius] = useState<WidgetCornerRadius>('MEDIUM')
   const [originsInput, setOriginsInput] = useState('')
   const [deleteConfirmationVisible, setDeleteConfirmationVisible] = useState(false)
   const [deleteConfirmation, setDeleteConfirmation] = useState('')
+  const safeWidgetAccentColor = /^#[0-9a-fA-F]{6}$/.test(widgetAccentColor)
+    ? widgetAccentColor
+    : '#0f766e'
 
   useEffect(() => {
     let cancelled = false
@@ -43,6 +49,9 @@ const SiteDetail = () => {
         setName(loadedSite.name)
         setDomain(loadedSite.domain)
         setModerationMode(loadedSite.moderationMode)
+        setWidgetTheme(loadedSite.widgetStyle.theme)
+        setWidgetAccentColor(loadedSite.widgetStyle.accentColor)
+        setWidgetCornerRadius(loadedSite.widgetStyle.cornerRadius)
         setOriginsInput(formatOriginsInput(loadedSite.allowedOrigins))
       } catch (loadError) {
         if (!cancelled) {
@@ -81,16 +90,29 @@ const SiteDetail = () => {
         return
       }
 
+      if (!/^#[0-9a-fA-F]{6}$/.test(widgetAccentColor)) {
+        toast.error('Цвет виджета должен быть в формате #RRGGBB')
+        return
+      }
+
       await updateSite(site.id, {
         name: name.trim(),
         domain: normalizedDomain,
         moderationMode,
+        widgetStyle: {
+          theme: widgetTheme,
+          accentColor: widgetAccentColor,
+          cornerRadius: widgetCornerRadius,
+        },
       })
       const siteWithOrigins = await replaceAllowedOrigins(site.id, { allowedOrigins })
       setSite(siteWithOrigins)
       setName(siteWithOrigins.name)
       setDomain(siteWithOrigins.domain)
       setModerationMode(siteWithOrigins.moderationMode)
+      setWidgetTheme(siteWithOrigins.widgetStyle.theme)
+      setWidgetAccentColor(siteWithOrigins.widgetStyle.accentColor)
+      setWidgetCornerRadius(siteWithOrigins.widgetStyle.cornerRadius)
       setOriginsInput(formatOriginsInput(siteWithOrigins.allowedOrigins))
       toast.success('Настройки сайта сохранены')
     } catch (saveError) {
@@ -112,6 +134,9 @@ const SiteDetail = () => {
       setName(updatedSite.name)
       setDomain(updatedSite.domain)
       setModerationMode(updatedSite.moderationMode)
+      setWidgetTheme(updatedSite.widgetStyle.theme)
+      setWidgetAccentColor(updatedSite.widgetStyle.accentColor)
+      setWidgetCornerRadius(updatedSite.widgetStyle.cornerRadius)
       setOriginsInput(formatOriginsInput(updatedSite.allowedOrigins))
       toast.success(updatedSite.isActive ? 'Сайт активирован' : 'Сайт деактивирован')
     } catch (toggleError) {
@@ -251,6 +276,76 @@ const SiteDetail = () => {
                     <option value="DISABLED">Отключена</option>
                   </select>
                 </label>
+                <div className="grid gap-4 md:col-span-2 md:grid-cols-3">
+                  <label className="block">
+                    <span className="mb-2 block text-sm font-medium" style={{ color: 'var(--text-h)' }}>
+                      Тема виджета
+                    </span>
+                    <select
+                      className="cc-field"
+                      value={widgetTheme}
+                      onChange={(event) => setWidgetTheme(event.target.value as WidgetTheme)}
+                    >
+                      <option value="AUTO">Авто</option>
+                      <option value="LIGHT">Светлая</option>
+                      <option value="DARK">Темная</option>
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="mb-2 block text-sm font-medium" style={{ color: 'var(--text-h)' }}>
+                      Акцент виджета
+                    </span>
+                    <div className="flex gap-2">
+                      <input
+                        type="color"
+                        className="h-12 w-14 shrink-0 rounded-lg border bg-transparent p-1"
+                        style={{ borderColor: 'var(--border)' }}
+                        value={safeWidgetAccentColor}
+                        onChange={(event) => setWidgetAccentColor(event.target.value)}
+                        aria-label="Акцентный цвет виджета"
+                      />
+                      <input
+                        className="cc-field"
+                        value={widgetAccentColor}
+                        onChange={(event) => setWidgetAccentColor(event.target.value)}
+                        aria-label="HEX акцентного цвета виджета"
+                      />
+                    </div>
+                  </label>
+                  <label className="block">
+                    <span className="mb-2 block text-sm font-medium" style={{ color: 'var(--text-h)' }}>
+                      Скругления
+                    </span>
+                    <select
+                      className="cc-field"
+                      value={widgetCornerRadius}
+                      onChange={(event) => setWidgetCornerRadius(event.target.value as WidgetCornerRadius)}
+                    >
+                      <option value="SMALL">Строже</option>
+                      <option value="MEDIUM">Мягко</option>
+                      <option value="LARGE">Максимально мягко</option>
+                    </select>
+                  </label>
+                  <div
+                    className="flex items-center gap-3 rounded-lg border px-4 py-3 md:col-span-3"
+                    style={{
+                      borderColor: safeWidgetAccentColor,
+                      borderRadius: widgetCornerRadius === 'SMALL' ? 6 : widgetCornerRadius === 'LARGE' ? 20 : 12,
+                      backgroundColor: `${safeWidgetAccentColor}18`,
+                      color: 'var(--text-h)',
+                    }}
+                  >
+                    <span
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg"
+                      style={{ backgroundColor: `${safeWidgetAccentColor}24`, color: safeWidgetAccentColor }}
+                    >
+                      <Palette className="h-5 w-5" aria-hidden="true" />
+                    </span>
+                    <span className="min-w-0 text-sm font-semibold">
+                      Виджет будет использовать этот стиль на публичной странице и в демо.
+                    </span>
+                  </div>
+                </div>
                 <label className="block md:col-span-2">
                   <span className="mb-2 block text-sm font-medium" style={{ color: 'var(--text-h)' }}>
                     Разрешённые origins

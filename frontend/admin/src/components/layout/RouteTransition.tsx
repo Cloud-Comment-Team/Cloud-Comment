@@ -1,13 +1,12 @@
-import { forwardRef, type ReactNode } from 'react'
+import { forwardRef, useImperativeHandle, useRef, type ReactNode } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 
-import type { ElementBounds, NavigationIntent, RevealMetrics } from './routeTransitionModel'
+import type { ElementBounds, NavigationIntent } from './routeTransitionModel'
 
 type PageTransitionProps = {
   children: ReactNode
   locationKey: string
   direction: number
-  reveal: RevealMetrics
   reducedMotion: boolean
 }
 
@@ -70,12 +69,15 @@ export function RouteFlowOverlay({
 }
 
 export const PageTransition = forwardRef<HTMLDivElement, PageTransitionProps>(function PageTransition(
-  { children, locationKey, direction, reveal, reducedMotion },
+  { children, locationKey, direction, reducedMotion },
   ref,
 ) {
+  const localRef = useRef<HTMLDivElement>(null)
+  useImperativeHandle(ref, () => localRef.current as HTMLDivElement)
+
   if (reducedMotion) {
     return (
-      <div key={locationKey} ref={ref}>
+      <div key={locationKey} ref={localRef}>
         {children}
       </div>
     )
@@ -87,7 +89,7 @@ export const PageTransition = forwardRef<HTMLDivElement, PageTransitionProps>(fu
   return (
     <motion.div
       key={locationKey}
-      ref={ref}
+      ref={localRef}
       className="min-w-0 [grid-area:1/1]"
       initial={{
         opacity: 0,
@@ -95,7 +97,6 @@ export const PageTransition = forwardRef<HTMLDivElement, PageTransitionProps>(fu
         y: yOffset,
         scale: 0.988,
         filter: 'blur(8px)',
-        clipPath: `circle(0px at ${reveal.x}px ${reveal.y}px)`,
       }}
       animate={{
         opacity: 1,
@@ -103,7 +104,6 @@ export const PageTransition = forwardRef<HTMLDivElement, PageTransitionProps>(fu
         y: 0,
         scale: 1,
         filter: 'blur(0px)',
-        clipPath: `circle(${reveal.radius}px at ${reveal.x}px ${reveal.y}px)`,
       }}
       exit={{
         opacity: 0,
@@ -118,7 +118,6 @@ export const PageTransition = forwardRef<HTMLDivElement, PageTransitionProps>(fu
         y: { duration: 0.5, ease: [0.16, 1, 0.3, 1] },
         scale: { duration: 0.5, ease: [0.16, 1, 0.3, 1] },
         filter: { duration: 0.42, ease: [0.22, 1, 0.36, 1] },
-        clipPath: { duration: 0.58, ease: [0.16, 1, 0.3, 1] },
       }}
     >
       {children}

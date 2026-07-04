@@ -2,6 +2,8 @@ package com.cloudcomment.comment.application;
 
 import com.cloudcomment.auth.application.AuthenticatedUser;
 import com.cloudcomment.comment.domain.CommentAuthor;
+import com.cloudcomment.comment.domain.CommentReactionSummary;
+import com.cloudcomment.comment.domain.CommentReactionType;
 import com.cloudcomment.comment.domain.CommentStatus;
 import com.cloudcomment.comment.domain.CommentView;
 import com.cloudcomment.comment.persistence.PublicCommentRepository;
@@ -145,6 +147,42 @@ class PublicCommentServiceTests {
             .hasToString("NOT_FOUND");
     }
 
+    @Test
+    void setReactionChecksDomainPolicyApprovedCommentAndPassesReactionToRepository() {
+        CapturingRepository repository = new CapturingRepository();
+        PublicCommentService service = service(repository, ModerationMode.POST_MODERATION);
+        AuthenticatedUser user = currentUser();
+        UUID siteId = UUID.randomUUID();
+        UUID commentId = UUID.randomUUID();
+
+        service.setReaction(user, siteId, "https://example.com", commentId, CommentReactionType.LOVE);
+
+        assertThat(repository.checkedReactionSiteId).isEqualTo(siteId);
+        assertThat(repository.checkedReactionCommentId).isEqualTo(commentId);
+        assertThat(repository.reactionCommentId).isEqualTo(commentId);
+        assertThat(repository.reactionUserId).isEqualTo(user.id());
+        assertThat(repository.reactionType).isEqualTo(CommentReactionType.LOVE);
+    }
+
+    @Test
+    void setReactionMasksMissingOrNotApprovedCommentAsNotFound() {
+        CapturingRepository repository = new CapturingRepository();
+        repository.approvedCommentInSite = false;
+        PublicCommentService service = service(repository, ModerationMode.POST_MODERATION);
+
+        assertThatThrownBy(() -> service.setReaction(
+            currentUser(),
+            UUID.randomUUID(),
+            "https://example.com",
+            UUID.randomUUID(),
+            CommentReactionType.LIKE
+        ))
+            .isInstanceOf(ApplicationException.class)
+            .hasMessage("Resource not found")
+            .extracting("code")
+            .hasToString("NOT_FOUND");
+    }
+
     private PublicCommentService service(CapturingRepository repository, ModerationMode moderationMode) {
         repository.moderationMode = moderationMode;
         return new PublicCommentService(new DomainPolicyService(repository), repository);
@@ -159,6 +197,7 @@ class PublicCommentServiceTests {
         private final UUID pageId = UUID.randomUUID();
         private ModerationMode moderationMode = ModerationMode.POST_MODERATION;
         private boolean parentExists = true;
+        private boolean approvedCommentInSite = true;
         private String findPageUrl;
         private UUID createdSiteId;
         private String createdPageUrl;
@@ -169,6 +208,11 @@ class PublicCommentServiceTests {
         private String createdAuthorEmail;
         private String createdContent;
         private CommentStatus createdStatus;
+        private UUID checkedReactionSiteId;
+        private UUID checkedReactionCommentId;
+        private UUID reactionCommentId;
+        private UUID reactionUserId;
+        private CommentReactionType reactionType;
 
         @Override
         public Optional<WidgetSite> findActiveSite(UUID siteId) {
@@ -233,6 +277,25 @@ class PublicCommentServiceTests {
                 TIMESTAMP,
                 List.of()
             );
+        }
+
+        @Override
+        public boolean existsApprovedCommentInSite(UUID siteId, UUID commentId) {
+            checkedReactionSiteId = siteId;
+            checkedReactionCommentId = commentId;
+            return approvedCommentInSite;
+        }
+
+        @Override
+        public List<CommentReactionSummary> setReaction(
+            UUID commentId,
+            UUID userId,
+            CommentReactionType reactionType
+        ) {
+            reactionCommentId = commentId;
+            reactionUserId = userId;
+            this.reactionType = reactionType;
+            return List.of(new CommentReactionSummary(reactionType, 1, true));
         }
     }
 }

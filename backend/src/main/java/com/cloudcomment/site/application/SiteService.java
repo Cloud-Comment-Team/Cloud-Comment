@@ -7,6 +7,7 @@ import com.cloudcomment.shared.error.ApplicationException;
 import com.cloudcomment.site.domain.ModerationMode;
 import com.cloudcomment.site.domain.Site;
 import com.cloudcomment.site.domain.SiteInputRules;
+import com.cloudcomment.site.domain.WidgetStyle;
 import com.cloudcomment.site.persistence.SiteRepository;
 import com.cloudcomment.site.persistence.SiteUpdate;
 import lombok.RequiredArgsConstructor;
@@ -42,6 +43,18 @@ public class SiteService {
         ModerationMode moderationMode,
         List<String> allowedOrigins
     ) {
+        return createSite(currentUser, name, domain, moderationMode, allowedOrigins, WidgetStyle.defaultStyle());
+    }
+
+    @Transactional
+    public Site createSite(
+        AuthenticatedUser currentUser,
+        String name,
+        String domain,
+        ModerationMode moderationMode,
+        List<String> allowedOrigins,
+        WidgetStyle widgetStyle
+    ) {
         String normalizedName = normalizeName(name);
         String normalizedDomain = normalizeDomain(domain);
         List<String> normalizedOrigins = normalizeOrigins(allowedOrigins);
@@ -57,6 +70,7 @@ public class SiteService {
                     normalizedDomain,
                     publicKeyGenerator.generate(),
                     moderationMode,
+                    widgetStyle != null ? widgetStyle : WidgetStyle.defaultStyle(),
                     normalizedOrigins
                 );
             } catch (DuplicateKeyException exception) {
@@ -84,6 +98,19 @@ public class SiteService {
         ModerationMode moderationMode,
         Boolean active
     ) {
+        return updateSite(currentUser, siteId, name, domain, moderationMode, active, null);
+    }
+
+    @Transactional
+    public Site updateSite(
+        AuthenticatedUser currentUser,
+        UUID siteId,
+        String name,
+        String domain,
+        ModerationMode moderationMode,
+        Boolean active,
+        WidgetStyle widgetStyle
+    ) {
         resourceOwnershipService.assertSiteOwnedBy(currentUser, siteId);
         String normalizedName = name != null ? normalizeName(name) : null;
         String normalizedDomain = domain != null ? normalizeDomain(domain) : null;
@@ -92,7 +119,7 @@ public class SiteService {
             throw duplicateDomain();
         }
 
-        SiteUpdate update = new SiteUpdate(normalizedName, normalizedDomain, moderationMode, active);
+        SiteUpdate update = new SiteUpdate(normalizedName, normalizedDomain, moderationMode, active, widgetStyle);
         if (!update.hasChanges()) {
             return siteRepository.findById(siteId).orElseThrow(this::notFound);
         }

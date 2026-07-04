@@ -1,6 +1,8 @@
 package com.cloudcomment.comment.application;
 
 import com.cloudcomment.auth.application.AuthenticatedUser;
+import com.cloudcomment.comment.domain.CommentReactionSummary;
+import com.cloudcomment.comment.domain.CommentReactionType;
 import com.cloudcomment.comment.domain.CommentStatus;
 import com.cloudcomment.comment.domain.CommentView;
 import com.cloudcomment.comment.domain.PageUrlRules;
@@ -26,7 +28,7 @@ public class PublicCommentService {
     @Transactional(readOnly = true)
     public PublicWidgetConfig getConfig(UUID siteId, String origin) {
         WidgetSiteAccess access = domainPolicyService.validate(siteId, origin);
-        return new PublicWidgetConfig(access.siteId(), access.moderationMode());
+        return new PublicWidgetConfig(access.siteId(), access.moderationMode(), access.widgetStyle());
     }
 
     @Transactional(readOnly = true)
@@ -37,6 +39,18 @@ public class PublicCommentService {
         int page,
         int pageSize
     ) {
+        return listComments(siteId, origin, pageUrl, page, pageSize, Optional.empty());
+    }
+
+    @Transactional(readOnly = true)
+    public CommentPage listComments(
+        UUID siteId,
+        String origin,
+        String pageUrl,
+        int page,
+        int pageSize,
+        Optional<UUID> viewerUserId
+    ) {
         WidgetSiteAccess access = domainPolicyService.validate(siteId, origin);
         String normalizedPageUrl = normalizePageUrl(pageUrl);
         assertSameOrigin(normalizedPageUrl, access.origin());
@@ -45,7 +59,13 @@ public class PublicCommentService {
         if (pageId.isEmpty()) {
             return new CommentPage(List.of(), page, pageSize, 0);
         }
-        return publicCommentRepository.findApprovedComments(access.siteId(), pageId.orElseThrow(), page, pageSize);
+        return publicCommentRepository.findApprovedComments(
+            access.siteId(),
+            pageId.orElseThrow(),
+            page,
+            pageSize,
+            viewerUserId
+        );
     }
 
     @Transactional
@@ -76,6 +96,25 @@ public class PublicCommentService {
             normalizedContent,
             initialStatus(access.moderationMode())
         );
+    }
+
+    @Transactional
+    public List<CommentReactionSummary> setReaction(
+        AuthenticatedUser currentUser,
+        UUID siteId,
+        String origin,
+        UUID commentId,
+        CommentReactionType reactionType
+    ) {
+        WidgetSiteAccess access = domainPolicyService.validate(siteId, origin);
+        if (!publicCommentRepository.existsApprovedCommentInSite(access.siteId(), commentId)) {
+            throw notFound();
+        }
+
+        if (reactionType == null) {
+            return publicCommentRepository.clearReaction(commentId, currentUser.id());
+        }
+        return publicCommentRepository.setReaction(commentId, currentUser.id(), reactionType);
     }
 
     private String normalizePageUrl(String pageUrl) {

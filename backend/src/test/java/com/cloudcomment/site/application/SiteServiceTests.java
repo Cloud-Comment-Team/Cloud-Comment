@@ -7,6 +7,9 @@ import com.cloudcomment.auth.application.AuthenticatedUser;
 import com.cloudcomment.shared.error.ApplicationException;
 import com.cloudcomment.site.domain.ModerationMode;
 import com.cloudcomment.site.domain.Site;
+import com.cloudcomment.site.domain.WidgetCornerRadius;
+import com.cloudcomment.site.domain.WidgetStyle;
+import com.cloudcomment.site.domain.WidgetTheme;
 import com.cloudcomment.site.persistence.SiteRepository;
 import com.cloudcomment.site.persistence.SiteUpdate;
 import org.junit.jupiter.api.Test;
@@ -44,8 +47,28 @@ class SiteServiceTests {
         assertThat(repository.createdName).isEqualTo("Example site");
         assertThat(repository.createdDomain).isEqualTo("example.com");
         assertThat(repository.createdPublicKey).isEqualTo(PUBLIC_KEY);
+        assertThat(repository.createdWidgetStyle).isEqualTo(WidgetStyle.defaultStyle());
         assertThat(repository.createdAllowedOrigins).containsExactly("https://example.com");
         assertThat(site.publicKey()).isEqualTo(PUBLIC_KEY);
+    }
+
+    @Test
+    void createSitePassesCustomWidgetStyleToRepository() {
+        CapturingSiteRepository repository = new CapturingSiteRepository();
+        SiteService service = service(repository, true);
+        WidgetStyle style = new WidgetStyle(WidgetTheme.DARK, "#ff3366", WidgetCornerRadius.LARGE);
+
+        Site site = service.createSite(
+            currentUser(),
+            "Example site",
+            "example.com",
+            ModerationMode.PRE_MODERATION,
+            List.of("https://example.com"),
+            style
+        );
+
+        assertThat(repository.createdWidgetStyle).isEqualTo(style);
+        assertThat(site.widgetStyle()).isEqualTo(style);
     }
 
     @Test
@@ -193,6 +216,7 @@ class SiteServiceTests {
         private String createdName;
         private String createdDomain;
         private String createdPublicKey;
+        private WidgetStyle createdWidgetStyle;
         private List<String> createdAllowedOrigins;
         private UUID replacedSiteId;
         private List<String> replacedAllowedOrigins;
@@ -227,6 +251,19 @@ class SiteServiceTests {
             ModerationMode moderationMode,
             List<String> allowedOrigins
         ) {
+            return create(ownerId, name, domain, publicKey, moderationMode, WidgetStyle.defaultStyle(), allowedOrigins);
+        }
+
+        @Override
+        public Site create(
+            UUID ownerId,
+            String name,
+            String domain,
+            String publicKey,
+            ModerationMode moderationMode,
+            WidgetStyle widgetStyle,
+            List<String> allowedOrigins
+        ) {
             if (existsByOwnerAndDomain) {
                 throw new DuplicateKeyException("duplicate domain");
             }
@@ -234,8 +271,9 @@ class SiteServiceTests {
             createdName = name;
             createdDomain = domain;
             createdPublicKey = publicKey;
+            createdWidgetStyle = widgetStyle;
             createdAllowedOrigins = List.copyOf(allowedOrigins);
-            return site(UUID.randomUUID(), ownerId, domain, allowedOrigins);
+            return site(UUID.randomUUID(), ownerId, domain, widgetStyle, allowedOrigins);
         }
 
         @Override
@@ -261,6 +299,16 @@ class SiteServiceTests {
         }
 
         private Site site(UUID siteId, UUID ownerId, String domain, List<String> allowedOrigins) {
+            return site(siteId, ownerId, domain, WidgetStyle.defaultStyle(), allowedOrigins);
+        }
+
+        private Site site(
+            UUID siteId,
+            UUID ownerId,
+            String domain,
+            WidgetStyle widgetStyle,
+            List<String> allowedOrigins
+        ) {
             return new Site(
                 siteId,
                 ownerId,
@@ -269,6 +317,7 @@ class SiteServiceTests {
                 PUBLIC_KEY,
                 ModerationMode.PRE_MODERATION,
                 true,
+                widgetStyle,
                 allowedOrigins,
                 TIMESTAMP,
                 TIMESTAMP

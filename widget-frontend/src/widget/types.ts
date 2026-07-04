@@ -8,6 +8,16 @@ export type CloudCommentWidgetOptions = {
 
 export type WidgetTheme = "auto" | "light" | "dark";
 
+export type WidgetStyleTheme = "AUTO" | "LIGHT" | "DARK";
+
+export type WidgetCornerRadius = "SMALL" | "MEDIUM" | "LARGE";
+
+export type WidgetStyle = {
+  theme: WidgetStyleTheme;
+  accentColor: string;
+  cornerRadius: WidgetCornerRadius;
+};
+
 export type CloudCommentWidgetInstance = {
   destroy: () => void;
 };
@@ -20,6 +30,20 @@ export type CloudCommentWidgetApi = {
 export type ModerationMode = "PRE_MODERATION" | "POST_MODERATION";
 
 export type CommentStatus = "PENDING" | "APPROVED" | "REJECTED" | "HIDDEN" | "SPAM";
+
+export type CommentReactionType = "LIKE" | "LOVE" | "LAUGH" | "WOW";
+
+export type CommentReaction = {
+  type: CommentReactionType;
+  emoji: string;
+  label: string;
+  count: number;
+  reactedByCurrentUser: boolean;
+};
+
+export type CommentReactionsResponse = {
+  reactions: CommentReaction[];
+};
 
 export type CommentAuthor = {
   id: string;
@@ -37,12 +61,14 @@ export type PublicComment = {
   status: CommentStatus;
   createdAt: string;
   updatedAt: string;
+  reactions: CommentReaction[];
   replies: PublicComment[];
 };
 
 export type PublicWidgetConfig = {
   siteId: string;
   moderationMode: ModerationMode;
+  style: WidgetStyle;
 };
 
 export type ConsentRequirements = {

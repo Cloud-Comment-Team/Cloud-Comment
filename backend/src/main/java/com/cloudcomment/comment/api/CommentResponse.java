@@ -17,10 +17,12 @@ record CommentResponse(
     CommentStatus status,
     Instant createdAt,
     Instant updatedAt,
+    List<CommentReactionResponse> reactions,
     List<CommentResponse> replies
 ) {
 
     CommentResponse {
+        reactions = List.copyOf(reactions);
         replies = List.copyOf(replies);
     }
 
@@ -35,6 +37,7 @@ record CommentResponse(
             comment.status(),
             comment.createdAt(),
             comment.updatedAt(),
+            comment.reactions().stream().map(CommentReactionResponse::from).toList(),
             comment.replies().stream().map(CommentResponse::from).toList()
         );
     }

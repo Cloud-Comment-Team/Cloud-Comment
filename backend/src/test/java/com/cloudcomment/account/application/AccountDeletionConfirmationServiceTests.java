@@ -213,7 +213,7 @@ class AccountDeletionConfirmationServiceTests {
         @Override
         public AccountDeletionReport deleteAccount(UUID userId) {
             this.deletedUserId = userId;
-            return new AccountDeletionReport(0, 0, 0, 0);
+            return new AccountDeletionReport(0, 0, 0, 0, 0);
         }
     }
 

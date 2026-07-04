@@ -4,6 +4,7 @@ public record AccountDeletionReport(
     int ownedSitesDeleted,
     int authoredCommentsAnonymized,
     int moderationActionsAnonymized,
+    int commentReactionsDeleted,
     int sessionsRevoked
 ) {
 }
