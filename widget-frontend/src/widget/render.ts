@@ -22,12 +22,21 @@ type ReplyTarget = {
   authorLabel: string;
 };
 
+type EditingComment = {
+  id: string;
+  content: string;
+};
+
 type WidgetState = {
   loading: boolean;
   submitting: boolean;
   authenticating: boolean;
   accountBusy: boolean;
   reactingCommentId: string | null;
+  editingComment: EditingComment | null;
+  updatingCommentId: string | null;
+  deletingCommentId: string | null;
+  confirmingCommentDeleteId: string | null;
   comments: PublicComment[];
   config: PublicWidgetConfig | null;
   consentRequirements: ConsentRequirements | null;
@@ -66,6 +75,10 @@ export function renderWidget(
     authenticating: false,
     accountBusy: false,
     reactingCommentId: null,
+    editingComment: null,
+    updatingCommentId: null,
+    deletingCommentId: null,
+    confirmingCommentDeleteId: null,
     comments: [],
     config: null,
     consentRequirements: null,
@@ -260,6 +273,8 @@ export function renderWidget(
     state.userEmail = null;
     state.deleteConfirming = false;
     state.replyingTo = null;
+    state.editingComment = null;
+    state.confirmingCommentDeleteId = null;
     state.comments = clearViewerReactions(state.comments);
     removeStoredAuthToken();
   }
@@ -301,6 +316,64 @@ export function renderWidget(
       state.error = getErrorMessage(error);
     } finally {
       state.submitting = false;
+      render();
+    }
+  }
+
+  async function updateComment(commentId: string, content: string): Promise<void> {
+    if (!state.token) {
+      state.authError = "Войдите, чтобы редактировать свой комментарий.";
+      render();
+      return;
+    }
+
+    state.updatingCommentId = commentId;
+    state.error = null;
+    state.notice = null;
+    render();
+
+    try {
+      const updatedComment = await api.updateComment(commentId, content, state.token);
+      state.comments = updateCommentInTree(state.comments, updatedComment);
+      state.editingComment = null;
+      state.notice = updatedComment.status === "APPROVED"
+        ? "Комментарий обновлен."
+        : "Комментарий обновлен и отправлен на проверку.";
+    } catch (error) {
+      if (error instanceof WidgetApiError && error.status === 401) {
+        clearAuthState();
+      }
+      state.error = getErrorMessage(error);
+    } finally {
+      state.updatingCommentId = null;
+      render();
+    }
+  }
+
+  async function deleteComment(commentId: string): Promise<void> {
+    if (!state.token) {
+      state.authError = "Войдите, чтобы удалить свой комментарий.";
+      render();
+      return;
+    }
+
+    state.deletingCommentId = commentId;
+    state.error = null;
+    render();
+
+    try {
+      await api.deleteComment(commentId, state.token);
+      state.comments = removeCommentFromTree(state.comments, commentId);
+      state.confirmingCommentDeleteId = null;
+      state.editingComment = state.editingComment?.id === commentId ? null : state.editingComment;
+      state.notice = "Комментарий удален.";
+    } catch (error) {
+      if (error instanceof WidgetApiError && error.status === 401) {
+        clearAuthState();
+      }
+      state.error = getErrorMessage(error);
+    } finally {
+      state.deletingCommentId = null;
       render();
     }
   }
@@ -362,6 +435,22 @@ export function renderWidget(
       }
       form.reset();
       void submitComment(content);
+      return;
+    }
+
+    if (form.dataset.cloudCommentForm === "edit-comment") {
+      const commentId = form.dataset.commentId;
+      const formData = new FormData(form);
+      const content = String(formData.get("comment") ?? "").trim();
+      if (!commentId) {
+        return;
+      }
+      if (!content) {
+        state.error = "Комментарий не может быть пустым.";
+        render();
+        return;
+      }
+      void updateComment(commentId, content);
     }
   });
 
@@ -402,6 +491,40 @@ export function renderWidget(
       state.error = null;
       render();
       shell.querySelector<HTMLTextAreaElement>("[data-cloud-comment-form='comment'] textarea")?.focus();
+      return;
+    }
+
+    if (button.dataset.commentAction === "edit" && button.dataset.commentId) {
+      const comment = findComment(state.comments, button.dataset.commentId);
+      if (comment?.ownedByCurrentUser) {
+        state.editingComment = { id: comment.id, content: comment.content };
+        state.confirmingCommentDeleteId = null;
+        state.error = null;
+        render();
+      }
+      return;
+    }
+
+    if (button.dataset.commentAction === "cancel-edit") {
+      state.editingComment = null;
+      render();
+      return;
+    }
+
+    if (button.dataset.commentAction === "ask-delete" && button.dataset.commentId) {
+      state.confirmingCommentDeleteId = button.dataset.commentId;
+      render();
+      return;
+    }
+
+    if (button.dataset.commentAction === "cancel-delete") {
+      state.confirmingCommentDeleteId = null;
+      render();
+      return;
+    }
+
+    if (button.dataset.commentAction === "confirm-delete" && button.dataset.commentId) {
+      void deleteComment(button.dataset.commentId);
       return;
     }
 
@@ -623,6 +746,7 @@ function renderCommentList(comments: PublicComment[], state: WidgetState): HTMLE
 function renderComment(comment: PublicComment, state: WidgetState, depth: number): HTMLElement {
   const article = document.createElement("article");
   article.className = "cloud-comment__comment";
+  const isEditing = state.editingComment?.id === comment.id;
 
   const header = document.createElement("header");
   header.className = "cloud-comment__comment-header";
@@ -658,7 +782,7 @@ function renderComment(comment: PublicComment, state: WidgetState, depth: number
   const footer = document.createElement("footer");
   footer.className = "cloud-comment__comment-footer";
 
-  if (depth === 0 && comment.status === "APPROVED") {
+  if (!isEditing && depth === 0 && comment.status === "APPROVED") {
     const replyButton = document.createElement("button");
     replyButton.className = "cloud-comment__reply-button";
     replyButton.type = "button";
@@ -669,9 +793,22 @@ function renderComment(comment: PublicComment, state: WidgetState, depth: number
     footer.append(replyButton);
   }
 
-  article.append(header, content, reactions);
+  if (!isEditing && comment.ownedByCurrentUser) {
+    footer.append(...renderOwnerCommentActions(comment, state));
+  }
+
+  if (isEditing) {
+    article.append(header, renderEditCommentForm(comment, state));
+  } else {
+    article.append(header, content, reactions);
+  }
+
   if (footer.childNodes.length > 0) {
     article.append(footer);
+  }
+
+  if (state.confirmingCommentDeleteId === comment.id) {
+    article.append(renderDeleteCommentConfirm(comment, state));
   }
 
   if (depth === 0 && comment.replies.length > 0) {
@@ -684,6 +821,91 @@ function renderComment(comment: PublicComment, state: WidgetState, depth: number
   }
 
   return article;
+}
+
+function renderOwnerCommentActions(comment: PublicComment, state: WidgetState): HTMLButtonElement[] {
+  const editButton = document.createElement("button");
+  editButton.className = "cloud-comment__comment-action";
+  editButton.type = "button";
+  editButton.dataset.commentAction = "edit";
+  editButton.dataset.commentId = comment.id;
+  editButton.disabled = state.submitting || state.updatingCommentId === comment.id || state.deletingCommentId === comment.id;
+  editButton.textContent = "Редактировать";
+
+  const deleteButton = document.createElement("button");
+  deleteButton.className = "cloud-comment__comment-action cloud-comment__comment-action--danger";
+  deleteButton.type = "button";
+  deleteButton.dataset.commentAction = "ask-delete";
+  deleteButton.dataset.commentId = comment.id;
+  deleteButton.disabled = state.deletingCommentId === comment.id;
+  deleteButton.textContent = state.deletingCommentId === comment.id ? "Удаляем..." : "Удалить";
+
+  return [editButton, deleteButton];
+}
+
+function renderEditCommentForm(comment: PublicComment, state: WidgetState): HTMLFormElement {
+  const form = document.createElement("form");
+  form.className = "cloud-comment__edit-form";
+  form.dataset.cloudCommentForm = "edit-comment";
+  form.dataset.commentId = comment.id;
+
+  const textarea = document.createElement("textarea");
+  textarea.className = "cloud-comment__textarea";
+  textarea.name = "comment";
+  textarea.maxLength = 5000;
+  textarea.value = state.editingComment?.content ?? comment.content;
+  textarea.disabled = state.updatingCommentId === comment.id;
+  textarea.setAttribute("aria-label", "Редактировать комментарий");
+
+  const actions = document.createElement("div");
+  actions.className = "cloud-comment__inline-actions";
+
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.className = "cloud-comment__reply-cancel";
+  cancel.dataset.commentAction = "cancel-edit";
+  cancel.disabled = state.updatingCommentId === comment.id;
+  cancel.textContent = "Отмена";
+
+  const save = document.createElement("button");
+  save.type = "submit";
+  save.className = "cloud-comment__button";
+  save.disabled = state.updatingCommentId === comment.id;
+  save.textContent = state.updatingCommentId === comment.id ? "Сохраняем..." : "Сохранить";
+
+  actions.append(cancel, save);
+  form.append(textarea, actions);
+  return form;
+}
+
+function renderDeleteCommentConfirm(comment: PublicComment, state: WidgetState): HTMLElement {
+  const confirm = document.createElement("div");
+  confirm.className = "cloud-comment__delete-comment-confirm";
+
+  const text = document.createElement("span");
+  text.textContent = "Удалить комментарий? Он исчезнет из публичного обсуждения.";
+
+  const actions = document.createElement("div");
+  actions.className = "cloud-comment__inline-actions";
+
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.className = "cloud-comment__reply-cancel";
+  cancel.dataset.commentAction = "cancel-delete";
+  cancel.disabled = state.deletingCommentId === comment.id;
+  cancel.textContent = "Отмена";
+
+  const submit = document.createElement("button");
+  submit.type = "button";
+  submit.className = "cloud-comment__comment-action cloud-comment__comment-action--danger";
+  submit.dataset.commentAction = "confirm-delete";
+  submit.dataset.commentId = comment.id;
+  submit.disabled = state.deletingCommentId === comment.id;
+  submit.textContent = state.deletingCommentId === comment.id ? "Удаляем..." : "Да, удалить";
+
+  actions.append(cancel, submit);
+  confirm.append(text, actions);
+  return confirm;
 }
 
 function renderReactionBar(comment: PublicComment, state: WidgetState): HTMLElement {
@@ -1031,6 +1253,33 @@ function mergeCreatedComment(createdComment: PublicComment, comments: PublicComm
   }
 
   return [createdComment, ...comments];
+}
+
+function updateCommentInTree(comments: PublicComment[], updatedComment: PublicComment): PublicComment[] {
+  return comments.map((comment) => {
+    if (comment.id === updatedComment.id) {
+      return {
+        ...updatedComment,
+        replies: comment.replies
+      };
+    }
+    if (comment.replies.length === 0) {
+      return comment;
+    }
+    return {
+      ...comment,
+      replies: updateCommentInTree(comment.replies, updatedComment)
+    };
+  });
+}
+
+function removeCommentFromTree(comments: PublicComment[], commentId: string): PublicComment[] {
+  return comments
+    .filter((comment) => comment.id !== commentId)
+    .map((comment) => ({
+      ...comment,
+      replies: removeCommentFromTree(comment.replies, commentId)
+    }));
 }
 
 function updateCommentReactions(

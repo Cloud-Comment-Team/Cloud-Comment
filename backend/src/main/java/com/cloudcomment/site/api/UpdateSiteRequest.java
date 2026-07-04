@@ -20,6 +20,9 @@ public record UpdateSiteRequest(
     Boolean isActive,
 
     @Valid
-    WidgetStyleRequest widgetStyle
+    WidgetStyleRequest widgetStyle,
+
+    @Valid
+    AutoModerationSettingsRequest autoModeration
 ) {
 }

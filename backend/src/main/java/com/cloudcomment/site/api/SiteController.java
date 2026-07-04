@@ -60,7 +60,8 @@ class SiteController {
             request.domain(),
             request.moderationMode(),
             request.allowedOrigins(),
-            request.widgetStyle() != null ? request.widgetStyle().toDomainOrDefault() : null
+            request.widgetStyle() != null ? request.widgetStyle().toDomainOrDefault() : null,
+            request.autoModeration() != null ? request.autoModeration().toDomainOrDefault() : null
         );
         return ResponseEntity.status(HttpStatus.CREATED).body(SiteResponse.from(site));
     }
@@ -83,7 +84,8 @@ class SiteController {
             request.domain(),
             request.moderationMode(),
             request.isActive(),
-            request.widgetStyle() != null ? request.widgetStyle().toDomainOrNull() : null
+            request.widgetStyle() != null ? request.widgetStyle().toDomainOrNull() : null,
+            request.autoModeration() != null ? request.autoModeration().toDomainOrNull() : null
         ));
     }
 

@@ -338,6 +338,8 @@ Frontend route map зафиксирован в `frontend/admin/src/routes/index.
 | `/api/public/sites/{siteId}/account/deletion-requests` | `POST` | bearer + origin check | Request account deletion email confirmation from the widget |
 | `/api/public/sites/{siteId}/pages/comments` | `GET` | public + origin check | List comments for a page |
 | `/api/public/sites/{siteId}/pages/comments` | `POST` | bearer + origin check | Create a comment for authenticated visitor |
+| `/api/public/sites/{siteId}/comments/{commentId}` | `PATCH` | bearer + origin check | Edit current visitor's own comment |
+| `/api/public/sites/{siteId}/comments/{commentId}` | `DELETE` | bearer + origin check | Soft-delete current visitor's own comment |
 | `/api/public/sites/{siteId}/comments/{commentId}/reaction` | `PUT` | bearer + origin check | Set or clear current visitor reaction |
 
 Query для list:
@@ -357,6 +359,16 @@ Request для create:
 
 `parentId` is `null` for a root comment or an approved root comment id for a one-level reply. Invalid, foreign, or non-approved parent comments are masked as `404 NOT_FOUND`.
 
+Request для edit:
+
+```json
+{
+  "content": "Updated comment text"
+}
+```
+
+Edit/delete доступны только автору комментария с текущей bearer-сессией и проходят ту же domain policy по `Origin`. Чужой, удаленный, отсутствующий или не относящийся к сайту комментарий маскируется как `404 NOT_FOUND`.
+
 Request для реакции:
 
 ```json
@@ -375,6 +387,9 @@ Request для реакции:
 - Bad/missing/disallowed origin, inactive/missing site и parent comment не с этой страницы возвращают `404 NOT_FOUND` с `Resource not found`.
 - Публичный список возвращает только `APPROVED`; `PENDING`, `REJECTED`, `HIDDEN`, `SPAM` не видны в виджете.
 - Approved replies are returned inside the root comment `replies` array. The widget exposes reply creation only from root comments and renders replies one level deep.
+- Авторизованный visitor видит в public list флаг `ownedByCurrentUser` для своих комментариев; виджет использует его, чтобы показать edit/delete controls только владельцу.
+- Редактирование заново проходит автомодерацию сайта: чистый текст может остаться/стать `APPROVED`, сомнительный попасть в `PENDING`, а явно запрещенный — в `SPAM`.
+- Удаление комментария автором soft-delete'ит запись: комментарий исчезает из public list и moderation queue, но база сохраняет факт удаления для целостности истории.
 - `reactions` возвращаются для корневых комментариев и ответов; при наличии bearer token публичный list помечает реакцию текущего пользователя через `reactedByCurrentUser`.
 - Embedded widget auth uses site-scoped `/api/public/sites/{siteId}/auth/*` aliases, not `/api/auth/*`, so browser CORS preflight is checked against the same domain policy.
 - Самообслуживание аккаунта в виджете использует site-scoped aliases `/api/public/sites/{siteId}/account/*`, а не `/api/account/*`: экспорт персональных данных и запрос удаления работают с external origin без ослабления глобального CORS.
@@ -427,12 +442,22 @@ Script attributes:
     "accentColor": "#0f766e",
     "cornerRadius": "MEDIUM"
   },
+  "autoModeration": {
+    "enabled": true,
+    "strictness": "BALANCED",
+    "blockedWords": ["casino", "spam"],
+    "holdLinks": true,
+    "blockLinks": false,
+    "maxLinks": 2
+  },
   "createdAt": "2026-06-28T18:00:00Z",
   "updatedAt": "2026-06-28T18:00:00Z"
 }
 ```
 
 `widgetStyle.theme`: `AUTO` | `LIGHT` | `DARK`; `accentColor` — hex `#RRGGBB`; `cornerRadius`: `SMALL` | `MEDIUM` | `LARGE`.
+
+`autoModeration.strictness`: `OFF` | `RELAXED` | `BALANCED` | `STRICT`. `blockedWords` are owner-defined stop words/phrases. `holdLinks` sends suspicious link-heavy comments to moderation, `blockLinks` can mark link comments as spam, `maxLinks` sets the allowed link count.
 
 ### Public widget config
 
@@ -488,6 +513,8 @@ Script attributes:
   ],
   "createdAt": "2026-06-28T18:00:00Z",
   "updatedAt": "2026-06-28T18:00:00Z",
+  "editedAt": null,
+  "ownedByCurrentUser": true,
   "replies": []
 }
 ```

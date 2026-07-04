@@ -10,7 +10,7 @@ import com.cloudcomment.comment.persistence.PublicCommentRepository;
 import com.cloudcomment.shared.error.ApiErrorCode;
 import com.cloudcomment.shared.error.ApplicationException;
 import com.cloudcomment.site.domain.ModerationMode;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,11 +19,29 @@ import java.util.Optional;
 import java.util.UUID;
 
 @Service
-@RequiredArgsConstructor
 public class PublicCommentService {
 
     private final DomainPolicyService domainPolicyService;
     private final PublicCommentRepository publicCommentRepository;
+    private final AutoModerationService autoModerationService;
+
+    @Autowired
+    public PublicCommentService(
+        DomainPolicyService domainPolicyService,
+        PublicCommentRepository publicCommentRepository,
+        AutoModerationService autoModerationService
+    ) {
+        this.domainPolicyService = domainPolicyService;
+        this.publicCommentRepository = publicCommentRepository;
+        this.autoModerationService = autoModerationService;
+    }
+
+    PublicCommentService(
+        DomainPolicyService domainPolicyService,
+        PublicCommentRepository publicCommentRepository
+    ) {
+        this(domainPolicyService, publicCommentRepository, new AutoModerationService());
+    }
 
     @Transactional(readOnly = true)
     public PublicWidgetConfig getConfig(UUID siteId, String origin) {
@@ -86,6 +104,11 @@ public class PublicCommentService {
             throw notFound();
         }
 
+        AutoModerationDecision decision = autoModerationService.review(
+            normalizedContent,
+            access.autoModeration(),
+            initialStatus(access.moderationMode())
+        );
         return publicCommentRepository.createComment(
             access.siteId(),
             pageId,
@@ -94,8 +117,47 @@ public class PublicCommentService {
             currentUser.email(),
             currentUser.email(),
             normalizedContent,
+            decision.status(),
+            decision.reason()
+        );
+    }
+
+    @Transactional
+    public CommentView updateOwnComment(
+        AuthenticatedUser currentUser,
+        UUID siteId,
+        String origin,
+        UUID commentId,
+        String content
+    ) {
+        WidgetSiteAccess access = domainPolicyService.validate(siteId, origin);
+        String normalizedContent = normalizeContent(content);
+        AutoModerationDecision decision = autoModerationService.review(
+            normalizedContent,
+            access.autoModeration(),
             initialStatus(access.moderationMode())
         );
+        return publicCommentRepository.updateOwnComment(
+            access.siteId(),
+            commentId,
+            currentUser.id(),
+            normalizedContent,
+            decision.status(),
+            decision.reason()
+        ).orElseThrow(this::notFound);
+    }
+
+    @Transactional
+    public void deleteOwnComment(
+        AuthenticatedUser currentUser,
+        UUID siteId,
+        String origin,
+        UUID commentId
+    ) {
+        WidgetSiteAccess access = domainPolicyService.validate(siteId, origin);
+        if (!publicCommentRepository.softDeleteOwnComment(access.siteId(), commentId, currentUser.id())) {
+            throw notFound();
+        }
     }
 
     @Transactional

@@ -29,6 +29,9 @@ public record CreateSiteRequest(
     List<@NotBlank @Size(max = 255) @ValidHttpOrigin String> allowedOrigins,
 
     @Valid
-    WidgetStyleRequest widgetStyle
+    WidgetStyleRequest widgetStyle,
+
+    @Valid
+    AutoModerationSettingsRequest autoModeration
 ) {
 }

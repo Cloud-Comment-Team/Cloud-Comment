@@ -184,7 +184,7 @@ model {
 
       commentList = component 'Comment list' 'Получение и отображение комментариев страницы'
 
-      commentForm = component 'Comment form' 'Форма создания нового комментария'
+      commentForm = component 'Comment form' 'Форма создания, редактирования и удаления собственного комментария'
 
       publicApiClient = component 'Public API Client' 'Клиент публичного API виджета'
     }
@@ -204,7 +204,7 @@ model {
 
       projectModule = component 'Project module' 'MVP-термин проекта, который маппится на site без отдельной таблицы'
 
-      siteModule = component 'Site module' 'Сайты владельцев, allowed origins, режим модерации, public key и настройки внешнего вида виджета'
+      siteModule = component 'Site module' 'Сайты владельцев, allowed origins, режим модерации, public key, настройки виджета и автомодерации'
 
       domainPolicyModule = component 'Domain policy module' 'Проверка разрешенных доменов для подключения виджета'
 
@@ -214,11 +214,11 @@ model {
 
       widgetConfigModule = component 'Widget config module' 'Публичная конфигурация виджета и настройка темы/акцента для конкретного сайта'
 
-      commentModule = component 'Comment module' 'Создание, получение, реакции и хранение комментариев'
+      commentModule = component 'Comment module' 'Создание, получение, редактирование, soft-delete, реакции и хранение комментариев'
 
       moderationModule = component 'Moderation module' 'Смена статусов комментариев и управление очередью модерации'
 
-      antiSpamModule = component 'Anti-spam module' 'Базовые проверки частоты запросов и подозрительного поведения'
+      antiSpamModule = component 'Anti-spam / automoderation module' 'Правила автомодерации сайта, стоп-слова, ссылки, токсичные и спамные сигналы'
 
       fileModule = component 'File module' 'Работа с файлами через MinIO, необязательная часть MVP'
 
@@ -302,7 +302,7 @@ model {
 
   cloudComment.widgetRuntime.commentList -[internal]-> cloudComment.widgetRuntime.publicApiClient 'Запрашивает комментарии'
 
-  cloudComment.widgetRuntime.commentForm -[internal]-> cloudComment.widgetRuntime.publicApiClient 'Отправляет новый комментарий'
+  cloudComment.widgetRuntime.commentForm -[internal]-> cloudComment.widgetRuntime.publicApiClient 'Отправляет создание, редактирование и удаление комментария'
 
   cloudComment.widgetRuntime.publicApiClient -[http]-> cloudComment.backendApi.publicWidgetController 'Выполняет public API запросы'
 
@@ -326,7 +326,7 @@ model {
 
   cloudComment.backendApi.publicWidgetController -[internal]-> cloudComment.backendApi.pageModule 'Определяет страницу обсуждения'
 
-  cloudComment.backendApi.publicWidgetController -[internal]-> cloudComment.backendApi.commentModule 'Создает и получает комментарии'
+  cloudComment.backendApi.publicWidgetController -[internal]-> cloudComment.backendApi.commentModule 'Создает, получает, редактирует и soft-delete комментарии'
 
   cloudComment.backendApi.publicWidgetController -[internal]-> cloudComment.backendApi.accountPrivacyModule 'Обслуживает самообслуживание аккаунта в виджете: профиль, logout, экспорт данных и запрос удаления'
 
@@ -356,7 +356,7 @@ model {
 
   cloudComment.backendApi.domainPolicyModule -[reads]-> cloudComment.backendApi.siteModule 'Проверяет список разрешенных доменов'
 
-  cloudComment.backendApi.commentModule -[internal]-> cloudComment.backendApi.antiSpamModule 'Проверяет комментарий перед сохранением'
+  cloudComment.backendApi.commentModule -[internal]-> cloudComment.backendApi.antiSpamModule 'Проверяет комментарий перед созданием и редактированием'
 
   cloudComment.backendApi.fileModule -[stores]-> cloudComment.minio 'Сохраняет файлы'
 
@@ -531,7 +531,7 @@ views {
 
     cloudComment.backendApi.publicWidgetController -> cloudComment.backendApi.domainPolicyModule 'Проверяет origin домена'
 
-    cloudComment.backendApi.publicWidgetController -> cloudComment.backendApi.antiSpamModule 'Проверяет частоту и базовый спам'
+    cloudComment.backendApi.publicWidgetController -> cloudComment.backendApi.antiSpamModule 'Применяет правила автомодерации сайта'
 
     cloudComment.backendApi.publicWidgetController -> cloudComment.backendApi.pageModule 'Определяет страницу обсуждения'
 

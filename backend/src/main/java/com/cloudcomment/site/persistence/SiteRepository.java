@@ -1,6 +1,7 @@
 package com.cloudcomment.site.persistence;
 
 import com.cloudcomment.site.application.SitePage;
+import com.cloudcomment.site.domain.AutoModerationSettings;
 import com.cloudcomment.site.domain.ModerationMode;
 import com.cloudcomment.site.domain.Site;
 import com.cloudcomment.site.domain.WidgetStyle;
@@ -33,7 +34,29 @@ public interface SiteRepository {
         WidgetStyle widgetStyle,
         List<String> allowedOrigins
     ) {
-        return create(ownerId, name, domain, publicKey, moderationMode, allowedOrigins);
+        return create(
+            ownerId,
+            name,
+            domain,
+            publicKey,
+            moderationMode,
+            widgetStyle,
+            AutoModerationSettings.defaultSettings(),
+            allowedOrigins
+        );
+    }
+
+    default Site create(
+        UUID ownerId,
+        String name,
+        String domain,
+        String publicKey,
+        ModerationMode moderationMode,
+        WidgetStyle widgetStyle,
+        AutoModerationSettings autoModeration,
+        List<String> allowedOrigins
+    ) {
+        return create(ownerId, name, domain, publicKey, moderationMode, widgetStyle, allowedOrigins);
     }
 
     Optional<Site> update(UUID siteId, SiteUpdate update);

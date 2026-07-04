@@ -14,6 +14,8 @@ public record CommentView(
     CommentStatus status,
     Instant createdAt,
     Instant updatedAt,
+    Instant editedAt,
+    boolean ownedByCurrentUser,
     List<CommentReactionSummary> reactions,
     List<CommentView> replies
 ) {
@@ -45,6 +47,8 @@ public record CommentView(
             status,
             createdAt,
             updatedAt,
+            null,
+            false,
             List.of(),
             replies
         );

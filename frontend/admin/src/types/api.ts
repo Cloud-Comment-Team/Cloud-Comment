@@ -4,10 +4,21 @@ export type WidgetTheme = 'AUTO' | 'LIGHT' | 'DARK'
 
 export type WidgetCornerRadius = 'SMALL' | 'MEDIUM' | 'LARGE'
 
+export type AutoModerationStrictness = 'OFF' | 'RELAXED' | 'BALANCED' | 'STRICT'
+
 export interface WidgetStyle {
   theme: WidgetTheme
   accentColor: string
   cornerRadius: WidgetCornerRadius
+}
+
+export interface AutoModerationSettings {
+  enabled: boolean
+  strictness: AutoModerationStrictness
+  blockedWords: string[]
+  holdLinks: boolean
+  blockLinks: boolean
+  maxLinks: number
 }
 
 export type CommentStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'HIDDEN' | 'SPAM'
@@ -31,6 +42,7 @@ export interface Site {
   moderationMode: ModerationMode
   isActive: boolean
   widgetStyle: WidgetStyle
+  autoModeration: AutoModerationSettings
   allowedOrigins: string[]
   createdAt: string
   updatedAt: string
@@ -42,6 +54,7 @@ export interface CreateSiteRequest {
   moderationMode: ModerationMode
   allowedOrigins: string[]
   widgetStyle?: WidgetStyle
+  autoModeration?: AutoModerationSettings
 }
 
 export interface UpdateSiteRequest {
@@ -50,6 +63,7 @@ export interface UpdateSiteRequest {
   moderationMode?: ModerationMode
   isActive?: boolean
   widgetStyle?: WidgetStyle
+  autoModeration?: AutoModerationSettings
 }
 
 export interface ReplaceAllowedOriginsRequest {

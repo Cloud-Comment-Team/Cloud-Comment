@@ -46,6 +46,7 @@ class JdbcPublicCommentRepositoryIntegrationTests {
                 assertThat(site.id()).isEqualTo(siteId);
                 assertThat(site.moderationMode()).isEqualTo(ModerationMode.PRE_MODERATION);
                 assertThat(site.widgetStyle().accentColor()).isEqualTo("#0f766e");
+                assertThat(site.autoModeration().enabled()).isTrue();
             });
         assertThat(repository.findActiveSite(inactiveSiteId)).isEmpty();
         assertThat(repository.isAllowedOrigin(siteId, "https://example.com")).isTrue();
@@ -130,6 +131,7 @@ class JdbcPublicCommentRepositoryIntegrationTests {
             assertThat(root.author().email()).isEqualTo("visitor@example.com");
             assertThat(root.author().displayName()).isEqualTo("Visitor Name");
             assertThat(root.status()).isEqualTo(CommentStatus.APPROVED);
+            assertThat(root.ownedByCurrentUser()).isTrue();
             assertThat(root.reactions())
                 .filteredOn(reaction -> reaction.type() == CommentReactionType.LOVE)
                 .singleElement()
@@ -171,6 +173,24 @@ class JdbcPublicCommentRepositoryIntegrationTests {
         assertThat(repository.existsApprovedRootCommentOnPage(pageId, approvedReply.id())).isFalse();
         assertThat(repository.existsApprovedRootCommentOnPage(pageId, pendingRoot.id())).isFalse();
         assertThat(repository.existsApprovedRootCommentOnPage(pageId, UUID.randomUUID())).isFalse();
+
+        CommentView updatedRoot = repository.updateOwnComment(
+            siteId,
+            approvedRoot.id(),
+            visitorId,
+            "Updated approved root",
+            CommentStatus.PENDING,
+            "Needs another look"
+        ).orElseThrow();
+        assertThat(updatedRoot.content()).isEqualTo("Updated approved root");
+        assertThat(updatedRoot.status()).isEqualTo(CommentStatus.PENDING);
+        assertThat(updatedRoot.editedAt()).isNotNull();
+        assertThat(updatedRoot.ownedByCurrentUser()).isTrue();
+        assertThat(repository.findApprovedComments(siteId, pageId, 1, 20, Optional.of(visitorId)).items()).isEmpty();
+
+        assertThat(repository.softDeleteOwnComment(siteId, approvedReply.id(), ownerId)).isFalse();
+        assertThat(repository.softDeleteOwnComment(siteId, approvedReply.id(), visitorId)).isTrue();
+        assertThat(repository.existsApprovedCommentInSite(siteId, approvedReply.id())).isFalse();
     }
 
     private UUID insertUser(String label, String displayName) {

@@ -17,6 +17,8 @@ record CommentResponse(
     CommentStatus status,
     Instant createdAt,
     Instant updatedAt,
+    Instant editedAt,
+    boolean ownedByCurrentUser,
     List<CommentReactionResponse> reactions,
     List<CommentResponse> replies
 ) {
@@ -37,6 +39,8 @@ record CommentResponse(
             comment.status(),
             comment.createdAt(),
             comment.updatedAt(),
+            comment.editedAt(),
+            comment.ownedByCurrentUser(),
             comment.reactions().stream().map(CommentReactionResponse::from).toList(),
             comment.replies().stream().map(CommentResponse::from).toList()
         );

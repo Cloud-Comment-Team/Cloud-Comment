@@ -97,7 +97,7 @@ class JdbcCommentRepository implements CommentRepository {
     @Override
     public Optional<Comment> findById(UUID commentId) {
         List<Comment> comments = jdbcTemplate.query(
-            COMMENT_SELECT + " where c.id = ?",
+            COMMENT_SELECT + " where c.id = ? and c.deleted_at is null",
             this::mapCommentRow,
             commentId
         );
@@ -134,7 +134,7 @@ class JdbcCommentRepository implements CommentRepository {
     }
 
     private FilterQuery buildFilterQuery(UUID ownerId, ModerationCommentFilters filters) {
-        StringBuilder where = new StringBuilder(" where s.owner_id = ?");
+        StringBuilder where = new StringBuilder(" where s.owner_id = ? and c.deleted_at is null");
         List<Object> params = new ArrayList<>();
         params.add(ownerId);
 

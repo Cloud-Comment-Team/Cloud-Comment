@@ -1,6 +1,8 @@
 package com.cloudcomment.site.persistence;
 
 import com.cloudcomment.site.application.SitePage;
+import com.cloudcomment.site.domain.AutoModerationSettings;
+import com.cloudcomment.site.domain.AutoModerationStrictness;
 import com.cloudcomment.site.domain.ModerationMode;
 import com.cloudcomment.site.domain.Site;
 import com.cloudcomment.site.domain.WidgetCornerRadius;
@@ -36,6 +38,8 @@ class JdbcSiteRepository implements SiteRepository {
             """
                 select id, owner_id, name, domain, public_key, moderation_mode, is_active,
                        widget_theme, widget_accent_color, widget_corner_radius,
+                       automod_enabled, automod_strictness, automod_blocked_words,
+                       automod_hold_links, automod_block_links, automod_max_links,
                        created_at, updated_at
                 from sites
                 where owner_id = ?
@@ -63,6 +67,8 @@ class JdbcSiteRepository implements SiteRepository {
             """
                 select id, owner_id, name, domain, public_key, moderation_mode, is_active,
                        widget_theme, widget_accent_color, widget_corner_radius,
+                       automod_enabled, automod_strictness, automod_blocked_words,
+                       automod_hold_links, automod_block_links, automod_max_links,
                        created_at, updated_at
                 from sites
                 where id = ?
@@ -105,7 +111,34 @@ class JdbcSiteRepository implements SiteRepository {
         WidgetStyle widgetStyle,
         List<String> allowedOrigins
     ) {
+        return create(
+            ownerId,
+            name,
+            domain,
+            publicKey,
+            moderationMode,
+            widgetStyle,
+            AutoModerationSettings.defaultSettings(),
+            allowedOrigins
+        );
+    }
+
+    @Override
+    @Transactional
+    public Site create(
+        UUID ownerId,
+        String name,
+        String domain,
+        String publicKey,
+        ModerationMode moderationMode,
+        WidgetStyle widgetStyle,
+        AutoModerationSettings autoModeration,
+        List<String> allowedOrigins
+    ) {
         WidgetStyle normalizedStyle = widgetStyle != null ? widgetStyle : WidgetStyle.defaultStyle();
+        AutoModerationSettings normalizedAutoModeration = autoModeration != null
+            ? autoModeration
+            : AutoModerationSettings.defaultSettings();
         SiteRow createdSite = jdbcTemplate.queryForObject(
             """
                 insert into sites (
@@ -116,11 +149,19 @@ class JdbcSiteRepository implements SiteRepository {
                     moderation_mode,
                     widget_theme,
                     widget_accent_color,
-                    widget_corner_radius
+                    widget_corner_radius,
+                    automod_enabled,
+                    automod_strictness,
+                    automod_blocked_words,
+                    automod_hold_links,
+                    automod_block_links,
+                    automod_max_links
                 )
-                values (?, ?, ?, ?, ?, ?, ?, ?)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 returning id, owner_id, name, domain, public_key, moderation_mode, is_active,
                           widget_theme, widget_accent_color, widget_corner_radius,
+                          automod_enabled, automod_strictness, automod_blocked_words,
+                          automod_hold_links, automod_block_links, automod_max_links,
                           created_at, updated_at
                 """,
             this::mapSiteRow,
@@ -131,7 +172,13 @@ class JdbcSiteRepository implements SiteRepository {
             moderationMode.name(),
             normalizedStyle.theme().name(),
             normalizedStyle.accentColor(),
-            normalizedStyle.cornerRadius().name()
+            normalizedStyle.cornerRadius().name(),
+            normalizedAutoModeration.enabled(),
+            normalizedAutoModeration.strictness().name(),
+            serializeBlockedWords(normalizedAutoModeration.blockedWords()),
+            normalizedAutoModeration.holdLinks(),
+            normalizedAutoModeration.blockLinks(),
+            normalizedAutoModeration.maxLinks()
         );
         SiteRow site = Objects.requireNonNull(createdSite, "created site must not be null");
         insertAllowedOrigins(site.id(), allowedOrigins);
@@ -169,12 +216,30 @@ class JdbcSiteRepository implements SiteRepository {
             params.add(update.widgetStyle().accentColor());
             params.add(update.widgetStyle().cornerRadius().name());
         }
+        if (update.autoModeration() != null) {
+            sql.append("""
+                , automod_enabled = ?,
+                  automod_strictness = ?,
+                  automod_blocked_words = ?,
+                  automod_hold_links = ?,
+                  automod_block_links = ?,
+                  automod_max_links = ?
+                """);
+            params.add(update.autoModeration().enabled());
+            params.add(update.autoModeration().strictness().name());
+            params.add(serializeBlockedWords(update.autoModeration().blockedWords()));
+            params.add(update.autoModeration().holdLinks());
+            params.add(update.autoModeration().blockLinks());
+            params.add(update.autoModeration().maxLinks());
+        }
 
         sql.append("""
 
             where id = ?
             returning id, owner_id, name, domain, public_key, moderation_mode, is_active,
                       widget_theme, widget_accent_color, widget_corner_radius,
+                      automod_enabled, automod_strictness, automod_blocked_words,
+                      automod_hold_links, automod_block_links, automod_max_links,
                       created_at, updated_at
             """);
         params.add(siteId);
@@ -257,6 +322,7 @@ class JdbcSiteRepository implements SiteRepository {
             row.moderationMode(),
             row.active(),
             row.widgetStyle(),
+            row.autoModeration(),
             findAllowedOrigins(row.id()),
             row.createdAt(),
             row.updatedAt()
@@ -290,9 +356,31 @@ class JdbcSiteRepository implements SiteRepository {
                 resultSet.getString("widget_accent_color"),
                 WidgetCornerRadius.valueOf(resultSet.getString("widget_corner_radius"))
             ),
+            new AutoModerationSettings(
+                resultSet.getBoolean("automod_enabled"),
+                AutoModerationStrictness.valueOf(resultSet.getString("automod_strictness")),
+                parseBlockedWords(resultSet.getString("automod_blocked_words")),
+                resultSet.getBoolean("automod_hold_links"),
+                resultSet.getBoolean("automod_block_links"),
+                resultSet.getInt("automod_max_links")
+            ),
             toInstant(resultSet, "created_at"),
             toInstant(resultSet, "updated_at")
         );
+    }
+
+    private String serializeBlockedWords(List<String> blockedWords) {
+        return String.join("\n", blockedWords);
+    }
+
+    private List<String> parseBlockedWords(String value) {
+        if (value == null || value.isBlank()) {
+            return List.of();
+        }
+        return value.lines()
+            .map(String::trim)
+            .filter(word -> !word.isBlank())
+            .toList();
     }
 
     private Instant toInstant(ResultSet resultSet, String column) throws SQLException {
@@ -308,6 +396,7 @@ class JdbcSiteRepository implements SiteRepository {
         ModerationMode moderationMode,
         boolean active,
         WidgetStyle widgetStyle,
+        AutoModerationSettings autoModeration,
         Instant createdAt,
         Instant updatedAt
     ) {
