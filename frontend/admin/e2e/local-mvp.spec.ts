@@ -32,12 +32,21 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   await page.getByRole('link', { name: 'Сайты' }).click()
   await expect(page.getByRole('heading', { name: 'Сайты' })).toBeVisible()
   await page.getByRole('link', { name: 'Создать сайт' }).click()
-  await expect(page.getByRole('heading', { name: 'Новый сайт' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Подключение сайта' })).toBeVisible()
 
   await page.getByLabel('Название').fill(siteName)
   await page.getByLabel('Домен').fill(domain)
   await page.getByLabel('Режим модерации').selectOption('POST_MODERATION')
-  await page.getByLabel('Allowed origins').fill(`${ADMIN_ORIGIN}\nhttp://localhost:5173`)
+  await page.getByLabel(/Разрешённые origins/).fill(`${ADMIN_ORIGIN}\nhttp://localhost:5173`)
+
+  const onboardingPreview = page.locator('aside')
+  await expect(onboardingPreview.getByRole('heading', { name: siteName })).toBeVisible()
+  await expect(onboardingPreview.getByText(domain)).toBeVisible()
+  await expect(onboardingPreview.getByText(ADMIN_ORIGIN)).toBeVisible()
+  await expect(onboardingPreview.getByText('Пост-модерация')).toBeVisible()
+  await expect(onboardingPreview.getByText('Черновик embed-кода')).toBeVisible()
+  await expect(onboardingPreview.getByText('Опубликован сразу')).toBeVisible()
+
   await page.getByRole('button', { name: 'Создать сайт' }).click()
 
   await expect(page.getByRole('heading', { name: siteName })).toBeVisible()
