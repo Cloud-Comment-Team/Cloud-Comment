@@ -283,6 +283,19 @@ pre {
     border-color: var(--border);
     box-shadow: var(--shadow-sm);
   }
+
+  .cc-route-flow {
+    overflow: hidden;
+    border: 1px solid var(--accent-border);
+    background:
+      radial-gradient(circle at 12% 50%, color-mix(in srgb, var(--accent) 48%, transparent), transparent 44%),
+      linear-gradient(90deg, var(--accent-bg), color-mix(in srgb, var(--surface) 78%, transparent));
+    box-shadow:
+      0 22px 64px color-mix(in srgb, var(--accent) 20%, transparent),
+      inset 0 1px 0 rgba(255, 255, 255, 0.16);
+    transform-origin: left center;
+    will-change: transform, opacity, width, height;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

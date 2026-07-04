@@ -33,20 +33,13 @@ Cloud-Comment — сервис комментариев, который влад
    cp .env.example .env
    ```
 
-3. Соберите публичный виджет, чтобы Caddy мог отдавать файл `/widget/cloud-comment-widget.js`:
-
-   ```sh
-   npm --prefix widget-frontend install
-   npm --prefix widget-frontend run build
-   ```
-
-4. Запустите локальный стек:
+3. Запустите локальный стек. Docker Compose соберет backend, admin frontend и публичный widget bundle, а Caddy отдаст их одним локальным входом:
 
    ```sh
    docker compose up --build
    ```
 
-5. Проверьте backend через Caddy:
+4. Проверьте backend через Caddy:
 
    ```sh
    curl http://localhost/api/health
@@ -57,6 +50,7 @@ Cloud-Comment — сервис комментариев, который влад
 Локально поднимаются:
 
 - Caddy на `http://localhost`;
+- admin frontend на `http://localhost`;
 - backend внутри Docker-сети на порту `8080`;
 - PostgreSQL на `127.0.0.1:5432`;
 - публичный widget script на `http://localhost/widget/cloud-comment-widget.js`.

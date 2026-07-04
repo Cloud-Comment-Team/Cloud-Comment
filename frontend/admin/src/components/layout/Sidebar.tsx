@@ -1,4 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom'
+import { motion } from 'framer-motion'
 import { Globe, LayoutDashboard, LogOut, Shield, X } from 'lucide-react'
 
 import { BrandMark } from '../brand/BrandLogo'
@@ -14,9 +15,10 @@ const navigation = [
 interface SidebarProps {
   isOpen: boolean
   onClose: () => void
+  onNavigationIntent: (route: string, element: HTMLElement) => void
 }
 
-const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
+const Sidebar = ({ isOpen, onClose, onNavigationIntent }: SidebarProps) => {
   const user = useAuthStore((state) => state.user)
   const logout = useAuthStore((state) => state.logout)
   const navigate = useNavigate()
@@ -75,17 +77,43 @@ const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
                 key={item.name}
                 to={item.href}
                 end={item.href === '/'}
-                onClick={onClose}
-                className="group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition hover:-translate-y-0.5 hover:shadow-sm"
+                onPointerDown={(event) => onNavigationIntent(item.href, event.currentTarget)}
+                onClick={(event) => {
+                  onNavigationIntent(item.href, event.currentTarget)
+                  onClose()
+                }}
+                className="group relative isolate flex items-center gap-3 overflow-hidden rounded-lg px-3 py-2.5 text-sm transition hover:-translate-y-0.5 hover:shadow-sm"
                 style={({ isActive }) => ({
                   color: isActive ? 'var(--accent)' : 'var(--text)',
-                  backgroundColor: isActive ? 'var(--accent-bg)' : 'transparent',
-                  border: isActive ? '1px solid var(--accent-border)' : '1px solid transparent',
                   fontWeight: isActive ? '600' : '500',
                 })}
               >
-                <item.icon className="h-4 w-4" aria-hidden="true" />
-                <span>{item.name}</span>
+                {({ isActive }) => (
+                  <>
+                    {isActive && (
+                      <motion.span
+                        layoutId="cc-sidebar-active-route"
+                        className="absolute inset-0 rounded-lg border"
+                        style={{
+                          backgroundColor: 'var(--accent-bg)',
+                          borderColor: 'var(--accent-border)',
+                          boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 12px 28px rgba(15, 118, 110, 0.14)',
+                        }}
+                        transition={{ type: 'spring', stiffness: 420, damping: 34, mass: 0.72 }}
+                      />
+                    )}
+                    {isActive && (
+                      <motion.span
+                        layoutId="cc-sidebar-active-beam"
+                        className="absolute bottom-1 left-1 top-1 w-1 rounded-full"
+                        style={{ backgroundColor: 'var(--accent)' }}
+                        transition={{ type: 'spring', stiffness: 520, damping: 36, mass: 0.64 }}
+                      />
+                    )}
+                    <item.icon className="relative z-10 h-4 w-4" aria-hidden="true" />
+                    <span className="relative z-10">{item.name}</span>
+                  </>
+                )}
               </NavLink>
             ))}
           </nav>
@@ -93,28 +121,47 @@ const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
           <div className="space-y-3 border-t p-3" style={{ borderColor: 'var(--border)' }}>
             <NavLink
               to="/account"
-              onClick={onClose}
-              className="group flex items-center gap-3 rounded-lg border p-3 text-left transition hover:-translate-y-0.5 hover:shadow-sm"
+              onPointerDown={(event) => onNavigationIntent('/account', event.currentTarget)}
+              onClick={(event) => {
+                onNavigationIntent('/account', event.currentTarget)
+                onClose()
+              }}
+              className="group relative isolate flex items-center gap-3 overflow-hidden rounded-lg border p-3 text-left transition hover:-translate-y-0.5 hover:shadow-sm"
               style={({ isActive }) => ({
-                backgroundColor: isActive ? 'var(--accent-bg)' : 'var(--surface-muted)',
                 borderColor: isActive ? 'var(--accent-border)' : 'var(--border)',
               })}
               aria-label="Открыть настройки аккаунта"
             >
-              <div
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
-                style={{ backgroundColor: 'var(--accent-bg)', color: 'var(--accent)' }}
-              >
-                <span className="text-xs font-semibold">{initials}</span>
-              </div>
-              <div className="min-w-0 flex-1 text-left">
-                <p className="truncate text-sm font-medium" style={{ color: 'var(--text-h)' }}>
-                  Владелец
-                </p>
-                <p className="truncate text-xs" style={{ color: 'var(--text)' }}>
-                  {user?.email ?? 'Аккаунт'}
-                </p>
-              </div>
+              {({ isActive }) => (
+                <>
+                  {isActive && (
+                    <motion.span
+                      layoutId="cc-sidebar-active-route"
+                      className="absolute inset-0 rounded-lg border"
+                      style={{
+                        backgroundColor: 'var(--accent-bg)',
+                        borderColor: 'var(--accent-border)',
+                        boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 12px 28px rgba(15, 118, 110, 0.14)',
+                      }}
+                      transition={{ type: 'spring', stiffness: 420, damping: 34, mass: 0.72 }}
+                    />
+                  )}
+                  <div
+                    className="relative z-10 flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
+                    style={{ backgroundColor: 'var(--accent-bg)', color: 'var(--accent)' }}
+                  >
+                    <span className="text-xs font-semibold">{initials}</span>
+                  </div>
+                  <div className="relative z-10 min-w-0 flex-1 text-left">
+                    <p className="truncate text-sm font-medium" style={{ color: 'var(--text-h)' }}>
+                      Владелец
+                    </p>
+                    <p className="truncate text-xs" style={{ color: 'var(--text)' }}>
+                      {user?.email ?? 'Аккаунт'}
+                    </p>
+                  </div>
+                </>
+              )}
             </NavLink>
 
             <div className="flex items-center gap-2">

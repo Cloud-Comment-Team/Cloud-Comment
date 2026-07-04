@@ -1,0 +1,15 @@
+.git
+.github
+diagnostics
+docs
+deploy
+backend
+
+**/node_modules
+**/dist
+**/.gradle
+**/build
+
+*.log
+*.tmp
+photo_*.jpg
