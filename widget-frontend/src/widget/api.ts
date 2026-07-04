@@ -1,4 +1,6 @@
 import type {
+  AccountDeletionRequest,
+  AuthUser,
   LoginResponse,
   PaginatedResponse,
   PublicComment,
@@ -44,8 +46,12 @@ export type WidgetApiClient = {
   getConsentRequirements: () => Promise<ConsentRequirements>;
   listComments: () => Promise<PaginatedResponse<PublicComment>>;
   createComment: (content: string, token: string) => Promise<PublicComment>;
+  getCurrentUser: (token: string) => Promise<AuthUser>;
   login: (email: string, password: string) => Promise<LoginResponse>;
   register: (payload: RegisterPayload) => Promise<void>;
+  logout: (token: string) => Promise<void>;
+  requestAccountDeletion: (token: string) => Promise<AccountDeletionRequest>;
+  exportPersonalData: (token: string) => Promise<unknown>;
 };
 
 export function createWidgetApiClient(
@@ -105,6 +111,12 @@ export function createWidgetApiClient(
           content
         })
       }),
+    getCurrentUser: (token) =>
+      request<AuthUser>(`${siteBasePath}/auth/me`, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      }),
     login: (email, password) =>
       request<LoginResponse>(`${siteBasePath}/auth/login`, {
         method: "POST",
@@ -120,6 +132,26 @@ export function createWidgetApiClient(
           "Content-Type": "application/json"
         },
         body: JSON.stringify(payload)
+      }),
+    logout: (token) =>
+      request<void>(`${siteBasePath}/auth/logout`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      }),
+    requestAccountDeletion: (token) =>
+      request<AccountDeletionRequest>(`${siteBasePath}/account/deletion-requests`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      }),
+    exportPersonalData: (token) =>
+      request<unknown>(`${siteBasePath}/account/personal-data`, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
       })
   };
 }

@@ -18,6 +18,7 @@ type WidgetState = {
   loading: boolean;
   submitting: boolean;
   authenticating: boolean;
+  accountBusy: boolean;
   comments: PublicComment[];
   config: PublicWidgetConfig | null;
   consentRequirements: ConsentRequirements | null;
@@ -25,8 +26,10 @@ type WidgetState = {
   userEmail: string | null;
   error: string | null;
   authError: string | null;
+  accountError: string | null;
   notice: string | null;
   authMode: AuthMode;
+  deleteConfirming: boolean;
 };
 
 export function renderWidget(
@@ -51,6 +54,7 @@ export function renderWidget(
     loading: true,
     submitting: false,
     authenticating: false,
+    accountBusy: false,
     comments: [],
     config: null,
     consentRequirements: null,
@@ -58,8 +62,10 @@ export function renderWidget(
     userEmail: null,
     error: null,
     authError: null,
+    accountError: null,
     notice: null,
-    authMode: "login"
+    authMode: "login",
+    deleteConfirming: false
   };
   let destroyed = false;
 
@@ -68,7 +74,7 @@ export function renderWidget(
       return;
     }
 
-    shell.replaceChildren(renderHeader(options, state), renderBody(state));
+    shell.replaceChildren(renderHeader(options, state), renderBody(state, options));
   }
 
   async function loadInitialData(): Promise<void> {
@@ -85,6 +91,9 @@ export function renderWidget(
       state.config = config;
       state.comments = comments.items;
       state.consentRequirements = consentRequirements;
+      if (state.token) {
+        await loadCurrentUser();
+      }
     } catch (error) {
       state.error = getErrorMessage(error);
     } finally {
@@ -125,12 +134,117 @@ export function renderWidget(
       state.userEmail = loginResponse.user.email;
       storeAuthToken(loginResponse.token);
       state.notice = "Вы вошли и можете оставить комментарий.";
+      state.accountError = null;
+      state.deleteConfirming = false;
     } catch (error) {
       state.authError = getErrorMessage(error);
     } finally {
       state.authenticating = false;
       render();
     }
+  }
+
+  async function loadCurrentUser(): Promise<void> {
+    if (!state.token) {
+      return;
+    }
+
+    try {
+      const user = await api.getCurrentUser(state.token);
+      state.userEmail = user.email;
+    } catch (error) {
+      if (error instanceof WidgetApiError && error.status === 401) {
+        clearAuthState();
+        return;
+      }
+      state.accountError = getErrorMessage(error);
+    }
+  }
+
+  async function logout(): Promise<void> {
+    if (!state.token) {
+      clearAuthState();
+      render();
+      return;
+    }
+
+    state.accountBusy = true;
+    state.accountError = null;
+    render();
+
+    try {
+      await api.logout(state.token);
+      state.notice = "Вы вышли из аккаунта комментатора.";
+    } catch {
+      state.notice = "Вы вышли из виджета на этом устройстве.";
+    } finally {
+      clearAuthState();
+      state.accountBusy = false;
+      render();
+    }
+  }
+
+  async function requestAccountDeletion(): Promise<void> {
+    if (!state.token) {
+      state.authError = "Войдите, чтобы запросить удаление аккаунта.";
+      render();
+      return;
+    }
+
+    state.accountBusy = true;
+    state.accountError = null;
+    render();
+
+    try {
+      const request = await api.requestAccountDeletion(state.token);
+      state.deleteConfirming = false;
+      state.notice = `Письмо для подтверждения удаления отправлено на ${state.userEmail ?? "ваш email"}. Код действует до ${formatDate(request.expiresAt)}.`;
+    } catch (error) {
+      if (error instanceof WidgetApiError && error.status === 401) {
+        clearAuthState();
+        state.authError = "Сессия истекла. Войдите снова.";
+      } else {
+        state.accountError = getErrorMessage(error);
+      }
+    } finally {
+      state.accountBusy = false;
+      render();
+    }
+  }
+
+  async function exportPersonalData(): Promise<void> {
+    if (!state.token) {
+      state.authError = "Войдите, чтобы скачать данные аккаунта.";
+      render();
+      return;
+    }
+
+    state.accountBusy = true;
+    state.accountError = null;
+    render();
+
+    try {
+      const personalData = await api.exportPersonalData(state.token);
+      downloadJson("cloudcomment-personal-data.json", personalData);
+      state.notice = "Файл с персональными данными подготовлен.";
+    } catch (error) {
+      if (error instanceof WidgetApiError && error.status === 401) {
+        clearAuthState();
+        state.authError = "Сессия истекла. Войдите снова.";
+      } else {
+        state.accountError = getErrorMessage(error);
+      }
+    } finally {
+      state.accountBusy = false;
+      render();
+    }
+  }
+
+  function clearAuthState(): void {
+    state.token = null;
+    state.userEmail = null;
+    state.deleteConfirming = false;
+    removeStoredAuthToken();
   }
 
   async function submitComment(content: string): Promise<void> {
@@ -155,8 +269,7 @@ export function renderWidget(
           : "Комментарий отправлен и ждет модерации.";
     } catch (error) {
       if (error instanceof WidgetApiError && error.status === 401) {
-        state.token = null;
-        removeStoredAuthToken();
+        clearAuthState();
       }
       state.error = getErrorMessage(error);
     } finally {
@@ -205,6 +318,35 @@ export function renderWidget(
       state.authMode = button.dataset.authMode;
       state.authError = null;
       render();
+      return;
+    }
+
+    if (button.dataset.accountAction === "logout") {
+      void logout();
+      return;
+    }
+
+    if (button.dataset.accountAction === "delete") {
+      state.deleteConfirming = true;
+      state.accountError = null;
+      render();
+      return;
+    }
+
+    if (button.dataset.accountAction === "cancel-delete") {
+      state.deleteConfirming = false;
+      state.accountError = null;
+      render();
+      return;
+    }
+
+    if (button.dataset.accountAction === "request-delete") {
+      void requestAccountDeletion();
+      return;
+    }
+
+    if (button.dataset.accountAction === "export-data") {
+      void exportPersonalData();
     }
   });
 
@@ -313,7 +455,7 @@ function renderHeader(
   return header;
 }
 
-function renderBody(state: WidgetState): HTMLElement {
+function renderBody(state: WidgetState, options: Required<CloudCommentWidgetOptions>): HTMLElement {
   const body = document.createElement("div");
   body.className = "cloud-comment__body";
 
@@ -331,7 +473,7 @@ function renderBody(state: WidgetState): HTMLElement {
     body.append(renderCommentList(state.comments));
   }
 
-  body.append(renderCommentForm(state), renderAuthSection(state));
+  body.append(renderCommentForm(state), renderAccountSection(state, options), renderAuthSection(state));
   return body;
 }
 
@@ -428,6 +570,111 @@ function renderCommentForm(state: WidgetState): HTMLElement {
   actions.append(meta, button);
   form.append(textarea, actions);
   return form;
+}
+
+function renderAccountSection(
+  state: WidgetState,
+  options: Required<CloudCommentWidgetOptions>
+): HTMLElement {
+  const section = document.createElement("section");
+  section.className = "cloud-comment__account";
+
+  if (!state.token) {
+    section.hidden = true;
+    return section;
+  }
+
+  const summary = document.createElement("div");
+  summary.className = "cloud-comment__account-summary";
+
+  const avatar = document.createElement("span");
+  avatar.className = "cloud-comment__avatar cloud-comment__avatar--account";
+  avatar.textContent = getInitials(state.userEmail ?? "CC");
+
+  const text = document.createElement("div");
+  text.className = "cloud-comment__account-text";
+
+  const title = document.createElement("strong");
+  title.textContent = state.userEmail ?? "Аккаунт комментатора";
+
+  const caption = document.createElement("span");
+  caption.textContent = "Управление аккаунтом и персональными данными";
+
+  text.append(title, caption);
+  summary.append(avatar, text);
+
+  const actions = document.createElement("div");
+  actions.className = "cloud-comment__account-actions";
+  actions.append(
+    renderAccountButton("Скачать данные", "export-data", state.accountBusy),
+    renderAccountButton("Выйти", "logout", state.accountBusy),
+    renderAccountButton("Удалить аккаунт", "delete", state.accountBusy, true)
+  );
+
+  const links = document.createElement("div");
+  links.className = "cloud-comment__account-links";
+  if (state.consentRequirements) {
+    links.append(
+      createAccountLink("Политика", state.consentRequirements.privacyPolicyUrl, options.apiBaseUrl),
+      createAccountLink("Условия", state.consentRequirements.termsUrl, options.apiBaseUrl),
+      createAccountLink("Персональные данные", state.consentRequirements.personalDataNoticeUrl, options.apiBaseUrl)
+    );
+  }
+
+  section.append(summary, actions);
+  if (links.childNodes.length > 0) {
+    section.append(links);
+  }
+
+  if (state.accountError) {
+    section.append(renderMessage(state.accountError, "error"));
+  }
+
+  if (state.deleteConfirming) {
+    const confirmation = document.createElement("div");
+    confirmation.className = "cloud-comment__delete-confirm";
+
+    const message = document.createElement("p");
+    message.textContent = "Мы отправим письмо с одноразовой ссылкой и кодом. Аккаунт удалится только после подтверждения.";
+
+    const confirmationActions = document.createElement("div");
+    confirmationActions.className = "cloud-comment__delete-actions";
+    confirmationActions.append(
+      renderAccountButton("Отправить письмо", "request-delete", state.accountBusy, true),
+      renderAccountButton("Отмена", "cancel-delete", state.accountBusy)
+    );
+
+    confirmation.append(message, confirmationActions);
+    section.append(confirmation);
+  }
+
+  return section;
+}
+
+function renderAccountButton(
+  label: string,
+  action: string,
+  disabled: boolean,
+  danger = false
+): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = danger
+    ? "cloud-comment__account-button cloud-comment__account-button--danger"
+    : "cloud-comment__account-button";
+  button.dataset.accountAction = action;
+  button.disabled = disabled;
+  button.textContent = label;
+  return button;
+}
+
+function createAccountLink(label: string, href: string, apiBaseUrl: string): HTMLAnchorElement {
+  const link = document.createElement("a");
+  link.href = toCloudCommentUrl(href, apiBaseUrl);
+  link.target = "_blank";
+  link.rel = "noreferrer";
+  link.textContent = label;
+  return link;
 }
 
 function renderAuthSection(state: WidgetState): HTMLElement {
@@ -550,6 +797,27 @@ function mergeCreatedComment(createdComment: PublicComment, comments: PublicComm
   return [createdComment, ...comments];
 }
 
+function toCloudCommentUrl(href: string, apiBaseUrl: string): string {
+  try {
+    return new URL(href, apiBaseUrl).toString();
+  } catch {
+    return href;
+  }
+}
+
+function downloadJson(fileName: string, value: unknown): void {
+  const blob = new Blob([JSON.stringify(value, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  link.style.display = "none";
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error) {
     return error.message;
@@ -614,6 +882,9 @@ function storeAuthToken(token: string): void {
 function removeStoredAuthToken(): void {
   try {
     window.localStorage.removeItem(WIDGET_AUTH_TOKEN_KEY);
+    window.sessionStorage.removeItem(WIDGET_AUTH_TOKEN_KEY);
+    window.localStorage.removeItem(ADMIN_AUTH_TOKEN_KEY);
+    window.sessionStorage.removeItem(ADMIN_AUTH_TOKEN_KEY);
   } catch {
     // Ignore storage cleanup failures on embedded pages.
   }

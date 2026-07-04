@@ -6,7 +6,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
-record PersonalDataResponse(
+public record PersonalDataResponse(
     AccountProfileResponse account,
     List<String> roles,
     List<ConsentResponse> consents,
@@ -16,7 +16,7 @@ record PersonalDataResponse(
     Instant exportedAt
 ) {
 
-    static PersonalDataResponse from(PersonalDataSnapshot snapshot) {
+    public static PersonalDataResponse from(PersonalDataSnapshot snapshot) {
         return new PersonalDataResponse(
             AccountProfileResponse.from(snapshot.account()),
             snapshot.roles(),

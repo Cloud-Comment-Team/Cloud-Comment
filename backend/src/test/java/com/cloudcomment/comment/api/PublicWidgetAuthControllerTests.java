@@ -4,12 +4,15 @@ import com.cloudcomment.auth.application.AuthenticatedUser;
 import com.cloudcomment.auth.application.CurrentUserService;
 import com.cloudcomment.auth.application.LoginResult;
 import com.cloudcomment.auth.application.LoginService;
+import com.cloudcomment.auth.application.LogoutService;
 import com.cloudcomment.auth.application.RegisteredUser;
 import com.cloudcomment.auth.application.RegistrationService;
+import com.cloudcomment.comment.application.WidgetSiteAccess;
 import com.cloudcomment.privacy.application.ConsentTestSupport;
 import com.cloudcomment.privacy.application.RegistrationConsent;
 import com.cloudcomment.privacy.domain.ConsentSource;
 import com.cloudcomment.comment.application.DomainPolicyService;
+import com.cloudcomment.site.domain.ModerationMode;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -27,9 +30,11 @@ import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.is;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -59,6 +64,9 @@ class PublicWidgetAuthControllerTests {
 
     @MockitoBean
     private LoginService loginService;
+
+    @MockitoBean
+    private LogoutService logoutService;
 
     @Test
     void widgetAuthPreflightUsesSiteScopedCorsPolicyWithoutBearer() throws Exception {
@@ -150,6 +158,45 @@ class PublicWidgetAuthControllerTests {
     }
 
     @Test
+    void widgetMeReturnsCurrentUserForAllowedOriginAndBearerToken() throws Exception {
+        UUID siteId = UUID.randomUUID();
+        AuthenticatedUser user = currentUser();
+        when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
+        when(domainPolicyService.validate(siteId, ORIGIN))
+            .thenReturn(new WidgetSiteAccess(siteId, ModerationMode.PRE_MODERATION, ORIGIN));
+        when(currentUserService.getCurrentUser("plain-session-token")).thenReturn(user);
+
+        mockMvc.perform(get("/api/public/sites/{siteId}/auth/me", siteId)
+                .header(HttpHeaders.ORIGIN, ORIGIN)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
+            .andExpect(status().isOk())
+            .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, ORIGIN))
+            .andExpect(jsonPath("$.id", is(user.id().toString())))
+            .andExpect(jsonPath("$.email", is(user.email())));
+
+        verify(domainPolicyService).validate(siteId, ORIGIN);
+        verifyNoInteractions(registrationService, loginService, logoutService);
+    }
+
+    @Test
+    void widgetLogoutRevokesSessionThroughSiteScopedCorsRoute() throws Exception {
+        UUID siteId = UUID.randomUUID();
+        when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
+        when(domainPolicyService.validate(siteId, ORIGIN))
+            .thenReturn(new WidgetSiteAccess(siteId, ModerationMode.PRE_MODERATION, ORIGIN));
+        doNothing().when(logoutService).logout("plain-session-token");
+
+        mockMvc.perform(post("/api/public/sites/{siteId}/auth/logout", siteId)
+                .header(HttpHeaders.ORIGIN, ORIGIN)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
+            .andExpect(status().isNoContent())
+            .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, ORIGIN));
+
+        verify(logoutService).logout("plain-session-token");
+        verifyNoInteractions(currentUserService, registrationService, loginService);
+    }
+
+    @Test
     void widgetAuthWithoutAllowedOriginIsMaskedBeforeController() throws Exception {
         UUID siteId = UUID.randomUUID();
         when(domainPolicyService.isOriginAllowed(siteId, "https://evil.example")).thenReturn(false);
@@ -170,5 +217,15 @@ class PublicWidgetAuthControllerTests {
             .andExpect(jsonPath("$.error.fields", empty()));
 
         verifyNoInteractions(currentUserService, registrationService, loginService);
+    }
+
+    private AuthenticatedUser currentUser() {
+        return new AuthenticatedUser(
+            UUID.randomUUID(),
+            EMAIL,
+            Set.of("COMMENTER"),
+            TIMESTAMP,
+            TIMESTAMP
+        );
     }
 }

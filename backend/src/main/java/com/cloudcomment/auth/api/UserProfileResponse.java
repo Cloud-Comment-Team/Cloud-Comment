@@ -14,7 +14,7 @@ public record UserProfileResponse(
     Instant updatedAt
 ) {
 
-    static UserProfileResponse from(AuthenticatedUser user) {
+    public static UserProfileResponse from(AuthenticatedUser user) {
         return new UserProfileResponse(
             user.id(),
             user.email(),
