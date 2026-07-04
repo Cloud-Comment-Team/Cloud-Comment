@@ -96,6 +96,16 @@ class JdbcPublicCommentRepositoryIntegrationTests {
         repository.createComment(
             siteId,
             pageId,
+            approvedReply.id(),
+            visitorId,
+            "Visitor Name",
+            "visitor@example.com",
+            "Nested approved reply",
+            CommentStatus.APPROVED
+        );
+        repository.createComment(
+            siteId,
+            pageId,
             approvedRoot.id(),
             visitorId,
             "Visitor Name",
@@ -117,6 +127,7 @@ class JdbcPublicCommentRepositoryIntegrationTests {
             assertThat(root.replies()).singleElement().satisfies(reply -> {
                 assertThat(reply.id()).isEqualTo(approvedReply.id());
                 assertThat(reply.content()).isEqualTo("Approved reply");
+                assertThat(reply.replies()).isEmpty();
             });
         });
 

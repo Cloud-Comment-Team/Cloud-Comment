@@ -232,58 +232,23 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
 
         return namedParameterJdbcTemplate.query(
             """
-                with recursive thread as (
-                    select c.id,
-                           p.site_id,
-                           c.page_id,
-                           c.parent_id,
-                           c.author_user_id,
-                           coalesce(c.author_email, u.email) as author_email,
-                           coalesce(c.author_name, nullif(u.display_name, ''), c.author_email, u.email) as author_name,
-                           c.body,
-                           c.status,
-                           c.created_at,
-                           c.updated_at,
-                           1 as depth
-                    from comments c
-                    join pages p on p.id = c.page_id
-                    left join app_users u on u.id = c.author_user_id
-                    where c.parent_id in (:rootIds)
-                      and c.status = 'APPROVED'
-
-                    union all
-
-                    select child.id,
-                           p.site_id,
-                           child.page_id,
-                           child.parent_id,
-                           child.author_user_id,
-                           coalesce(child.author_email, u.email) as author_email,
-                           coalesce(child.author_name, nullif(u.display_name, ''), child.author_email, u.email) as author_name,
-                           child.body,
-                           child.status,
-                           child.created_at,
-                           child.updated_at,
-                           thread.depth + 1 as depth
-                    from comments child
-                    join thread on thread.id = child.parent_id
-                    join pages p on p.id = child.page_id
-                    left join app_users u on u.id = child.author_user_id
-                    where child.status = 'APPROVED'
-                )
-                select id,
-                       site_id,
-                       page_id,
-                       parent_id,
-                       author_user_id,
-                       author_email,
-                       author_name,
-                       body,
-                       status,
-                       created_at,
-                       updated_at
-                from thread
-                order by depth asc, created_at asc, id asc
+                select c.id,
+                       p.site_id,
+                       c.page_id,
+                       c.parent_id,
+                       c.author_user_id,
+                       coalesce(c.author_email, u.email) as author_email,
+                       coalesce(c.author_name, nullif(u.display_name, ''), c.author_email, u.email) as author_name,
+                       c.body,
+                       c.status,
+                       c.created_at,
+                       c.updated_at
+                from comments c
+                join pages p on p.id = c.page_id
+                left join app_users u on u.id = c.author_user_id
+                where c.parent_id in (:rootIds)
+                  and c.status = 'APPROVED'
+                order by c.created_at asc, c.id asc
                 """,
             new MapSqlParameterSource("rootIds", rootIds),
             this::mapCommentRow

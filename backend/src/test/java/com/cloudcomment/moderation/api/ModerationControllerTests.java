@@ -105,6 +105,38 @@ class ModerationControllerTests {
     }
 
     @Test
+    void listCommentsReturnsParentSummaryForReply() throws Exception {
+        AuthenticatedUser currentUser = currentUser();
+        Comment comment = replyComment(currentUser.id());
+        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(moderationService.listComments(
+            eq(currentUser),
+            eq(new ModerationCommentFilters(
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                CommentSortField.CREATED_AT,
+                SortOrder.DESC
+            )),
+            eq(1),
+            eq(20)
+        )).thenReturn(new ModerationCommentPage(List.of(comment), 1, 20, 1));
+
+        mockMvc.perform(get("/api/moderation/comments")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.items[0].parentId", is(comment.parentId().toString())))
+            .andExpect(jsonPath("$.items[0].parent.id", is(comment.parent().id().toString())))
+            .andExpect(jsonPath("$.items[0].parent.author.email", is("parent@example.com")))
+            .andExpect(jsonPath("$.items[0].parent.content", is("Parent comment")))
+            .andExpect(jsonPath("$.items[0].parent.status", is("APPROVED")));
+    }
+
+    @Test
     void listCommentsPassesFiltersToService() throws Exception {
         AuthenticatedUser currentUser = currentUser();
         UUID siteId = UUID.randomUUID();
