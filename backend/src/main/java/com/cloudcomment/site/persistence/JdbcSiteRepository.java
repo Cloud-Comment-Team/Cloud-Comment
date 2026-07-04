@@ -3,6 +3,9 @@ package com.cloudcomment.site.persistence;
 import com.cloudcomment.site.application.SitePage;
 import com.cloudcomment.site.domain.ModerationMode;
 import com.cloudcomment.site.domain.Site;
+import com.cloudcomment.site.domain.WidgetCornerRadius;
+import com.cloudcomment.site.domain.WidgetStyle;
+import com.cloudcomment.site.domain.WidgetTheme;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -31,7 +34,9 @@ class JdbcSiteRepository implements SiteRepository {
         long offset = ((long) page - 1) * pageSize;
         List<Site> items = jdbcTemplate.query(
             """
-                select id, owner_id, name, domain, public_key, moderation_mode, is_active, created_at, updated_at
+                select id, owner_id, name, domain, public_key, moderation_mode, is_active,
+                       widget_theme, widget_accent_color, widget_corner_radius,
+                       created_at, updated_at
                 from sites
                 where owner_id = ?
                 order by created_at desc, id desc
@@ -56,7 +61,9 @@ class JdbcSiteRepository implements SiteRepository {
     public Optional<Site> findById(UUID siteId) {
         List<SiteRow> rows = jdbcTemplate.query(
             """
-                select id, owner_id, name, domain, public_key, moderation_mode, is_active, created_at, updated_at
+                select id, owner_id, name, domain, public_key, moderation_mode, is_active,
+                       widget_theme, widget_accent_color, widget_corner_radius,
+                       created_at, updated_at
                 from sites
                 where id = ?
                 """,
@@ -76,18 +83,55 @@ class JdbcSiteRepository implements SiteRepository {
         ModerationMode moderationMode,
         List<String> allowedOrigins
     ) {
+        return create(
+            ownerId,
+            name,
+            domain,
+            publicKey,
+            moderationMode,
+            WidgetStyle.defaultStyle(),
+            allowedOrigins
+        );
+    }
+
+    @Override
+    @Transactional
+    public Site create(
+        UUID ownerId,
+        String name,
+        String domain,
+        String publicKey,
+        ModerationMode moderationMode,
+        WidgetStyle widgetStyle,
+        List<String> allowedOrigins
+    ) {
+        WidgetStyle normalizedStyle = widgetStyle != null ? widgetStyle : WidgetStyle.defaultStyle();
         SiteRow createdSite = jdbcTemplate.queryForObject(
             """
-                insert into sites (owner_id, name, domain, public_key, moderation_mode)
-                values (?, ?, ?, ?, ?)
-                returning id, owner_id, name, domain, public_key, moderation_mode, is_active, created_at, updated_at
+                insert into sites (
+                    owner_id,
+                    name,
+                    domain,
+                    public_key,
+                    moderation_mode,
+                    widget_theme,
+                    widget_accent_color,
+                    widget_corner_radius
+                )
+                values (?, ?, ?, ?, ?, ?, ?, ?)
+                returning id, owner_id, name, domain, public_key, moderation_mode, is_active,
+                          widget_theme, widget_accent_color, widget_corner_radius,
+                          created_at, updated_at
                 """,
             this::mapSiteRow,
             ownerId,
             name,
             domain,
             publicKey,
-            moderationMode.name()
+            moderationMode.name(),
+            normalizedStyle.theme().name(),
+            normalizedStyle.accentColor(),
+            normalizedStyle.cornerRadius().name()
         );
         SiteRow site = Objects.requireNonNull(createdSite, "created site must not be null");
         insertAllowedOrigins(site.id(), allowedOrigins);
@@ -119,11 +163,19 @@ class JdbcSiteRepository implements SiteRepository {
             sql.append(", is_active = ?");
             params.add(update.active());
         }
+        if (update.widgetStyle() != null) {
+            sql.append(", widget_theme = ?, widget_accent_color = ?, widget_corner_radius = ?");
+            params.add(update.widgetStyle().theme().name());
+            params.add(update.widgetStyle().accentColor());
+            params.add(update.widgetStyle().cornerRadius().name());
+        }
 
         sql.append("""
 
             where id = ?
-            returning id, owner_id, name, domain, public_key, moderation_mode, is_active, created_at, updated_at
+            returning id, owner_id, name, domain, public_key, moderation_mode, is_active,
+                      widget_theme, widget_accent_color, widget_corner_radius,
+                      created_at, updated_at
             """);
         params.add(siteId);
 
@@ -204,6 +256,7 @@ class JdbcSiteRepository implements SiteRepository {
             row.publicKey(),
             row.moderationMode(),
             row.active(),
+            row.widgetStyle(),
             findAllowedOrigins(row.id()),
             row.createdAt(),
             row.updatedAt()
@@ -232,6 +285,11 @@ class JdbcSiteRepository implements SiteRepository {
             resultSet.getString("public_key"),
             ModerationMode.valueOf(resultSet.getString("moderation_mode")),
             resultSet.getBoolean("is_active"),
+            new WidgetStyle(
+                WidgetTheme.valueOf(resultSet.getString("widget_theme")),
+                resultSet.getString("widget_accent_color"),
+                WidgetCornerRadius.valueOf(resultSet.getString("widget_corner_radius"))
+            ),
             toInstant(resultSet, "created_at"),
             toInstant(resultSet, "updated_at")
         );
@@ -249,6 +307,7 @@ class JdbcSiteRepository implements SiteRepository {
         String publicKey,
         ModerationMode moderationMode,
         boolean active,
+        WidgetStyle widgetStyle,
         Instant createdAt,
         Instant updatedAt
     ) {

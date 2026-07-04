@@ -229,6 +229,7 @@ Response `204`.
 - owned sites удаляются каскадно;
 - комментарии пользователя на чужих сайтах обезличиваются и заменяют body на deleted marker;
 - moderation actions удаленного пользователя больше не содержат `moderator_id`;
+- реакции удаленного пользователя удаляются из `comment_reactions`;
 - повторное использование token → `409 BUSINESS_ERROR`;
 - просроченный token → `409 BUSINESS_ERROR`;
 - неизвестный token → `404 NOT_FOUND`.
@@ -271,7 +272,8 @@ Response `200`:
     "ownedPages": 1,
     "ownedComments": 2,
     "authoredComments": 3,
-    "moderationActions": 4
+    "moderationActions": 4,
+    "commentReactions": 5
   },
   "deletionRequest": null,
   "exportedAt": "2026-06-28T18:00:00Z"
@@ -294,7 +296,12 @@ Request:
   "name": "Example site",
   "domain": "example.com",
   "moderationMode": "PRE_MODERATION",
-  "allowedOrigins": ["https://example.com"]
+  "allowedOrigins": ["https://example.com"],
+  "widgetStyle": {
+    "theme": "AUTO",
+    "accentColor": "#0f766e",
+    "cornerRadius": "MEDIUM"
+  }
 }
 ```
 
@@ -331,6 +338,7 @@ Frontend route map зафиксирован в `frontend/admin/src/routes/index.
 | `/api/public/sites/{siteId}/account/deletion-requests` | `POST` | bearer + origin check | Request account deletion email confirmation from the widget |
 | `/api/public/sites/{siteId}/pages/comments` | `GET` | public + origin check | List comments for a page |
 | `/api/public/sites/{siteId}/pages/comments` | `POST` | bearer + origin check | Create a comment for authenticated visitor |
+| `/api/public/sites/{siteId}/comments/{commentId}/reaction` | `PUT` | bearer + origin check | Set or clear current visitor reaction |
 
 Query для list:
 
@@ -349,6 +357,16 @@ Request для create:
 
 `parentId` is `null` for a root comment or an approved root comment id for a one-level reply. Invalid, foreign, or non-approved parent comments are masked as `404 NOT_FOUND`.
 
+Request для реакции:
+
+```json
+{
+  "type": "LOVE"
+}
+```
+
+`type`: `LIKE` | `LOVE` | `LAUGH` | `WOW` или `null`, чтобы убрать реакцию текущего пользователя.
+
 Правила public widget API:
 
 - `siteId` берется из path и соответствует `data-site-id` в embed-code.
@@ -357,6 +375,7 @@ Request для create:
 - Bad/missing/disallowed origin, inactive/missing site и parent comment не с этой страницы возвращают `404 NOT_FOUND` с `Resource not found`.
 - Публичный список возвращает только `APPROVED`; `PENDING`, `REJECTED`, `HIDDEN`, `SPAM` не видны в виджете.
 - Approved replies are returned inside the root comment `replies` array. The widget exposes reply creation only from root comments and renders replies one level deep.
+- `reactions` возвращаются для корневых комментариев и ответов; при наличии bearer token публичный list помечает реакцию текущего пользователя через `reactedByCurrentUser`.
 - Embedded widget auth uses site-scoped `/api/public/sites/{siteId}/auth/*` aliases, not `/api/auth/*`, so browser CORS preflight is checked against the same domain policy.
 - Самообслуживание аккаунта в виджете использует site-scoped aliases `/api/public/sites/{siteId}/account/*`, а не `/api/account/*`: экспорт персональных данных и запрос удаления работают с external origin без ослабления глобального CORS.
 - Создание комментария требует bearer token; guest-flow в MVP не поддерживается.
@@ -403,8 +422,29 @@ Script attributes:
   "moderationMode": "PRE_MODERATION",
   "isActive": true,
   "allowedOrigins": ["https://example.com"],
+  "widgetStyle": {
+    "theme": "AUTO",
+    "accentColor": "#0f766e",
+    "cornerRadius": "MEDIUM"
+  },
   "createdAt": "2026-06-28T18:00:00Z",
   "updatedAt": "2026-06-28T18:00:00Z"
+}
+```
+
+`widgetStyle.theme`: `AUTO` | `LIGHT` | `DARK`; `accentColor` — hex `#RRGGBB`; `cornerRadius`: `SMALL` | `MEDIUM` | `LARGE`.
+
+### Public widget config
+
+```json
+{
+  "siteId": "uuid",
+  "moderationMode": "PRE_MODERATION",
+  "style": {
+    "theme": "AUTO",
+    "accentColor": "#0f766e",
+    "cornerRadius": "MEDIUM"
+  }
 }
 ```
 
@@ -437,6 +477,15 @@ Script attributes:
   },
   "content": "Comment text",
   "status": "PENDING",
+  "reactions": [
+    {
+      "type": "LOVE",
+      "emoji": "❤️",
+      "label": "Нравится",
+      "count": 3,
+      "reactedByCurrentUser": true
+    }
+  ],
   "createdAt": "2026-06-28T18:00:00Z",
   "updatedAt": "2026-06-28T18:00:00Z",
   "replies": []

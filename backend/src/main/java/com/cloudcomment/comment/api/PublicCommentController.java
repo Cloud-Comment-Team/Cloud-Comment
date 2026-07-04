@@ -1,13 +1,16 @@
 package com.cloudcomment.comment.api;
 
 import com.cloudcomment.auth.application.AuthenticatedUser;
+import com.cloudcomment.auth.application.CurrentUserService;
 import com.cloudcomment.comment.api.validation.ValidPageUrl;
 import com.cloudcomment.comment.application.CommentPage;
 import com.cloudcomment.comment.application.PublicCommentService;
 import com.cloudcomment.comment.application.PublicWidgetConfig;
 import com.cloudcomment.comment.domain.CommentView;
+import com.cloudcomment.shared.error.ApplicationException;
 import com.cloudcomment.shared.web.PaginatedResponse;
 import com.cloudcomment.shared.web.security.CurrentUser;
+import com.cloudcomment.shared.web.security.BearerTokenResolver;
 import com.cloudcomment.shared.web.security.PublicApi;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -17,16 +20,19 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.Optional;
 import java.util.UUID;
 
 @Validated
@@ -37,6 +43,8 @@ class PublicCommentController {
 
     private final PublicCommentService publicCommentService;
     private final WidgetRequestOriginResolver requestOriginResolver;
+    private final BearerTokenResolver bearerTokenResolver;
+    private final CurrentUserService currentUserService;
 
     @PublicApi
     @GetMapping("/config")
@@ -59,7 +67,14 @@ class PublicCommentController {
         @RequestParam(defaultValue = "20") @Min(1) @Max(100) int pageSize
     ) {
         String origin = requestOriginResolver.resolve(request);
-        CommentPage comments = publicCommentService.listComments(siteId, origin, pageUrl, page, pageSize);
+        CommentPage comments = publicCommentService.listComments(
+            siteId,
+            origin,
+            pageUrl,
+            page,
+            pageSize,
+            resolveOptionalViewer(request)
+        );
         return PaginatedResponse.of(
             comments.items().stream().map(CommentResponse::from).toList(),
             comments.page(),
@@ -84,5 +99,33 @@ class PublicCommentController {
             body.content()
         );
         return ResponseEntity.status(HttpStatus.CREATED).body(CommentResponse.from(comment));
+    }
+
+    @PutMapping("/comments/{commentId}/reaction")
+    CommentReactionsResponse setReaction(
+        @CurrentUser AuthenticatedUser currentUser,
+        @PathVariable UUID siteId,
+        @PathVariable UUID commentId,
+        HttpServletRequest request,
+        @RequestBody CommentReactionRequest body
+    ) {
+        return CommentReactionsResponse.from(publicCommentService.setReaction(
+            currentUser,
+            siteId,
+            requestOriginResolver.resolve(request),
+            commentId,
+            body.type()
+        ));
+    }
+
+    private Optional<UUID> resolveOptionalViewer(HttpServletRequest request) {
+        if (request.getHeader(HttpHeaders.AUTHORIZATION) == null) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(currentUserService.getCurrentUser(bearerTokenResolver.resolve(request)).id());
+        } catch (ApplicationException exception) {
+            return Optional.empty();
+        }
     }
 }

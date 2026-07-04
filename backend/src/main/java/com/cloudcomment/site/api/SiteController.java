@@ -59,7 +59,8 @@ class SiteController {
             request.name(),
             request.domain(),
             request.moderationMode(),
-            request.allowedOrigins()
+            request.allowedOrigins(),
+            request.widgetStyle() != null ? request.widgetStyle().toDomainOrDefault() : null
         );
         return ResponseEntity.status(HttpStatus.CREATED).body(SiteResponse.from(site));
     }
@@ -81,7 +82,8 @@ class SiteController {
             request.name(),
             request.domain(),
             request.moderationMode(),
-            request.isActive()
+            request.isActive(),
+            request.widgetStyle() != null ? request.widgetStyle().toDomainOrNull() : null
         ));
     }
 

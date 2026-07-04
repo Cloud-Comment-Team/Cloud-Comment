@@ -1,5 +1,15 @@
 export type ModerationMode = 'PRE_MODERATION' | 'POST_MODERATION' | 'DISABLED'
 
+export type WidgetTheme = 'AUTO' | 'LIGHT' | 'DARK'
+
+export type WidgetCornerRadius = 'SMALL' | 'MEDIUM' | 'LARGE'
+
+export interface WidgetStyle {
+  theme: WidgetTheme
+  accentColor: string
+  cornerRadius: WidgetCornerRadius
+}
+
 export type CommentStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'HIDDEN' | 'SPAM'
 
 export type ModerationActionType = 'APPROVE' | 'REJECT' | 'HIDE' | 'MARK_SPAM' | 'RESTORE'
@@ -20,6 +30,7 @@ export interface Site {
   publicKey: string
   moderationMode: ModerationMode
   isActive: boolean
+  widgetStyle: WidgetStyle
   allowedOrigins: string[]
   createdAt: string
   updatedAt: string
@@ -30,6 +41,7 @@ export interface CreateSiteRequest {
   domain: string
   moderationMode: ModerationMode
   allowedOrigins: string[]
+  widgetStyle?: WidgetStyle
 }
 
 export interface UpdateSiteRequest {
@@ -37,6 +49,7 @@ export interface UpdateSiteRequest {
   domain?: string
   moderationMode?: ModerationMode
   isActive?: boolean
+  widgetStyle?: WidgetStyle
 }
 
 export interface ReplaceAllowedOriginsRequest {

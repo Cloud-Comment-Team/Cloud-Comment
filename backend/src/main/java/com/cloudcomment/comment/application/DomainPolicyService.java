@@ -23,7 +23,7 @@ public class DomainPolicyService {
         if (!publicCommentRepository.isAllowedOrigin(site.id(), normalizedOrigin)) {
             throw notFound();
         }
-        return new WidgetSiteAccess(site.id(), site.moderationMode(), normalizedOrigin);
+        return new WidgetSiteAccess(site.id(), site.moderationMode(), site.widgetStyle(), normalizedOrigin);
     }
 
     @Transactional(readOnly = true)

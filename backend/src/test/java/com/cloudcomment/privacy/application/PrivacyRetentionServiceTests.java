@@ -107,7 +107,7 @@ class PrivacyRetentionServiceTests {
 
         @Override
         public RelatedPersonalDataAnonymization anonymizeRelatedPersonalData(UUID userId, Instant anonymizedAt) {
-            return new RelatedPersonalDataAnonymization(0, 0, 0);
+            return new RelatedPersonalDataAnonymization(0, 0, 0, 0);
         }
 
         @Override

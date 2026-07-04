@@ -119,7 +119,8 @@ class JdbcPersonalDataRepository implements PersonalDataRepository {
                 userId
             ),
             count("select count(*) from comments where author_user_id = ?", userId),
-            count("select count(*) from moderation_actions where moderator_id = ?", userId)
+            count("select count(*) from moderation_actions where moderator_id = ?", userId),
+            count("select count(*) from comment_reactions where user_id = ?", userId)
         );
     }
 

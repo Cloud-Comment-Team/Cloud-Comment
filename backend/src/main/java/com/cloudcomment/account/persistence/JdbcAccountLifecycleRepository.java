@@ -52,10 +52,16 @@ class JdbcAccountLifecycleRepository implements AccountLifecycleRepository {
             userId
         );
 
+        int commentReactionsDeleted = jdbcTemplate.update(
+            "delete from comment_reactions where user_id = ?",
+            userId
+        );
+
         return new RelatedPersonalDataAnonymization(
             ownedSitesDeleted,
             authoredCommentsAnonymized,
-            moderationActionsAnonymized
+            moderationActionsAnonymized,
+            commentReactionsDeleted
         );
     }
 

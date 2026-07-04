@@ -1,6 +1,7 @@
 package com.cloudcomment.comment.persistence;
 
 import com.cloudcomment.comment.application.CommentPage;
+import com.cloudcomment.comment.domain.CommentReactionType;
 import com.cloudcomment.comment.domain.CommentStatus;
 import com.cloudcomment.comment.domain.CommentView;
 import com.cloudcomment.site.domain.ModerationMode;
@@ -13,6 +14,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -43,6 +45,7 @@ class JdbcPublicCommentRepositoryIntegrationTests {
             .hasValueSatisfying(site -> {
                 assertThat(site.id()).isEqualTo(siteId);
                 assertThat(site.moderationMode()).isEqualTo(ModerationMode.PRE_MODERATION);
+                assertThat(site.widgetStyle().accentColor()).isEqualTo("#0f766e");
             });
         assertThat(repository.findActiveSite(inactiveSiteId)).isEmpty();
         assertThat(repository.isAllowedOrigin(siteId, "https://example.com")).isTrue();
@@ -113,8 +116,11 @@ class JdbcPublicCommentRepositoryIntegrationTests {
             "Pending reply",
             CommentStatus.PENDING
         );
+        repository.setReaction(approvedRoot.id(), visitorId, CommentReactionType.LOVE);
+        repository.setReaction(approvedRoot.id(), ownerId, CommentReactionType.LIKE);
+        repository.setReaction(approvedReply.id(), visitorId, CommentReactionType.WOW);
 
-        CommentPage comments = repository.findApprovedComments(siteId, pageId, 1, 20);
+        CommentPage comments = repository.findApprovedComments(siteId, pageId, 1, 20, Optional.of(visitorId));
 
         assertThat(comments.totalItems()).isEqualTo(1);
         assertThat(comments.items()).singleElement().satisfies(root -> {
@@ -124,13 +130,43 @@ class JdbcPublicCommentRepositoryIntegrationTests {
             assertThat(root.author().email()).isEqualTo("visitor@example.com");
             assertThat(root.author().displayName()).isEqualTo("Visitor Name");
             assertThat(root.status()).isEqualTo(CommentStatus.APPROVED);
+            assertThat(root.reactions())
+                .filteredOn(reaction -> reaction.type() == CommentReactionType.LOVE)
+                .singleElement()
+                .satisfies(reaction -> {
+                    assertThat(reaction.count()).isEqualTo(1);
+                    assertThat(reaction.reactedByCurrentUser()).isTrue();
+                });
+            assertThat(root.reactions())
+                .filteredOn(reaction -> reaction.type() == CommentReactionType.LIKE)
+                .singleElement()
+                .satisfies(reaction -> {
+                    assertThat(reaction.count()).isEqualTo(1);
+                    assertThat(reaction.reactedByCurrentUser()).isFalse();
+                });
             assertThat(root.replies()).singleElement().satisfies(reply -> {
                 assertThat(reply.id()).isEqualTo(approvedReply.id());
                 assertThat(reply.content()).isEqualTo("Approved reply");
+                assertThat(reply.reactions())
+                    .filteredOn(reaction -> reaction.type() == CommentReactionType.WOW)
+                    .singleElement()
+                    .satisfies(reaction -> {
+                        assertThat(reaction.count()).isEqualTo(1);
+                        assertThat(reaction.reactedByCurrentUser()).isTrue();
+                    });
                 assertThat(reply.replies()).isEmpty();
             });
         });
 
+        assertThat(repository.existsApprovedCommentInSite(siteId, approvedRoot.id())).isTrue();
+        assertThat(repository.existsApprovedCommentInSite(siteId, pendingRoot.id())).isFalse();
+        assertThat(repository.clearReaction(approvedRoot.id(), visitorId))
+            .filteredOn(reaction -> reaction.type() == CommentReactionType.LOVE)
+            .singleElement()
+            .satisfies(reaction -> {
+                assertThat(reaction.count()).isZero();
+                assertThat(reaction.reactedByCurrentUser()).isFalse();
+            });
         assertThat(repository.existsApprovedRootCommentOnPage(pageId, approvedRoot.id())).isTrue();
         assertThat(repository.existsApprovedRootCommentOnPage(pageId, approvedReply.id())).isFalse();
         assertThat(repository.existsApprovedRootCommentOnPage(pageId, pendingRoot.id())).isFalse();

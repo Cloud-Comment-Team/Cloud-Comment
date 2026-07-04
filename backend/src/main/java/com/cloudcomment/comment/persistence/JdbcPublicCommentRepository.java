@@ -3,9 +3,14 @@ package com.cloudcomment.comment.persistence;
 import com.cloudcomment.comment.application.CommentPage;
 import com.cloudcomment.comment.application.WidgetSite;
 import com.cloudcomment.comment.domain.CommentAuthor;
+import com.cloudcomment.comment.domain.CommentReactionSummary;
+import com.cloudcomment.comment.domain.CommentReactionType;
 import com.cloudcomment.comment.domain.CommentStatus;
 import com.cloudcomment.comment.domain.CommentView;
 import com.cloudcomment.site.domain.ModerationMode;
+import com.cloudcomment.site.domain.WidgetCornerRadius;
+import com.cloudcomment.site.domain.WidgetStyle;
+import com.cloudcomment.site.domain.WidgetTheme;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
@@ -15,9 +20,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Types;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -37,13 +45,18 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
     public Optional<WidgetSite> findActiveSite(UUID siteId) {
         List<WidgetSite> sites = jdbcTemplate.query(
             """
-                select id, moderation_mode
+                select id, moderation_mode, widget_theme, widget_accent_color, widget_corner_radius
                 from sites
                 where id = ? and is_active = true
                 """,
             (resultSet, rowNumber) -> new WidgetSite(
                 resultSet.getObject("id", UUID.class),
-                ModerationMode.valueOf(resultSet.getString("moderation_mode"))
+                ModerationMode.valueOf(resultSet.getString("moderation_mode")),
+                new WidgetStyle(
+                    WidgetTheme.valueOf(resultSet.getString("widget_theme")),
+                    resultSet.getString("widget_accent_color"),
+                    WidgetCornerRadius.valueOf(resultSet.getString("widget_corner_radius"))
+                )
             ),
             siteId
         );
@@ -109,6 +122,17 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
 
     @Override
     public CommentPage findApprovedComments(UUID siteId, UUID pageId, int page, int pageSize) {
+        return findApprovedComments(siteId, pageId, page, pageSize, Optional.empty());
+    }
+
+    @Override
+    public CommentPage findApprovedComments(
+        UUID siteId,
+        UUID pageId,
+        int page,
+        int pageSize,
+        Optional<UUID> viewerUserId
+    ) {
         long offset = ((long) page - 1) * pageSize;
         List<CommentRow> rootRows = jdbcTemplate.query(
             """
@@ -152,7 +176,18 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
             pageId
         );
 
-        return new CommentPage(buildThreads(rootRows, findApprovedReplies(rootRows)), page, pageSize, totalItemsOrZero(totalItems));
+        List<CommentRow> replyRows = findApprovedReplies(rootRows);
+        Map<UUID, List<CommentReactionSummary>> reactionsByComment = findReactionSummaries(
+            visibleCommentIds(rootRows, replyRows),
+            viewerUserId
+        );
+
+        return new CommentPage(
+            buildThreads(rootRows, replyRows, reactionsByComment),
+            page,
+            pageSize,
+            totalItemsOrZero(totalItems)
+        );
     }
 
     @Override
@@ -224,6 +259,64 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
         return toCommentView(Objects.requireNonNull(row, "created comment must not be null"), List.of());
     }
 
+    @Override
+    public boolean existsApprovedCommentInSite(UUID siteId, UUID commentId) {
+        Boolean exists = jdbcTemplate.queryForObject(
+            """
+                select exists(
+                    select 1
+                    from comments c
+                    join pages p on p.id = c.page_id
+                    where c.id = ?
+                      and p.site_id = ?
+                      and c.status = 'APPROVED'
+                )
+                """,
+            Boolean.class,
+            commentId,
+            siteId
+        );
+        return Boolean.TRUE.equals(exists);
+    }
+
+    @Override
+    @Transactional
+    public List<CommentReactionSummary> setReaction(
+        UUID commentId,
+        UUID userId,
+        CommentReactionType reactionType
+    ) {
+        jdbcTemplate.update(
+            """
+                insert into comment_reactions (comment_id, user_id, reaction_type)
+                values (?, ?, ?)
+                on conflict (comment_id, user_id)
+                do update set reaction_type = excluded.reaction_type,
+                              updated_at = now()
+                """,
+            commentId,
+            userId,
+            reactionType.name()
+        );
+        return findReactionSummaries(List.of(commentId), Optional.of(userId))
+            .getOrDefault(commentId, emptyReactionSummaries(Optional.of(userId), Map.of()));
+    }
+
+    @Override
+    @Transactional
+    public List<CommentReactionSummary> clearReaction(UUID commentId, UUID userId) {
+        jdbcTemplate.update(
+            """
+                delete from comment_reactions
+                where comment_id = ? and user_id = ?
+                """,
+            commentId,
+            userId
+        );
+        return findReactionSummaries(List.of(commentId), Optional.of(userId))
+            .getOrDefault(commentId, emptyReactionSummaries(Optional.of(userId), Map.of()));
+    }
+
     private List<CommentRow> findApprovedReplies(List<CommentRow> rootRows) {
         List<UUID> rootIds = rootRows.stream().map(CommentRow::id).toList();
         if (rootIds.isEmpty()) {
@@ -255,13 +348,17 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
         );
     }
 
-    private List<CommentView> buildThreads(List<CommentRow> rootRows, List<CommentRow> replyRows) {
+    private List<CommentView> buildThreads(
+        List<CommentRow> rootRows,
+        List<CommentRow> replyRows,
+        Map<UUID, List<CommentReactionSummary>> reactionsByComment
+    ) {
         Map<UUID, MutableComment> comments = new LinkedHashMap<>();
         for (CommentRow row : rootRows) {
-            comments.put(row.id(), new MutableComment(row));
+            comments.put(row.id(), new MutableComment(row, reactionsByComment));
         }
         for (CommentRow row : replyRows) {
-            MutableComment comment = new MutableComment(row);
+            MutableComment comment = new MutableComment(row, reactionsByComment);
             comments.put(row.id(), comment);
             MutableComment parent = comments.get(row.parentId());
             if (parent != null) {
@@ -273,7 +370,7 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
             .toList();
     }
 
-    private CommentView toCommentView(CommentRow row, List<CommentView> replies) {
+    private CommentView toCommentView(CommentRow row, List<CommentReactionSummary> reactions, List<CommentView> replies) {
         return new CommentView(
             row.id(),
             row.siteId(),
@@ -284,8 +381,81 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
             row.status(),
             row.createdAt(),
             row.updatedAt(),
+            reactions,
             replies
         );
+    }
+
+    private CommentView toCommentView(CommentRow row, List<CommentView> replies) {
+        return toCommentView(row, List.of(), replies);
+    }
+
+    private List<UUID> visibleCommentIds(List<CommentRow> rootRows, List<CommentRow> replyRows) {
+        List<UUID> ids = new ArrayList<>(rootRows.size() + replyRows.size());
+        rootRows.stream().map(CommentRow::id).forEach(ids::add);
+        replyRows.stream().map(CommentRow::id).forEach(ids::add);
+        return ids;
+    }
+
+    private Map<UUID, List<CommentReactionSummary>> findReactionSummaries(
+        List<UUID> commentIds,
+        Optional<UUID> viewerUserId
+    ) {
+        if (commentIds.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<UUID, Map<CommentReactionType, ReactionAggregate>> aggregates = new HashMap<>();
+        namedParameterJdbcTemplate.query(
+            """
+                select comment_id,
+                       reaction_type,
+                       count(*) as reaction_count,
+                       bool_or(user_id = :viewerUserId) as reacted_by_current_user
+                from comment_reactions
+                where comment_id in (:commentIds)
+                group by comment_id, reaction_type
+                """,
+            new MapSqlParameterSource()
+                .addValue("commentIds", commentIds)
+                .addValue("viewerUserId", viewerUserId.orElse(null), Types.OTHER),
+            resultSet -> {
+                UUID commentId = resultSet.getObject("comment_id", UUID.class);
+                CommentReactionType type = CommentReactionType.valueOf(resultSet.getString("reaction_type"));
+                ReactionAggregate aggregate = new ReactionAggregate(
+                    resultSet.getLong("reaction_count"),
+                    resultSet.getBoolean("reacted_by_current_user")
+                );
+                aggregates
+                    .computeIfAbsent(commentId, ignored -> new EnumMap<>(CommentReactionType.class))
+                    .put(type, aggregate);
+            }
+        );
+
+        Map<UUID, List<CommentReactionSummary>> summaries = new HashMap<>();
+        for (UUID commentId : commentIds) {
+            summaries.put(commentId, emptyReactionSummaries(viewerUserId, aggregates.getOrDefault(
+                commentId,
+                Map.of()
+            )));
+        }
+        return summaries;
+    }
+
+    private List<CommentReactionSummary> emptyReactionSummaries(
+        Optional<UUID> viewerUserId,
+        Map<CommentReactionType, ReactionAggregate> aggregates
+    ) {
+        List<CommentReactionSummary> summaries = new ArrayList<>(CommentReactionType.values().length);
+        for (CommentReactionType type : CommentReactionType.values()) {
+            ReactionAggregate aggregate = aggregates.getOrDefault(type, ReactionAggregate.EMPTY);
+            summaries.add(new CommentReactionSummary(
+                type,
+                aggregate.count(),
+                viewerUserId.isPresent() && aggregate.reactedByCurrentUser()
+            ));
+        }
+        return summaries;
     }
 
     private CommentRow mapCommentRow(ResultSet resultSet, int rowNumber) throws SQLException {
@@ -327,13 +497,23 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
     ) {
     }
 
+    private record ReactionAggregate(
+        long count,
+        boolean reactedByCurrentUser
+    ) {
+
+        private static final ReactionAggregate EMPTY = new ReactionAggregate(0, false);
+    }
+
     private final class MutableComment {
 
         private final CommentRow row;
+        private final Map<UUID, List<CommentReactionSummary>> reactionsByComment;
         private final List<MutableComment> replies = new ArrayList<>();
 
-        private MutableComment(CommentRow row) {
+        private MutableComment(CommentRow row, Map<UUID, List<CommentReactionSummary>> reactionsByComment) {
             this.row = row;
+            this.reactionsByComment = reactionsByComment;
         }
 
         private List<MutableComment> replies() {
@@ -341,7 +521,11 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
         }
 
         private CommentView toView() {
-            return toCommentView(row, replies.stream().map(MutableComment::toView).toList());
+            return toCommentView(
+                row,
+                reactionsByComment.getOrDefault(row.id(), List.of()),
+                replies.stream().map(MutableComment::toView).toList()
+            );
         }
     }
 }

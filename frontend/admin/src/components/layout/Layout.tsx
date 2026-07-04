@@ -8,7 +8,6 @@ import Sidebar from './Sidebar'
 import { PageTransition, RouteFlowOverlay } from './RouteTransition'
 import {
   FLOW_INTENT_TTL_MS,
-  getRevealMetrics,
   navigationFamily,
   routeDirection,
   type ElementBounds,
@@ -28,7 +27,6 @@ const Layout = () => {
     navigationIntent && navigationFamily(navigationIntent.route) === navigationFamily(location.pathname)
       ? routeDirection(navigationIntent.fromPath, location.pathname)
       : 0
-  const reveal = getRevealMetrics(navigationIntent, mainBounds, direction)
 
   const captureNavigationIntent = useCallback(
     (route: string, element: HTMLElement) => {
@@ -115,7 +113,6 @@ const Layout = () => {
                 key={location.pathname}
                 locationKey={location.pathname}
                 direction={direction}
-                reveal={reveal}
                 reducedMotion={reducedMotion}
               >
                 {outlet}

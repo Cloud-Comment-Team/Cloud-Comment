@@ -7,6 +7,8 @@ import com.cloudcomment.comment.application.DomainPolicyService;
 import com.cloudcomment.comment.application.PublicCommentService;
 import com.cloudcomment.comment.application.PublicWidgetConfig;
 import com.cloudcomment.comment.domain.CommentAuthor;
+import com.cloudcomment.comment.domain.CommentReactionSummary;
+import com.cloudcomment.comment.domain.CommentReactionType;
 import com.cloudcomment.comment.domain.CommentStatus;
 import com.cloudcomment.comment.domain.CommentView;
 import com.cloudcomment.shared.error.ApiErrorCode;
@@ -23,6 +25,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -35,6 +38,7 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -99,7 +103,7 @@ class PublicCommentControllerTests {
         UUID pageId = UUID.randomUUID();
         CommentView comment = comment(siteId, pageId, null, CommentStatus.APPROVED);
         when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
-        when(publicCommentService.listComments(siteId, ORIGIN, PAGE_URL, 1, 20))
+        when(publicCommentService.listComments(siteId, ORIGIN, PAGE_URL, 1, 20, Optional.empty()))
             .thenReturn(new CommentPage(List.of(comment), 1, 20, 1));
 
         mockMvc.perform(get("/api/public/sites/{siteId}/pages/comments", siteId)
@@ -216,6 +220,57 @@ class PublicCommentControllerTests {
     }
 
     @Test
+    void setReactionRequiresBearerToken() throws Exception {
+        UUID siteId = UUID.randomUUID();
+        UUID commentId = UUID.randomUUID();
+        when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
+
+        mockMvc.perform(put("/api/public/sites/{siteId}/comments/{commentId}/reaction", siteId, commentId)
+                .header(HttpHeaders.ORIGIN, ORIGIN)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "type": "LOVE"
+                    }
+                    """))
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.error.code", is("INVALID_SESSION")));
+
+        verifyNoInteractions(publicCommentService);
+    }
+
+    @Test
+    void setReactionReturnsUpdatedReactionSummary() throws Exception {
+        UUID siteId = UUID.randomUUID();
+        UUID commentId = UUID.randomUUID();
+        AuthenticatedUser currentUser = currentUser();
+        when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(publicCommentService.setReaction(currentUser, siteId, ORIGIN, commentId, CommentReactionType.LOVE))
+            .thenReturn(List.of(
+                new CommentReactionSummary(CommentReactionType.LIKE, 2, false),
+                new CommentReactionSummary(CommentReactionType.LOVE, 1, true)
+            ));
+
+        mockMvc.perform(put("/api/public/sites/{siteId}/comments/{commentId}/reaction", siteId, commentId)
+                .header(HttpHeaders.ORIGIN, ORIGIN)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "type": "LOVE"
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.reactions[0].type", is("LIKE")))
+            .andExpect(jsonPath("$.reactions[0].count", is(2)))
+            .andExpect(jsonPath("$.reactions[0].reactedByCurrentUser", is(false)))
+            .andExpect(jsonPath("$.reactions[1].type", is("LOVE")))
+            .andExpect(jsonPath("$.reactions[1].count", is(1)))
+            .andExpect(jsonPath("$.reactions[1].reactedByCurrentUser", is(true)));
+    }
+
+    @Test
     void serviceNotFoundIsReturnedAsUnifiedNotFound() throws Exception {
         UUID siteId = UUID.randomUUID();
         when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
@@ -241,7 +296,7 @@ class PublicCommentControllerTests {
                 .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "Authorization, Content-Type"))
             .andExpect(status().isNoContent())
             .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, ORIGIN))
-            .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS, "GET, POST, OPTIONS"))
+            .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS, "GET, POST, PUT, OPTIONS"))
             .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS, "Authorization, Content-Type, Accept"));
 
         verifyNoInteractions(currentUserService, publicCommentService);

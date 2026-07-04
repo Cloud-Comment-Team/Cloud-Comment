@@ -2,6 +2,7 @@ package com.cloudcomment.site.api;
 
 import com.cloudcomment.site.api.validation.ValidDomainName;
 import com.cloudcomment.site.domain.ModerationMode;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
@@ -16,6 +17,9 @@ public record UpdateSiteRequest(
 
     ModerationMode moderationMode,
 
-    Boolean isActive
+    Boolean isActive,
+
+    @Valid
+    WidgetStyleRequest widgetStyle
 ) {
 }
