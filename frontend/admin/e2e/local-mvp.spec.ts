@@ -11,8 +11,12 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   const siteName = `E2E Site ${suffix}`
   const domain = `e2e-${suffix}.example.com`
   const commentText = `E2E comment ${suffix}`
+  const editedCommentText = `E2E edited comment ${suffix}`
   const apiReplyText = `E2E API reply ${suffix}`
   const pendingWidgetReplyText = `E2E widget pending reply ${suffix}`
+  const deleteCommentText = `E2E comment to delete ${suffix}`
+  const blockedWord = `blocked-${suffix}`
+  const spamCommentText = `Automod should catch ${blockedWord}`
   const pageUrl = `${ADMIN_ORIGIN}/demo-page.html`
 
   await page.goto('/register')
@@ -177,6 +181,10 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   })
   await expect(viewerCommentsResponse).toBeOK()
   const viewerComments = await viewerCommentsResponse.json()
+  expect(viewerComments.items[0]).toMatchObject({
+    id: createdComment.id,
+    ownedByCurrentUser: true,
+  })
   expect(viewerComments.items[0].reactions).toEqual(expect.arrayContaining([
     expect.objectContaining({
       type: 'LOVE',
@@ -184,6 +192,127 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
       reactedByCurrentUser: true,
     }),
   ]))
+
+  const editCommentResponse = await request.patch(`${API_BASE_URL}/public/sites/${siteId}/comments/${createdComment.id}`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Origin: ADMIN_ORIGIN,
+    },
+    data: {
+      content: editedCommentText,
+    },
+  })
+  await expect(editCommentResponse).toBeOK()
+  const editedComment = await editCommentResponse.json()
+  expect(editedComment).toMatchObject({
+    id: createdComment.id,
+    content: editedCommentText,
+    status: 'APPROVED',
+    ownedByCurrentUser: true,
+  })
+  expect(editedComment.editedAt).toEqual(expect.any(String))
+
+  const commentsAfterEditResponse = await request.get(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Origin: ADMIN_ORIGIN,
+    },
+    params: {
+      pageUrl,
+      page: '1',
+      pageSize: '20',
+    },
+  })
+  await expect(commentsAfterEditResponse).toBeOK()
+  const commentsAfterEdit = await commentsAfterEditResponse.json()
+  expect(commentsAfterEdit.items[0]).toMatchObject({
+    id: createdComment.id,
+    content: editedCommentText,
+    ownedByCurrentUser: true,
+  })
+
+  const createDeletedCommentResponse = await request.post(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Origin: ADMIN_ORIGIN,
+    },
+    data: {
+      pageUrl,
+      parentId: null,
+      content: deleteCommentText,
+    },
+  })
+  await expect(createDeletedCommentResponse).toBeOK()
+  const deletedCommentCandidate = await createDeletedCommentResponse.json()
+
+  const deleteCommentResponse = await request.delete(`${API_BASE_URL}/public/sites/${siteId}/comments/${deletedCommentCandidate.id}`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Origin: ADMIN_ORIGIN,
+    },
+  })
+  expect(deleteCommentResponse.status()).toBe(204)
+
+  const commentsAfterDeleteResponse = await request.get(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
+    headers: {
+      Origin: ADMIN_ORIGIN,
+    },
+    params: {
+      pageUrl,
+      page: '1',
+      pageSize: '20',
+    },
+  })
+  await expect(commentsAfterDeleteResponse).toBeOK()
+  expect(JSON.stringify(await commentsAfterDeleteResponse.json())).not.toContain(deleteCommentText)
+
+  const enableAutomodResponse = await request.patch(`${API_BASE_URL}/sites/${siteId}`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    data: {
+      autoModeration: {
+        enabled: true,
+        strictness: 'STRICT',
+        blockedWords: [blockedWord],
+        holdLinks: true,
+        blockLinks: false,
+        maxLinks: 2,
+      },
+    },
+  })
+  await expect(enableAutomodResponse).toBeOK()
+
+  const createSpamCommentResponse = await request.post(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Origin: ADMIN_ORIGIN,
+    },
+    data: {
+      pageUrl,
+      parentId: null,
+      content: spamCommentText,
+    },
+  })
+  expect(createSpamCommentResponse.status()).toBe(201)
+  const spamComment = await createSpamCommentResponse.json()
+  expect(spamComment).toMatchObject({
+    content: spamCommentText,
+    status: 'SPAM',
+  })
+
+  const commentsAfterAutomodResponse = await request.get(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
+    headers: {
+      Origin: ADMIN_ORIGIN,
+    },
+    params: {
+      pageUrl,
+      page: '1',
+      pageSize: '20',
+    },
+  })
+  await expect(commentsAfterAutomodResponse).toBeOK()
+  expect(JSON.stringify(await commentsAfterAutomodResponse.json())).not.toContain(spamCommentText)
 
   const enablePreModerationResponse = await request.patch(`${API_BASE_URL}/sites/${siteId}`, {
     headers: {
@@ -200,7 +329,7 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   const widget = page.locator('#comments')
   const widgetShell = widget.locator('.cloud-comment')
   await expect(widget.locator('.cloud-comment__title')).toHaveText('Комментарии')
-  await expect(widget.locator('.cloud-comment__comment-content')).toContainText([commentText, apiReplyText])
+  await expect(widget.locator('.cloud-comment__comment-content')).toContainText([editedCommentText, apiReplyText])
   await expect(widgetShell).toHaveAttribute('data-theme', 'dark')
   await expect(widgetShell).toHaveAttribute('data-radius', 'large')
   await expect

@@ -61,6 +61,8 @@ export type PublicComment = {
   status: CommentStatus;
   createdAt: string;
   updatedAt: string;
+  editedAt: string | null;
+  ownedByCurrentUser: boolean;
   reactions: CommentReaction[];
   replies: PublicComment[];
 };

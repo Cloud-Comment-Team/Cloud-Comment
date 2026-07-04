@@ -7,9 +7,39 @@ import { getApiErrorMessage } from '../../api/auth'
 import { deleteSite, getEmbedCode, getSite, replaceAllowedOrigins, updateSite } from '../../api/sites'
 import { AsyncState } from '../../components/common/AsyncState'
 import { Badge } from '../../components/common/Badge'
-import type { EmbedCode, ModerationMode, Site, WidgetCornerRadius, WidgetTheme } from '../../types/api'
+import type {
+  AutoModerationSettings,
+  AutoModerationStrictness,
+  EmbedCode,
+  ModerationMode,
+  Site,
+  WidgetCornerRadius,
+  WidgetTheme,
+} from '../../types/api'
 import { formatOriginsInput, normalizeDomainInput, parseAllowedOriginsInput } from '../../utils/origins'
 import { moderationModeLabels } from '../../utils/moderationModeLabels'
+
+function parseBlockedWords(value: string): string[] {
+  return Array.from(
+    new Set(
+      value
+        .split(/\r?\n|,/)
+        .map((word) => word.trim())
+        .filter(Boolean),
+    ),
+  )
+}
+
+function formatBlockedWords(words: string[]): string {
+  return words.join('\n')
+}
+
+const automodStrictnessLabels: Record<AutoModerationStrictness, string> = {
+  OFF: 'Выключена',
+  RELAXED: 'Мягкая',
+  BALANCED: 'Баланс',
+  STRICT: 'Строгая',
+}
 
 const SiteDetail = () => {
   const navigate = useNavigate()
@@ -25,12 +55,24 @@ const SiteDetail = () => {
   const [widgetTheme, setWidgetTheme] = useState<WidgetTheme>('AUTO')
   const [widgetAccentColor, setWidgetAccentColor] = useState('#0f766e')
   const [widgetCornerRadius, setWidgetCornerRadius] = useState<WidgetCornerRadius>('MEDIUM')
+  const [autoModeration, setAutoModeration] = useState<AutoModerationSettings>({
+    enabled: true,
+    strictness: 'BALANCED',
+    blockedWords: [],
+    holdLinks: true,
+    blockLinks: false,
+    maxLinks: 2,
+  })
+  const [autoModerationBlockedWords, setAutoModerationBlockedWords] = useState('')
   const [originsInput, setOriginsInput] = useState('')
   const [deleteConfirmationVisible, setDeleteConfirmationVisible] = useState(false)
   const [deleteConfirmation, setDeleteConfirmation] = useState('')
   const safeWidgetAccentColor = /^#[0-9a-fA-F]{6}$/.test(widgetAccentColor)
     ? widgetAccentColor
     : '#0f766e'
+  const updateAutoModeration = (patch: Partial<AutoModerationSettings>) => {
+    setAutoModeration((current) => ({ ...current, ...patch }))
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -52,6 +94,8 @@ const SiteDetail = () => {
         setWidgetTheme(loadedSite.widgetStyle.theme)
         setWidgetAccentColor(loadedSite.widgetStyle.accentColor)
         setWidgetCornerRadius(loadedSite.widgetStyle.cornerRadius)
+        setAutoModeration(loadedSite.autoModeration)
+        setAutoModerationBlockedWords(formatBlockedWords(loadedSite.autoModeration.blockedWords))
         setOriginsInput(formatOriginsInput(loadedSite.allowedOrigins))
       } catch (loadError) {
         if (!cancelled) {
@@ -104,6 +148,11 @@ const SiteDetail = () => {
           accentColor: widgetAccentColor,
           cornerRadius: widgetCornerRadius,
         },
+        autoModeration: {
+          ...autoModeration,
+          strictness: autoModeration.enabled ? autoModeration.strictness : 'OFF',
+          blockedWords: parseBlockedWords(autoModerationBlockedWords),
+        },
       })
       const siteWithOrigins = await replaceAllowedOrigins(site.id, { allowedOrigins })
       setSite(siteWithOrigins)
@@ -113,6 +162,8 @@ const SiteDetail = () => {
       setWidgetTheme(siteWithOrigins.widgetStyle.theme)
       setWidgetAccentColor(siteWithOrigins.widgetStyle.accentColor)
       setWidgetCornerRadius(siteWithOrigins.widgetStyle.cornerRadius)
+      setAutoModeration(siteWithOrigins.autoModeration)
+      setAutoModerationBlockedWords(formatBlockedWords(siteWithOrigins.autoModeration.blockedWords))
       setOriginsInput(formatOriginsInput(siteWithOrigins.allowedOrigins))
       toast.success('Настройки сайта сохранены')
     } catch (saveError) {
@@ -137,6 +188,8 @@ const SiteDetail = () => {
       setWidgetTheme(updatedSite.widgetStyle.theme)
       setWidgetAccentColor(updatedSite.widgetStyle.accentColor)
       setWidgetCornerRadius(updatedSite.widgetStyle.cornerRadius)
+      setAutoModeration(updatedSite.autoModeration)
+      setAutoModerationBlockedWords(formatBlockedWords(updatedSite.autoModeration.blockedWords))
       setOriginsInput(formatOriginsInput(updatedSite.allowedOrigins))
       toast.success(updatedSite.isActive ? 'Сайт активирован' : 'Сайт деактивирован')
     } catch (toggleError) {
@@ -276,6 +329,97 @@ const SiteDetail = () => {
                     <option value="DISABLED">Отключена</option>
                   </select>
                 </label>
+                <div
+                  className="rounded-lg border p-4 md:col-span-2"
+                  style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface-muted)' }}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <label className="inline-flex items-center gap-2 text-sm font-semibold" style={{ color: 'var(--text-h)' }}>
+                      <input
+                        type="checkbox"
+                        checked={autoModeration.enabled}
+                        onChange={(event) => updateAutoModeration({
+                          enabled: event.target.checked,
+                          strictness: event.target.checked ? autoModeration.strictness : 'OFF',
+                        })}
+                      />
+                      Автомодерация
+                    </label>
+                    <span className="rounded-full px-2.5 py-1 text-xs font-bold" style={{ backgroundColor: 'var(--accent-soft)', color: 'var(--accent)' }}>
+                      {autoModeration.enabled
+                        ? automodStrictnessLabels[autoModeration.strictness]
+                        : automodStrictnessLabels.OFF}
+                    </span>
+                  </div>
+
+                  <div className="mt-4 grid gap-4 md:grid-cols-3">
+                    <label className="block">
+                      <span className="mb-2 block text-sm font-medium" style={{ color: 'var(--text-h)' }}>
+                        Строгость
+                      </span>
+                      <select
+                        className="cc-field"
+                        value={autoModeration.strictness === 'OFF' ? 'BALANCED' : autoModeration.strictness}
+                        disabled={!autoModeration.enabled}
+                        onChange={(event) => updateAutoModeration({
+                          strictness: event.target.value as AutoModerationStrictness,
+                        })}
+                      >
+                        <option value="RELAXED">Мягкая</option>
+                        <option value="BALANCED">Баланс</option>
+                        <option value="STRICT">Строгая</option>
+                      </select>
+                    </label>
+                    <label className="block">
+                      <span className="mb-2 block text-sm font-medium" style={{ color: 'var(--text-h)' }}>
+                        Лимит ссылок
+                      </span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={20}
+                        className="cc-field"
+                        value={autoModeration.maxLinks}
+                        disabled={!autoModeration.enabled}
+                        onChange={(event) => updateAutoModeration({
+                          maxLinks: Number(event.target.value),
+                        })}
+                      />
+                    </label>
+                    <div className="grid content-end gap-2">
+                      <label className="inline-flex items-center gap-2 text-sm" style={{ color: 'var(--text)' }}>
+                        <input
+                          type="checkbox"
+                          checked={autoModeration.holdLinks}
+                          disabled={!autoModeration.enabled}
+                          onChange={(event) => updateAutoModeration({ holdLinks: event.target.checked })}
+                        />
+                        Проверять ссылки
+                      </label>
+                      <label className="inline-flex items-center gap-2 text-sm" style={{ color: 'var(--text)' }}>
+                        <input
+                          type="checkbox"
+                          checked={autoModeration.blockLinks}
+                          disabled={!autoModeration.enabled}
+                          onChange={(event) => updateAutoModeration({ blockLinks: event.target.checked })}
+                        />
+                        Блокировать ссылки
+                      </label>
+                    </div>
+                  </div>
+
+                  <label className="mt-4 block">
+                    <span className="mb-2 block text-sm font-medium" style={{ color: 'var(--text-h)' }}>
+                      Стоп-слова
+                    </span>
+                    <textarea
+                      className="cc-field min-h-24"
+                      value={autoModerationBlockedWords}
+                      disabled={!autoModeration.enabled}
+                      onChange={(event) => setAutoModerationBlockedWords(event.target.value)}
+                    />
+                  </label>
+                </div>
                 <div className="grid gap-4 md:col-span-2 md:grid-cols-3">
                   <label className="block">
                     <span className="mb-2 block text-sm font-medium" style={{ color: 'var(--text-h)' }}>

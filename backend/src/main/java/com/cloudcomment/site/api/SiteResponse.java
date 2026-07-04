@@ -16,6 +16,7 @@ public record SiteResponse(
     ModerationMode moderationMode,
     boolean isActive,
     WidgetStyleResponse widgetStyle,
+    AutoModerationSettingsResponse autoModeration,
     List<String> allowedOrigins,
     Instant createdAt,
     Instant updatedAt
@@ -35,6 +36,7 @@ public record SiteResponse(
             site.moderationMode(),
             site.active(),
             WidgetStyleResponse.from(site.widgetStyle()),
+            AutoModerationSettingsResponse.from(site.autoModeration()),
             site.allowedOrigins(),
             site.createdAt(),
             site.updatedAt()

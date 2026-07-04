@@ -24,7 +24,9 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -116,6 +118,39 @@ class PublicCommentController {
             commentId,
             body.type()
         ));
+    }
+
+    @PatchMapping("/comments/{commentId}")
+    CommentResponse updateOwnComment(
+        @CurrentUser AuthenticatedUser currentUser,
+        @PathVariable UUID siteId,
+        @PathVariable UUID commentId,
+        HttpServletRequest request,
+        @Valid @RequestBody UpdateCommentRequest body
+    ) {
+        return CommentResponse.from(publicCommentService.updateOwnComment(
+            currentUser,
+            siteId,
+            requestOriginResolver.resolve(request),
+            commentId,
+            body.content()
+        ));
+    }
+
+    @DeleteMapping("/comments/{commentId}")
+    ResponseEntity<Void> deleteOwnComment(
+        @CurrentUser AuthenticatedUser currentUser,
+        @PathVariable UUID siteId,
+        @PathVariable UUID commentId,
+        HttpServletRequest request
+    ) {
+        publicCommentService.deleteOwnComment(
+            currentUser,
+            siteId,
+            requestOriginResolver.resolve(request),
+            commentId
+        );
+        return ResponseEntity.noContent().build();
     }
 
     private Optional<UUID> resolveOptionalViewer(HttpServletRequest request) {

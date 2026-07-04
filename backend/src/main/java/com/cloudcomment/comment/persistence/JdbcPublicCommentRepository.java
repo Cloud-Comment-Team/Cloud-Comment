@@ -7,6 +7,8 @@ import com.cloudcomment.comment.domain.CommentReactionSummary;
 import com.cloudcomment.comment.domain.CommentReactionType;
 import com.cloudcomment.comment.domain.CommentStatus;
 import com.cloudcomment.comment.domain.CommentView;
+import com.cloudcomment.site.domain.AutoModerationSettings;
+import com.cloudcomment.site.domain.AutoModerationStrictness;
 import com.cloudcomment.site.domain.ModerationMode;
 import com.cloudcomment.site.domain.WidgetCornerRadius;
 import com.cloudcomment.site.domain.WidgetStyle;
@@ -45,7 +47,17 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
     public Optional<WidgetSite> findActiveSite(UUID siteId) {
         List<WidgetSite> sites = jdbcTemplate.query(
             """
-                select id, moderation_mode, widget_theme, widget_accent_color, widget_corner_radius
+                select id,
+                       moderation_mode,
+                       widget_theme,
+                       widget_accent_color,
+                       widget_corner_radius,
+                       automod_enabled,
+                       automod_strictness,
+                       automod_blocked_words,
+                       automod_hold_links,
+                       automod_block_links,
+                       automod_max_links
                 from sites
                 where id = ? and is_active = true
                 """,
@@ -56,6 +68,14 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
                     WidgetTheme.valueOf(resultSet.getString("widget_theme")),
                     resultSet.getString("widget_accent_color"),
                     WidgetCornerRadius.valueOf(resultSet.getString("widget_corner_radius"))
+                ),
+                new AutoModerationSettings(
+                    resultSet.getBoolean("automod_enabled"),
+                    AutoModerationStrictness.valueOf(resultSet.getString("automod_strictness")),
+                    parseBlockedWords(resultSet.getString("automod_blocked_words")),
+                    resultSet.getBoolean("automod_hold_links"),
+                    resultSet.getBoolean("automod_block_links"),
+                    resultSet.getInt("automod_max_links")
                 )
             ),
             siteId
@@ -146,7 +166,8 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
                        c.body,
                        c.status,
                        c.created_at,
-                       c.updated_at
+                       c.updated_at,
+                       c.edited_at
                 from comments c
                 join pages p on p.id = c.page_id
                 left join app_users u on u.id = c.author_user_id
@@ -154,6 +175,7 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
                   and c.page_id = ?
                   and c.status = 'APPROVED'
                   and c.parent_id is null
+                  and c.deleted_at is null
                 order by c.created_at asc, c.id asc
                 limit ? offset ?
                 """,
@@ -171,6 +193,7 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
                 where page_id = ?
                   and status = 'APPROVED'
                   and parent_id is null
+                  and deleted_at is null
                 """,
             Long.class,
             pageId
@@ -183,7 +206,7 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
         );
 
         return new CommentPage(
-            buildThreads(rootRows, replyRows, reactionsByComment),
+            buildThreads(rootRows, replyRows, reactionsByComment, viewerUserId),
             page,
             pageSize,
             totalItemsOrZero(totalItems)
@@ -201,6 +224,7 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
                       and page_id = ?
                       and status = 'APPROVED'
                       and parent_id is null
+                      and deleted_at is null
                 )
                 """,
             Boolean.class,
@@ -222,6 +246,22 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
         String content,
         CommentStatus status
     ) {
+        return createComment(siteId, pageId, parentId, authorUserId, authorName, authorEmail, content, status, null);
+    }
+
+    @Override
+    @Transactional
+    public CommentView createComment(
+        UUID siteId,
+        UUID pageId,
+        UUID parentId,
+        UUID authorUserId,
+        String authorName,
+        String authorEmail,
+        String content,
+        CommentStatus status,
+        String moderationReason
+    ) {
         CommentRow row = jdbcTemplate.queryForObject(
             """
                 insert into comments (
@@ -231,9 +271,10 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
                     author_name,
                     author_email,
                     body,
-                    status
+                    status,
+                    moderation_reason
                 )
-                values (?, ?, ?, ?, ?, ?, ?)
+                values (?, ?, ?, ?, ?, ?, ?, ?)
                 returning id,
                           ?::uuid as site_id,
                           page_id,
@@ -244,7 +285,8 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
                           body,
                           status,
                           created_at,
-                          updated_at
+                          updated_at,
+                          edited_at
                 """,
             this::mapCommentRow,
             pageId,
@@ -254,9 +296,14 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
             authorEmail,
             content,
             status.name(),
+            moderationReason,
             siteId
         );
-        return toCommentView(Objects.requireNonNull(row, "created comment must not be null"), List.of());
+        return toCommentView(
+            Objects.requireNonNull(row, "created comment must not be null"),
+            List.of(),
+            Optional.of(authorUserId)
+        );
     }
 
     @Override
@@ -270,6 +317,7 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
                     where c.id = ?
                       and p.site_id = ?
                       and c.status = 'APPROVED'
+                      and c.deleted_at is null
                 )
                 """,
             Boolean.class,
@@ -277,6 +325,85 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
             siteId
         );
         return Boolean.TRUE.equals(exists);
+    }
+
+    @Override
+    @Transactional
+    public Optional<CommentView> updateOwnComment(
+        UUID siteId,
+        UUID commentId,
+        UUID authorUserId,
+        String content,
+        CommentStatus status,
+        String moderationReason
+    ) {
+        List<CommentRow> rows = jdbcTemplate.query(
+            """
+                update comments c
+                set body = ?,
+                    status = ?,
+                    moderation_reason = ?,
+                    edited_at = now(),
+                    updated_at = now()
+                from pages p
+                where p.id = c.page_id
+                  and p.site_id = ?
+                  and c.id = ?
+                  and c.author_user_id = ?
+                  and c.deleted_at is null
+                returning c.id,
+                          p.site_id,
+                          c.page_id,
+                          c.parent_id,
+                          c.author_user_id,
+                          c.author_email,
+                          c.author_name,
+                          c.body,
+                          c.status,
+                          c.created_at,
+                          c.updated_at,
+                          c.edited_at
+                """,
+            this::mapCommentRow,
+            content,
+            status.name(),
+            moderationReason,
+            siteId,
+            commentId,
+            authorUserId
+        );
+        return rows.stream()
+            .findFirst()
+            .map(row -> toCommentView(row, List.of(), Optional.of(authorUserId)));
+    }
+
+    @Override
+    @Transactional
+    public boolean softDeleteOwnComment(UUID siteId, UUID commentId, UUID authorUserId) {
+        int updatedRows = jdbcTemplate.update(
+            """
+                update comments c
+                set body = '[deleted by author]',
+                    status = 'HIDDEN',
+                    moderation_reason = 'Deleted by author',
+                    deleted_at = now(),
+                    deleted_by_author = true,
+                    updated_at = now()
+                from pages p
+                where p.id = c.page_id
+                  and p.site_id = ?
+                  and c.id = ?
+                  and c.author_user_id = ?
+                  and c.deleted_at is null
+                """,
+            siteId,
+            commentId,
+            authorUserId
+        );
+        if (updatedRows > 0) {
+            jdbcTemplate.update("delete from comment_reactions where comment_id = ?", commentId);
+        }
+        return updatedRows > 0;
     }
 
     @Override
@@ -335,12 +462,14 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
                        c.body,
                        c.status,
                        c.created_at,
-                       c.updated_at
+                       c.updated_at,
+                       c.edited_at
                 from comments c
                 join pages p on p.id = c.page_id
                 left join app_users u on u.id = c.author_user_id
                 where c.parent_id in (:rootIds)
                   and c.status = 'APPROVED'
+                  and c.deleted_at is null
                 order by c.created_at asc, c.id asc
                 """,
             new MapSqlParameterSource("rootIds", rootIds),
@@ -351,14 +480,15 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
     private List<CommentView> buildThreads(
         List<CommentRow> rootRows,
         List<CommentRow> replyRows,
-        Map<UUID, List<CommentReactionSummary>> reactionsByComment
+        Map<UUID, List<CommentReactionSummary>> reactionsByComment,
+        Optional<UUID> viewerUserId
     ) {
         Map<UUID, MutableComment> comments = new LinkedHashMap<>();
         for (CommentRow row : rootRows) {
-            comments.put(row.id(), new MutableComment(row, reactionsByComment));
+            comments.put(row.id(), new MutableComment(row, reactionsByComment, viewerUserId));
         }
         for (CommentRow row : replyRows) {
-            MutableComment comment = new MutableComment(row, reactionsByComment);
+            MutableComment comment = new MutableComment(row, reactionsByComment, viewerUserId);
             comments.put(row.id(), comment);
             MutableComment parent = comments.get(row.parentId());
             if (parent != null) {
@@ -370,7 +500,12 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
             .toList();
     }
 
-    private CommentView toCommentView(CommentRow row, List<CommentReactionSummary> reactions, List<CommentView> replies) {
+    private CommentView toCommentView(
+        CommentRow row,
+        List<CommentReactionSummary> reactions,
+        List<CommentView> replies,
+        Optional<UUID> viewerUserId
+    ) {
         return new CommentView(
             row.id(),
             row.siteId(),
@@ -381,13 +516,15 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
             row.status(),
             row.createdAt(),
             row.updatedAt(),
+            row.editedAt(),
+            viewerUserId.filter(userId -> userId.equals(row.authorUserId())).isPresent(),
             reactions,
             replies
         );
     }
 
-    private CommentView toCommentView(CommentRow row, List<CommentView> replies) {
-        return toCommentView(row, List.of(), replies);
+    private CommentView toCommentView(CommentRow row, List<CommentView> replies, Optional<UUID> viewerUserId) {
+        return toCommentView(row, List.of(), replies, viewerUserId);
     }
 
     private List<UUID> visibleCommentIds(List<CommentRow> rootRows, List<CommentRow> replyRows) {
@@ -470,12 +607,28 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
             resultSet.getString("body"),
             CommentStatus.valueOf(resultSet.getString("status")),
             toInstant(resultSet, "created_at"),
-            toInstant(resultSet, "updated_at")
+            toInstant(resultSet, "updated_at"),
+            toNullableInstant(resultSet, "edited_at")
         );
     }
 
     private Instant toInstant(ResultSet resultSet, String column) throws SQLException {
         return resultSet.getObject(column, OffsetDateTime.class).toInstant();
+    }
+
+    private Instant toNullableInstant(ResultSet resultSet, String column) throws SQLException {
+        OffsetDateTime value = resultSet.getObject(column, OffsetDateTime.class);
+        return value != null ? value.toInstant() : null;
+    }
+
+    private List<String> parseBlockedWords(String value) {
+        if (value == null || value.isBlank()) {
+            return List.of();
+        }
+        return value.lines()
+            .map(String::trim)
+            .filter(word -> !word.isBlank())
+            .toList();
     }
 
     private long totalItemsOrZero(Long totalItems) {
@@ -493,7 +646,8 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
         String body,
         CommentStatus status,
         Instant createdAt,
-        Instant updatedAt
+        Instant updatedAt,
+        Instant editedAt
     ) {
     }
 
@@ -509,11 +663,17 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
 
         private final CommentRow row;
         private final Map<UUID, List<CommentReactionSummary>> reactionsByComment;
+        private final Optional<UUID> viewerUserId;
         private final List<MutableComment> replies = new ArrayList<>();
 
-        private MutableComment(CommentRow row, Map<UUID, List<CommentReactionSummary>> reactionsByComment) {
+        private MutableComment(
+            CommentRow row,
+            Map<UUID, List<CommentReactionSummary>> reactionsByComment,
+            Optional<UUID> viewerUserId
+        ) {
             this.row = row;
             this.reactionsByComment = reactionsByComment;
+            this.viewerUserId = viewerUserId;
         }
 
         private List<MutableComment> replies() {
@@ -524,7 +684,8 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
             return toCommentView(
                 row,
                 reactionsByComment.getOrDefault(row.id(), List.of()),
-                replies.stream().map(MutableComment::toView).toList()
+                replies.stream().map(MutableComment::toView).toList(),
+                viewerUserId
             );
         }
     }

@@ -19,7 +19,7 @@ import { getApiErrorMessage } from '../../api/auth'
 import { createSite } from '../../api/sites'
 import Input from '../../components/common/Input/Input'
 import { API_BASE_URL } from '../../config/env'
-import type { ModerationMode, WidgetCornerRadius, WidgetTheme } from '../../types/api'
+import type { AutoModerationStrictness, ModerationMode, WidgetCornerRadius, WidgetTheme } from '../../types/api'
 import { normalizeDomainInput, parseAllowedOriginsInput } from '../../utils/origins'
 import { moderationModeLabels } from '../../utils/moderationModeLabels'
 
@@ -31,6 +31,12 @@ interface SiteFormValues {
   widgetTheme: WidgetTheme
   widgetAccentColor: string
   widgetCornerRadius: WidgetCornerRadius
+  automodEnabled: boolean
+  automodStrictness: AutoModerationStrictness
+  automodHoldLinks: boolean
+  automodBlockLinks: boolean
+  automodMaxLinks: number
+  automodBlockedWords: string
 }
 
 const WIDGET_SCRIPT_PATH = '/widget/cloud-comment-widget.js'
@@ -46,6 +52,13 @@ const widgetThemeLabels: Record<WidgetTheme, string> = {
   AUTO: 'Авто',
   LIGHT: 'Светлая',
   DARK: 'Темная',
+}
+
+const automodStrictnessLabels: Record<AutoModerationStrictness, string> = {
+  OFF: '\u0412\u044b\u043a\u043b\u044e\u0447\u0435\u043d\u0430',
+  RELAXED: '\u041c\u044f\u0433\u043a\u0430\u044f',
+  BALANCED: '\u0411\u0430\u043b\u0430\u043d\u0441',
+  STRICT: '\u0421\u0442\u0440\u043e\u0433\u0430\u044f',
 }
 
 const previewModeCopy: Record<ModerationMode, { badge: string; text: string }> = {
@@ -71,6 +84,17 @@ function toAbsolutePreviewUrl(value: string): string {
   return new URL(value, window.location.origin).toString()
 }
 
+function parseBlockedWords(value: string): string[] {
+  return Array.from(
+    new Set(
+      value
+        .split(/\r?\n|,/)
+        .map((word) => word.trim())
+        .filter(Boolean),
+    ),
+  )
+}
+
 const SiteCreate = () => {
   const navigate = useNavigate()
   const [serverError, setServerError] = useState<string | null>(null)
@@ -89,6 +113,12 @@ const SiteCreate = () => {
       widgetTheme: 'AUTO',
       widgetAccentColor: DEFAULT_WIDGET_ACCENT,
       widgetCornerRadius: 'MEDIUM',
+      automodEnabled: true,
+      automodStrictness: 'BALANCED',
+      automodHoldLinks: true,
+      automodBlockLinks: false,
+      automodMaxLinks: 2,
+      automodBlockedWords: '',
     },
   })
 
@@ -100,6 +130,9 @@ const SiteCreate = () => {
   const watchedWidgetTheme = watchedValues.widgetTheme ?? 'AUTO'
   const watchedWidgetAccentColor = watchedValues.widgetAccentColor ?? DEFAULT_WIDGET_ACCENT
   const watchedWidgetCornerRadius = watchedValues.widgetCornerRadius ?? 'MEDIUM'
+  const watchedAutomodEnabled = watchedValues.automodEnabled ?? true
+  const watchedAutomodStrictness = watchedValues.automodStrictness ?? 'BALANCED'
+  const watchedAutomodBlockedWords = watchedValues.automodBlockedWords ?? ''
   const previewAccentColor = /^#[0-9a-fA-F]{6}$/.test(watchedWidgetAccentColor)
     ? watchedWidgetAccentColor
     : DEFAULT_WIDGET_ACCENT
@@ -119,6 +152,7 @@ const SiteCreate = () => {
   const previewApiBaseUrl = toAbsolutePreviewUrl(API_BASE_URL)
   const previewModerationCopy = previewModeCopy[previewModerationMode]
   const previewEmbedCode = `<script src="${previewWidgetScriptUrl}" data-site-id="<site-id>" data-api-base-url="${previewApiBaseUrl}"></script>`
+  const previewBlockedWords = parseBlockedWords(watchedAutomodBlockedWords)
 
   const onSubmit: SubmitHandler<SiteFormValues> = async (values) => {
     setServerError(null)
@@ -145,6 +179,14 @@ const SiteCreate = () => {
           theme: values.widgetTheme,
           accentColor: values.widgetAccentColor,
           cornerRadius: values.widgetCornerRadius,
+        },
+        autoModeration: {
+          enabled: values.automodEnabled,
+          strictness: values.automodEnabled ? values.automodStrictness : 'OFF',
+          blockedWords: parseBlockedWords(values.automodBlockedWords),
+          holdLinks: values.automodHoldLinks,
+          blockLinks: values.automodBlockLinks,
+          maxLinks: values.automodMaxLinks,
         },
       })
       navigate(`/sites/${site.id}`)
@@ -236,6 +278,76 @@ const SiteCreate = () => {
             />
 
             <div className="mt-5 grid gap-4">
+              <div
+                className="rounded-lg border p-4"
+                style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface-muted)' }}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <label className="inline-flex items-center gap-2 text-sm font-semibold" style={{ color: 'var(--text-h)' }}>
+                    <input type="checkbox" {...register('automodEnabled')} />
+                    Автомодерация
+                  </label>
+                  <span className="rounded-full px-2.5 py-1 text-xs font-bold" style={{ backgroundColor: 'var(--accent-soft)', color: 'var(--accent)' }}>
+                    {watchedAutomodEnabled ? automodStrictnessLabels[watchedAutomodStrictness] : automodStrictnessLabels.OFF}
+                  </span>
+                </div>
+
+                <div className="mt-4 grid gap-4 md:grid-cols-3">
+                  <label className="block text-left">
+                    <span className="mb-2 block text-sm font-medium" style={{ color: 'var(--text-h)' }}>
+                      Строгость
+                    </span>
+                    <select className="cc-field" disabled={!watchedAutomodEnabled} {...register('automodStrictness')}>
+                      <option value="RELAXED">Мягкая</option>
+                      <option value="BALANCED">Баланс</option>
+                      <option value="STRICT">Строгая</option>
+                    </select>
+                  </label>
+
+                  <label className="block text-left">
+                    <span className="mb-2 block text-sm font-medium" style={{ color: 'var(--text-h)' }}>
+                      Лимит ссылок
+                    </span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={20}
+                      className="cc-field"
+                      disabled={!watchedAutomodEnabled}
+                      {...register('automodMaxLinks', { valueAsNumber: true, min: 0, max: 20 })}
+                    />
+                  </label>
+
+                  <div className="grid content-end gap-2">
+                    <label className="inline-flex items-center gap-2 text-sm" style={{ color: 'var(--text)' }}>
+                      <input type="checkbox" disabled={!watchedAutomodEnabled} {...register('automodHoldLinks')} />
+                      Проверять ссылки
+                    </label>
+                    <label className="inline-flex items-center gap-2 text-sm" style={{ color: 'var(--text)' }}>
+                      <input type="checkbox" disabled={!watchedAutomodEnabled} {...register('automodBlockLinks')} />
+                      Блокировать ссылки
+                    </label>
+                  </div>
+                </div>
+
+                <label className="mt-4 block text-left">
+                  <span className="mb-2 block text-sm font-medium" style={{ color: 'var(--text-h)' }}>
+                    Стоп-слова
+                  </span>
+                  <textarea
+                    className="cc-field min-h-24"
+                    placeholder={'казино, спам\nили по одному слову на строку'}
+                    disabled={!watchedAutomodEnabled}
+                    {...register('automodBlockedWords')}
+                  />
+                  <span className="mt-2 block text-sm" style={{ color: 'var(--text)' }}>
+                    {previewBlockedWords.length > 0
+                      ? `${previewBlockedWords.length} правил будет применено к новым комментариям`
+                      : 'Базовые спам-сигналы уже включены'}
+                  </span>
+                </label>
+              </div>
+
               <label className="block text-left">
                 <span className="mb-2 block text-sm font-medium" style={{ color: 'var(--text-h)' }}>
                   Режим модерации

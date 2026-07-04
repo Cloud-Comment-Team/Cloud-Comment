@@ -46,7 +46,36 @@ public interface PublicCommentRepository {
         CommentStatus status
     );
 
+    default CommentView createComment(
+        UUID siteId,
+        UUID pageId,
+        UUID parentId,
+        UUID authorUserId,
+        String authorName,
+        String authorEmail,
+        String content,
+        CommentStatus status,
+        String moderationReason
+    ) {
+        return createComment(siteId, pageId, parentId, authorUserId, authorName, authorEmail, content, status);
+    }
+
     default boolean existsApprovedCommentInSite(UUID siteId, UUID commentId) {
+        return false;
+    }
+
+    default Optional<CommentView> updateOwnComment(
+        UUID siteId,
+        UUID commentId,
+        UUID authorUserId,
+        String content,
+        CommentStatus status,
+        String moderationReason
+    ) {
+        return Optional.empty();
+    }
+
+    default boolean softDeleteOwnComment(UUID siteId, UUID commentId, UUID authorUserId) {
         return false;
     }
 

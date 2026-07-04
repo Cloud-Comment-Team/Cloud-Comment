@@ -8,6 +8,8 @@ import com.cloudcomment.comment.domain.CommentStatus;
 import com.cloudcomment.comment.domain.CommentView;
 import com.cloudcomment.comment.persistence.PublicCommentRepository;
 import com.cloudcomment.shared.error.ApplicationException;
+import com.cloudcomment.site.domain.AutoModerationSettings;
+import com.cloudcomment.site.domain.AutoModerationStrictness;
 import com.cloudcomment.site.domain.ModerationMode;
 import org.junit.jupiter.api.Test;
 
@@ -117,6 +119,30 @@ class PublicCommentServiceTests {
     }
 
     @Test
+    void createCommentAppliesAutoModerationBeforePersisting() {
+        CapturingRepository repository = new CapturingRepository();
+        repository.autoModeration = new AutoModerationSettings(
+            true,
+            AutoModerationStrictness.STRICT,
+            List.of("blocked"),
+            true,
+            false,
+            1
+        );
+
+        service(repository, ModerationMode.POST_MODERATION).createComment(
+            currentUser(),
+            UUID.randomUUID(),
+            "https://example.com",
+            "https://example.com/page",
+            null,
+            "This has a blocked keyword"
+        );
+
+        assertThat(repository.createdStatus).isEqualTo(CommentStatus.SPAM);
+    }
+
+    @Test
     void createCommentRejectsForeignOriginAndParentFromAnotherPage() {
         assertThatThrownBy(() -> service(new CapturingRepository(), ModerationMode.POST_MODERATION).createComment(
             currentUser(),
@@ -183,6 +209,65 @@ class PublicCommentServiceTests {
             .hasToString("NOT_FOUND");
     }
 
+    @Test
+    void updateOwnCommentRevalidatesContentAndMasksMissingComment() {
+        CapturingRepository repository = new CapturingRepository();
+        PublicCommentService service = service(repository, ModerationMode.PRE_MODERATION);
+        AuthenticatedUser user = currentUser();
+        UUID siteId = UUID.randomUUID();
+        UUID commentId = UUID.randomUUID();
+
+        CommentView updated = service.updateOwnComment(
+            user,
+            siteId,
+            "https://example.com",
+            commentId,
+            "  Updated body  "
+        );
+
+        assertThat(updated.content()).isEqualTo("Updated body");
+        assertThat(repository.updatedSiteId).isEqualTo(siteId);
+        assertThat(repository.updatedCommentId).isEqualTo(commentId);
+        assertThat(repository.updatedAuthorUserId).isEqualTo(user.id());
+        assertThat(repository.updatedContent).isEqualTo("Updated body");
+        assertThat(repository.updatedStatus).isEqualTo(CommentStatus.PENDING);
+
+        repository.updateReturnsComment = false;
+        assertThatThrownBy(() -> service.updateOwnComment(
+            user,
+            siteId,
+            "https://example.com",
+            commentId,
+            "Updated again"
+        ))
+            .isInstanceOf(ApplicationException.class)
+            .hasMessage("Resource not found")
+            .extracting("code")
+            .hasToString("NOT_FOUND");
+    }
+
+    @Test
+    void deleteOwnCommentMasksMissingComment() {
+        CapturingRepository repository = new CapturingRepository();
+        PublicCommentService service = service(repository, ModerationMode.POST_MODERATION);
+        AuthenticatedUser user = currentUser();
+        UUID siteId = UUID.randomUUID();
+        UUID commentId = UUID.randomUUID();
+
+        service.deleteOwnComment(user, siteId, "https://example.com", commentId);
+
+        assertThat(repository.deletedSiteId).isEqualTo(siteId);
+        assertThat(repository.deletedCommentId).isEqualTo(commentId);
+        assertThat(repository.deletedAuthorUserId).isEqualTo(user.id());
+
+        repository.deleteReturnsSuccess = false;
+        assertThatThrownBy(() -> service.deleteOwnComment(user, siteId, "https://example.com", commentId))
+            .isInstanceOf(ApplicationException.class)
+            .hasMessage("Resource not found")
+            .extracting("code")
+            .hasToString("NOT_FOUND");
+    }
+
     private PublicCommentService service(CapturingRepository repository, ModerationMode moderationMode) {
         repository.moderationMode = moderationMode;
         return new PublicCommentService(new DomainPolicyService(repository), repository);
@@ -196,8 +281,11 @@ class PublicCommentServiceTests {
 
         private final UUID pageId = UUID.randomUUID();
         private ModerationMode moderationMode = ModerationMode.POST_MODERATION;
+        private AutoModerationSettings autoModeration = AutoModerationSettings.defaultSettings();
         private boolean parentExists = true;
         private boolean approvedCommentInSite = true;
+        private boolean updateReturnsComment = true;
+        private boolean deleteReturnsSuccess = true;
         private String findPageUrl;
         private UUID createdSiteId;
         private String createdPageUrl;
@@ -213,10 +301,18 @@ class PublicCommentServiceTests {
         private UUID reactionCommentId;
         private UUID reactionUserId;
         private CommentReactionType reactionType;
+        private UUID updatedSiteId;
+        private UUID updatedCommentId;
+        private UUID updatedAuthorUserId;
+        private String updatedContent;
+        private CommentStatus updatedStatus;
+        private UUID deletedSiteId;
+        private UUID deletedCommentId;
+        private UUID deletedAuthorUserId;
 
         @Override
         public Optional<WidgetSite> findActiveSite(UUID siteId) {
-            return Optional.of(new WidgetSite(siteId, moderationMode));
+            return Optional.of(new WidgetSite(siteId, moderationMode, null, autoModeration));
         }
 
         @Override
@@ -296,6 +392,45 @@ class PublicCommentServiceTests {
             reactionUserId = userId;
             this.reactionType = reactionType;
             return List.of(new CommentReactionSummary(reactionType, 1, true));
+        }
+
+        @Override
+        public Optional<CommentView> updateOwnComment(
+            UUID siteId,
+            UUID commentId,
+            UUID authorUserId,
+            String content,
+            CommentStatus status,
+            String moderationReason
+        ) {
+            updatedSiteId = siteId;
+            updatedCommentId = commentId;
+            updatedAuthorUserId = authorUserId;
+            updatedContent = content;
+            updatedStatus = status;
+            if (!updateReturnsComment) {
+                return Optional.empty();
+            }
+            return Optional.of(new CommentView(
+                commentId,
+                siteId,
+                pageId,
+                null,
+                new CommentAuthor(authorUserId, "visitor@example.com", "visitor@example.com"),
+                content,
+                status,
+                TIMESTAMP,
+                TIMESTAMP,
+                List.of()
+            ));
+        }
+
+        @Override
+        public boolean softDeleteOwnComment(UUID siteId, UUID commentId, UUID authorUserId) {
+            deletedSiteId = siteId;
+            deletedCommentId = commentId;
+            deletedAuthorUserId = authorUserId;
+            return deleteReturnsSuccess;
         }
     }
 }

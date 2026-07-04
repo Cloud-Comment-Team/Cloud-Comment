@@ -36,7 +36,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -271,6 +273,49 @@ class PublicCommentControllerTests {
     }
 
     @Test
+    void updateOwnCommentReturnsUpdatedCommentForAuthenticatedUser() throws Exception {
+        UUID siteId = UUID.randomUUID();
+        UUID pageId = UUID.randomUUID();
+        UUID commentId = UUID.randomUUID();
+        AuthenticatedUser currentUser = currentUser();
+        CommentView updated = comment(siteId, pageId, null, CommentStatus.PENDING, commentId, "Updated body");
+        when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(publicCommentService.updateOwnComment(currentUser, siteId, ORIGIN, commentId, "Updated body"))
+            .thenReturn(updated);
+
+        mockMvc.perform(patch("/api/public/sites/{siteId}/comments/{commentId}", siteId, commentId)
+                .header(HttpHeaders.ORIGIN, ORIGIN)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "content": "Updated body"
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.id", is(commentId.toString())))
+            .andExpect(jsonPath("$.content", is("Updated body")))
+            .andExpect(jsonPath("$.status", is("PENDING")));
+    }
+
+    @Test
+    void deleteOwnCommentReturnsNoContentForAuthenticatedUser() throws Exception {
+        UUID siteId = UUID.randomUUID();
+        UUID commentId = UUID.randomUUID();
+        AuthenticatedUser currentUser = currentUser();
+        when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+
+        mockMvc.perform(delete("/api/public/sites/{siteId}/comments/{commentId}", siteId, commentId)
+                .header(HttpHeaders.ORIGIN, ORIGIN)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
+            .andExpect(status().isNoContent());
+
+        verify(publicCommentService).deleteOwnComment(currentUser, siteId, ORIGIN, commentId);
+    }
+
+    @Test
     void serviceNotFoundIsReturnedAsUnifiedNotFound() throws Exception {
         UUID siteId = UUID.randomUUID();
         when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
@@ -358,13 +403,24 @@ class PublicCommentControllerTests {
     }
 
     private CommentView comment(UUID siteId, UUID pageId, UUID parentId, CommentStatus status) {
+        return comment(siteId, pageId, parentId, status, UUID.randomUUID(), "Hello world");
+    }
+
+    private CommentView comment(
+        UUID siteId,
+        UUID pageId,
+        UUID parentId,
+        CommentStatus status,
+        UUID commentId,
+        String content
+    ) {
         return new CommentView(
-            UUID.randomUUID(),
+            commentId,
             siteId,
             pageId,
             parentId,
             new CommentAuthor(UUID.randomUUID(), "visitor@example.com", "visitor@example.com"),
-            "Hello world",
+            content,
             status,
             TIMESTAMP,
             TIMESTAMP,

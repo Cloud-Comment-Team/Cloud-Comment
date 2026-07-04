@@ -122,6 +122,7 @@ class SiteControllerTests {
             eq("Example.COM"),
             eq(ModerationMode.PRE_MODERATION),
             eq(List.of("https://Example.com")),
+            isNull(),
             isNull()
         )).thenReturn(site);
 
@@ -205,6 +206,7 @@ class SiteControllerTests {
             eq("example.com"),
             eq(ModerationMode.PRE_MODERATION),
             eq(List.of("https://example.com")),
+            isNull(),
             isNull()
         )).thenThrow(new ApplicationException(ApiErrorCode.BUSINESS_ERROR, "Site domain already exists"));
 
@@ -268,6 +270,7 @@ class SiteControllerTests {
             "updated.example.com",
             ModerationMode.POST_MODERATION,
             false,
+            null,
             null
         )).thenReturn(updatedSite);
 

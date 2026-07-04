@@ -7,6 +7,8 @@ import com.cloudcomment.shared.error.ApplicationException;
 import com.cloudcomment.site.domain.ModerationMode;
 import com.cloudcomment.site.domain.Site;
 import com.cloudcomment.site.domain.SiteInputRules;
+import com.cloudcomment.site.domain.AutoModerationSettings;
+import com.cloudcomment.site.domain.AutoModerationStrictness;
 import com.cloudcomment.site.domain.WidgetStyle;
 import com.cloudcomment.site.persistence.SiteRepository;
 import com.cloudcomment.site.persistence.SiteUpdate;
@@ -55,9 +57,23 @@ public class SiteService {
         List<String> allowedOrigins,
         WidgetStyle widgetStyle
     ) {
+        return createSite(currentUser, name, domain, moderationMode, allowedOrigins, widgetStyle, null);
+    }
+
+    @Transactional
+    public Site createSite(
+        AuthenticatedUser currentUser,
+        String name,
+        String domain,
+        ModerationMode moderationMode,
+        List<String> allowedOrigins,
+        WidgetStyle widgetStyle,
+        AutoModerationSettings autoModeration
+    ) {
         String normalizedName = normalizeName(name);
         String normalizedDomain = normalizeDomain(domain);
         List<String> normalizedOrigins = normalizeOrigins(allowedOrigins);
+        AutoModerationSettings normalizedAutoModeration = normalizeAutoModeration(autoModeration);
         if (siteRepository.existsByOwnerIdAndDomain(currentUser.id(), normalizedDomain)) {
             throw duplicateDomain();
         }
@@ -71,6 +87,7 @@ public class SiteService {
                     publicKeyGenerator.generate(),
                     moderationMode,
                     widgetStyle != null ? widgetStyle : WidgetStyle.defaultStyle(),
+                    normalizedAutoModeration,
                     normalizedOrigins
                 );
             } catch (DuplicateKeyException exception) {
@@ -111,15 +128,39 @@ public class SiteService {
         Boolean active,
         WidgetStyle widgetStyle
     ) {
+        return updateSite(currentUser, siteId, name, domain, moderationMode, active, widgetStyle, null);
+    }
+
+    @Transactional
+    public Site updateSite(
+        AuthenticatedUser currentUser,
+        UUID siteId,
+        String name,
+        String domain,
+        ModerationMode moderationMode,
+        Boolean active,
+        WidgetStyle widgetStyle,
+        AutoModerationSettings autoModeration
+    ) {
         resourceOwnershipService.assertSiteOwnedBy(currentUser, siteId);
         String normalizedName = name != null ? normalizeName(name) : null;
         String normalizedDomain = domain != null ? normalizeDomain(domain) : null;
+        AutoModerationSettings normalizedAutoModeration = autoModeration != null
+            ? normalizeAutoModeration(autoModeration)
+            : null;
         if (normalizedDomain != null
             && siteRepository.existsByOwnerIdAndDomainExcludingSite(currentUser.id(), normalizedDomain, siteId)) {
             throw duplicateDomain();
         }
 
-        SiteUpdate update = new SiteUpdate(normalizedName, normalizedDomain, moderationMode, active, widgetStyle);
+        SiteUpdate update = new SiteUpdate(
+            normalizedName,
+            normalizedDomain,
+            moderationMode,
+            active,
+            widgetStyle,
+            normalizedAutoModeration
+        );
         if (!update.hasChanges()) {
             return siteRepository.findById(siteId).orElseThrow(this::notFound);
         }
@@ -175,6 +216,37 @@ public class SiteService {
             throw badRequest("Allowed origins must not be empty");
         }
         return normalizedOrigins;
+    }
+
+    private AutoModerationSettings normalizeAutoModeration(AutoModerationSettings settings) {
+        AutoModerationSettings source = settings != null ? settings : AutoModerationSettings.defaultSettings();
+        List<String> blockedWords = source.blockedWords().stream()
+            .map(String::trim)
+            .filter(word -> !word.isBlank())
+            .distinct()
+            .toList();
+
+        if (blockedWords.size() > AutoModerationSettings.MAX_BLOCKED_WORDS) {
+            throw badRequest("Too many blocked words");
+        }
+        if (blockedWords.stream().anyMatch(word -> word.length() > AutoModerationSettings.MAX_BLOCKED_WORD_LENGTH)) {
+            throw badRequest("Blocked word is too long");
+        }
+        if (source.maxLinks() < 0 || source.maxLinks() > AutoModerationSettings.MAX_LINKS_LIMIT) {
+            throw badRequest("Invalid maximum links value");
+        }
+
+        AutoModerationStrictness strictness = source.enabled()
+            ? source.strictness()
+            : AutoModerationStrictness.OFF;
+        return new AutoModerationSettings(
+            source.enabled(),
+            strictness,
+            blockedWords,
+            source.holdLinks(),
+            source.blockLinks(),
+            source.maxLinks()
+        );
     }
 
     private ApplicationException duplicateDomain() {

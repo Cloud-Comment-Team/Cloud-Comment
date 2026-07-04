@@ -48,6 +48,8 @@ export type WidgetApiClient = {
   getConsentRequirements: () => Promise<ConsentRequirements>;
   listComments: (token?: string | null) => Promise<PaginatedResponse<PublicComment>>;
   createComment: (content: string, parentId: string | null, token: string) => Promise<PublicComment>;
+  updateComment: (commentId: string, content: string, token: string) => Promise<PublicComment>;
+  deleteComment: (commentId: string, token: string) => Promise<void>;
   setReaction: (
     commentId: string,
     type: CommentReactionType | null,
@@ -119,6 +121,22 @@ export function createWidgetApiClient(
           parentId,
           content
         })
+      }),
+    updateComment: (commentId, content, token) =>
+      request<PublicComment>(`${siteBasePath}/comments/${encodeURIComponent(commentId)}`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ content })
+      }),
+    deleteComment: (commentId, token) =>
+      request<void>(`${siteBasePath}/comments/${encodeURIComponent(commentId)}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
       }),
     setReaction: (commentId, type, token) =>
       request<CommentReactionsResponse>(`${siteBasePath}/comments/${encodeURIComponent(commentId)}/reaction`, {
