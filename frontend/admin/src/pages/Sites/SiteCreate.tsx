@@ -5,6 +5,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft,
   CheckCircle2,
+  CircleDashed,
   Code2,
   Eye,
   Globe,
@@ -17,6 +18,7 @@ import {
 import { getApiErrorMessage } from '../../api/auth'
 import { createSite } from '../../api/sites'
 import Input from '../../components/common/Input/Input'
+import { API_BASE_URL } from '../../config/env'
 import type { ModerationMode } from '../../types/api'
 import { normalizeDomainInput, parseAllowedOriginsInput } from '../../utils/origins'
 import { moderationModeLabels } from '../../utils/moderationModeLabels'
@@ -26,6 +28,31 @@ interface SiteFormValues {
   domain: string
   moderationMode: ModerationMode
   allowedOrigins: string
+}
+
+const WIDGET_SCRIPT_PATH = '/widget/cloud-comment-widget.js'
+
+const previewModeCopy: Record<ModerationMode, { badge: string; text: string }> = {
+  PRE_MODERATION: {
+    badge: 'На модерации',
+    text: 'Новый комментарий попадет в очередь и появится после проверки.',
+  },
+  POST_MODERATION: {
+    badge: 'Опубликован сразу',
+    text: 'Комментарий появится в обсуждении сразу после отправки.',
+  },
+  DISABLED: {
+    badge: 'Опубликован сразу',
+    text: 'Модерация выключена, новые комментарии сразу видны читателям.',
+  },
+}
+
+function toAbsolutePreviewUrl(value: string): string {
+  if (/^https?:\/\//i.test(value) || typeof window === 'undefined') {
+    return value
+  }
+
+  return new URL(value, window.location.origin).toString()
 }
 
 const SiteCreate = () => {
@@ -56,11 +83,15 @@ const SiteCreate = () => {
     [watchedAllowedOrigins],
   )
   const normalizedOriginsPreview = parsedOrigins.error ? [] : parsedOrigins.origins
+  const hasExplicitOrigins = normalizedOriginsPreview.length > 0
   const previewName = watchedName.trim() || 'Новый сайт'
   const previewDomain = normalizedDomain || 'example.com'
-  const previewOrigin = normalizedOriginsPreview[0] || `https://${previewDomain}`
+  const previewOrigin = hasExplicitOrigins ? normalizedOriginsPreview[0] : `https://${previewDomain}`
   const previewModerationMode = watchedModerationMode
-  const previewEmbedCode = `<script src="/widget/cloud-comment-widget.js" data-site-id="<site-id>" data-api-base-url="/api"></script>`
+  const previewWidgetScriptUrl = toAbsolutePreviewUrl(WIDGET_SCRIPT_PATH)
+  const previewApiBaseUrl = toAbsolutePreviewUrl(API_BASE_URL)
+  const previewModerationCopy = previewModeCopy[previewModerationMode]
+  const previewEmbedCode = `<script src="${previewWidgetScriptUrl}" data-site-id="<site-id>" data-api-base-url="${previewApiBaseUrl}"></script>`
 
   const onSubmit: SubmitHandler<SiteFormValues> = async (values) => {
     setServerError(null)
@@ -140,7 +171,7 @@ const SiteCreate = () => {
                 placeholder="Manual MVP Demo"
                 icon={<Globe className="h-5 w-5" aria-hidden="true" />}
                 error={errors.name?.message}
-                success={watchedName.trim() ? 'Название попадет в админку и превью' : undefined}
+                success={watchedName.trim() ? 'Покажем в админке и виджете' : undefined}
                 {...register('name', {
                   required: 'Укажите название сайта',
                   validate: (value) => value.trim().length > 0 || 'Название не должно быть пустым',
@@ -152,7 +183,7 @@ const SiteCreate = () => {
                 placeholder="example.com"
                 icon={<Link2 className="h-5 w-5" aria-hidden="true" />}
                 error={errors.domain?.message}
-                success={normalizedDomain ? `Нормализуем как ${normalizedDomain}` : undefined}
+                success={normalizedDomain ? `Нормализовано: ${normalizedDomain}` : undefined}
                 {...register('domain', {
                   required: 'Укажите домен сайта',
                   validate: (value) =>
@@ -210,7 +241,7 @@ const SiteCreate = () => {
                   {errors.allowedOrigins?.message ?? (
                     normalizedOriginsPreview.length > 0
                       ? `${normalizedOriginsPreview.length} origin будет добавлен в domain policy`
-                      : 'Превью возьмет origin из домена до заполнения'
+                      : 'В превью показан пример origin, он не будет сохранен без заполнения поля'
                   )}
                 </span>
               </label>
@@ -280,13 +311,22 @@ const SiteCreate = () => {
                   </span>
                 </div>
                 <div className="grid gap-2 text-sm">
-                  {(normalizedOriginsPreview.length > 0 ? normalizedOriginsPreview : [previewOrigin]).slice(0, 3).map((origin) => (
+                  {(hasExplicitOrigins ? normalizedOriginsPreview : [previewOrigin]).slice(0, 3).map((origin) => (
                     <span
                       key={origin}
-                      className="truncate rounded-md border px-3 py-2"
-                      style={{ borderColor: 'var(--border)', color: 'var(--text-h)', backgroundColor: 'var(--surface)' }}
+                      className="flex min-w-0 items-center gap-2 rounded-md border px-3 py-2"
+                      style={{
+                        borderColor: 'var(--border)',
+                        color: hasExplicitOrigins ? 'var(--text-h)' : 'var(--text)',
+                        backgroundColor: hasExplicitOrigins ? 'var(--surface)' : 'var(--code-bg)',
+                      }}
                     >
-                      {origin}
+                      <span className="truncate">{origin}</span>
+                      {!hasExplicitOrigins && (
+                        <span className="ml-auto shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold" style={{ backgroundColor: 'var(--surface-muted)', color: 'var(--text)' }}>
+                          пример
+                        </span>
+                      )}
                     </span>
                   ))}
                 </div>
@@ -314,7 +354,13 @@ const SiteCreate = () => {
                 </div>
                 <div className="space-y-3 p-4">
                   <PreviewComment author="AL" title="Алиса" text="Классный материал! Оставлю вопрос по теме." />
-                  <PreviewComment author="OW" title="Владелец" text="Отвечу после модерации и проверки." muted />
+                  <PreviewComment
+                    author="OW"
+                    title="Владелец"
+                    text={previewModerationCopy.text}
+                    status={previewModerationCopy.badge}
+                    muted={previewModerationMode === 'PRE_MODERATION'}
+                  />
                   <div
                     className="rounded-lg border px-3 py-3 text-sm"
                     style={{ borderColor: 'var(--border)', color: 'var(--text)', backgroundColor: 'var(--code-bg)' }}
@@ -330,9 +376,12 @@ const SiteCreate = () => {
             <div className="mb-3 flex items-center gap-2">
               <Code2 className="h-4 w-4" style={{ color: 'var(--accent)' }} aria-hidden="true" />
               <h2 className="font-semibold" style={{ color: 'var(--text-h)' }}>
-                Embed-код
+                Черновик embed-кода
               </h2>
             </div>
+            <p className="mb-3 text-sm leading-6" style={{ color: 'var(--text)' }}>
+              Финальный код с настоящим site id появится на странице сайта после создания.
+            </p>
             <pre
               className="overflow-x-auto rounded-lg border p-3 text-xs leading-5"
               style={{ backgroundColor: 'var(--code-bg)', borderColor: 'var(--border)', color: 'var(--text-h)' }}
@@ -381,8 +430,12 @@ function OnboardingStepHeader({
 }
 
 function ReadinessItem({ ready, label }: { ready: boolean; label: string }) {
+  const Icon = ready ? CheckCircle2 : CircleDashed
+  const statusLabel = ready ? 'Готово' : 'Нужно заполнить'
+
   return (
     <div
+      aria-label={`${label}: ${statusLabel}`}
       className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold"
       style={{
         backgroundColor: ready ? 'var(--success-bg)' : 'var(--surface-muted)',
@@ -390,8 +443,9 @@ function ReadinessItem({ ready, label }: { ready: boolean; label: string }) {
         color: ready ? 'var(--success)' : 'var(--text)',
       }}
     >
-      <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+      <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
       <span>{label}</span>
+      <span className="ml-auto text-xs">{statusLabel}</span>
     </div>
   )
 }
@@ -400,11 +454,13 @@ function PreviewComment({
   author,
   title,
   text,
+  status,
   muted = false,
 }: {
   author: string
   title: string
   text: string
+  status?: string
   muted?: boolean
 }) {
   return (
@@ -425,6 +481,17 @@ function PreviewComment({
         <span className="font-semibold" style={{ color: 'var(--text-h)' }}>
           {title}
         </span>
+        {status && (
+          <span
+            className="rounded-full px-2 py-0.5 text-[11px] font-bold"
+            style={{
+              backgroundColor: muted ? 'var(--warning-bg)' : 'var(--success-bg)',
+              color: muted ? 'var(--warning)' : 'var(--success)',
+            }}
+          >
+            {status}
+          </span>
+        )}
         <MessageSquareText className="ml-auto h-4 w-4" style={{ color: 'var(--text)' }} aria-hidden="true" />
       </div>
       <p className="text-sm leading-6" style={{ color: 'var(--text-h)' }}>
