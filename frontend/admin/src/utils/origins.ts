@@ -3,6 +3,10 @@ interface ParsedOriginsInput {
   error: string | null
 }
 
+const DOMAIN_PATTERN = /^(localhost|(?=.{1,255}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63})$/
+const IPV4_PATTERN = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/
+const WHITESPACE_PATTERN = /\s/
+
 export function parseAllowedOriginsInput(value: string): ParsedOriginsInput {
   const rawOrigins = value
     .split(/[\n,]/)
@@ -34,16 +38,31 @@ export function formatOriginsInput(origins: string[]): string {
 
 export function normalizeDomainInput(value: string): string | null {
   const domain = value.trim().toLowerCase()
-  if (!domain || /[\s/?#:@]/.test(domain)) {
+  if (
+    !domain ||
+    domain.length > 255 ||
+    domain.includes('://') ||
+    /[/?#]/.test(domain) ||
+    WHITESPACE_PATTERN.test(domain) ||
+    !DOMAIN_PATTERN.test(domain)
+  ) {
     return null
   }
   return domain
 }
 
 function normalizeOrigin(value: string): string | null {
+  const trimmed = value.trim()
+  if (trimmed.length > 255 || WHITESPACE_PATTERN.test(trimmed) || !/^https?:\/\/[^/?#]+$/i.test(trimmed)) {
+    return null
+  }
+
   try {
-    const url = new URL(value)
+    const url = new URL(trimmed)
     if (!['http:', 'https:'].includes(url.protocol)) {
+      return null
+    }
+    if (!isValidOriginHost(url.hostname)) {
       return null
     }
     if (url.username || url.password || url.pathname !== '/' || url.search || url.hash) {
@@ -53,4 +72,9 @@ function normalizeOrigin(value: string): string | null {
   } catch {
     return null
   }
+}
+
+function isValidOriginHost(host: string): boolean {
+  const normalizedHost = host.toLowerCase()
+  return DOMAIN_PATTERN.test(normalizedHost) || IPV4_PATTERN.test(normalizedHost)
 }
