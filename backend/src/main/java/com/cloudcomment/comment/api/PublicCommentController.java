@@ -9,13 +9,13 @@ import com.cloudcomment.comment.domain.CommentView;
 import com.cloudcomment.shared.web.PaginatedResponse;
 import com.cloudcomment.shared.web.security.CurrentUser;
 import com.cloudcomment.shared.web.security.PublicApi;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
@@ -23,7 +23,6 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -37,13 +36,15 @@ import java.util.UUID;
 class PublicCommentController {
 
     private final PublicCommentService publicCommentService;
+    private final WidgetRequestOriginResolver requestOriginResolver;
 
     @PublicApi
     @GetMapping("/config")
     PublicWidgetConfigResponse getConfig(
         @PathVariable UUID siteId,
-        @RequestHeader(name = HttpHeaders.ORIGIN, required = false) String origin
+        HttpServletRequest request
     ) {
+        String origin = requestOriginResolver.resolve(request);
         PublicWidgetConfig config = publicCommentService.getConfig(siteId, origin);
         return PublicWidgetConfigResponse.from(config);
     }
@@ -52,11 +53,12 @@ class PublicCommentController {
     @GetMapping("/pages/comments")
     PaginatedResponse<CommentResponse> listComments(
         @PathVariable UUID siteId,
-        @RequestHeader(name = HttpHeaders.ORIGIN, required = false) String origin,
+        HttpServletRequest request,
         @RequestParam @NotBlank @Size(max = 2048) @ValidPageUrl String pageUrl,
         @RequestParam(defaultValue = "1") @Min(1) @Max(100_000) int page,
         @RequestParam(defaultValue = "20") @Min(1) @Max(100) int pageSize
     ) {
+        String origin = requestOriginResolver.resolve(request);
         CommentPage comments = publicCommentService.listComments(siteId, origin, pageUrl, page, pageSize);
         return PaginatedResponse.of(
             comments.items().stream().map(CommentResponse::from).toList(),
@@ -70,16 +72,16 @@ class PublicCommentController {
     ResponseEntity<CommentResponse> createComment(
         @CurrentUser AuthenticatedUser currentUser,
         @PathVariable UUID siteId,
-        @RequestHeader(name = HttpHeaders.ORIGIN, required = false) String origin,
-        @Valid @RequestBody CreateCommentRequest request
+        HttpServletRequest request,
+        @Valid @RequestBody CreateCommentRequest body
     ) {
         CommentView comment = publicCommentService.createComment(
             currentUser,
             siteId,
-            origin,
-            request.pageUrl(),
-            request.parentId(),
-            request.content()
+            requestOriginResolver.resolve(request),
+            body.pageUrl(),
+            body.parentId(),
+            body.content()
         );
         return ResponseEntity.status(HttpStatus.CREATED).body(CommentResponse.from(comment));
     }

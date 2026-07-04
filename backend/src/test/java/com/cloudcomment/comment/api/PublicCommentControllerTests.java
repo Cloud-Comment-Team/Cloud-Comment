@@ -77,6 +77,23 @@ class PublicCommentControllerTests {
     }
 
     @Test
+    void configAllowsSameOriginBrowserRequestWithoutOriginUsingReferer() throws Exception {
+        UUID siteId = UUID.randomUUID();
+        when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
+        when(publicCommentService.getConfig(siteId, ORIGIN))
+            .thenReturn(new PublicWidgetConfig(siteId, ModerationMode.PRE_MODERATION));
+
+        mockMvc.perform(get("/api/public/sites/{siteId}/config", siteId)
+                .header(HttpHeaders.REFERER, PAGE_URL))
+            .andExpect(status().isOk())
+            .andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN))
+            .andExpect(jsonPath("$.siteId", is(siteId.toString())))
+            .andExpect(jsonPath("$.moderationMode", is("PRE_MODERATION")));
+
+        verifyNoInteractions(currentUserService);
+    }
+
+    @Test
     void listCommentsReturnsPaginatedApprovedComments() throws Exception {
         UUID siteId = UUID.randomUUID();
         UUID pageId = UUID.randomUUID();

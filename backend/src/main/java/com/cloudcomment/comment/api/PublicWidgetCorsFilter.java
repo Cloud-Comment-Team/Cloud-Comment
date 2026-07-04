@@ -37,6 +37,7 @@ class PublicWidgetCorsFilter extends OncePerRequestFilter {
     private static final String MAX_AGE_SECONDS = "3600";
 
     private final DomainPolicyService domainPolicyService;
+    private final WidgetRequestOriginResolver requestOriginResolver;
     private final ObjectMapper objectMapper;
 
     @Override
@@ -51,11 +52,12 @@ class PublicWidgetCorsFilter extends OncePerRequestFilter {
             return;
         }
 
-        String origin = request.getHeader(HttpHeaders.ORIGIN);
-        boolean allowed = domainPolicyService.isOriginAllowed(siteId.orElseThrow(), origin);
+        String corsOrigin = request.getHeader(HttpHeaders.ORIGIN);
+        String requestOrigin = requestOriginResolver.resolve(request);
+        boolean allowed = domainPolicyService.isOriginAllowed(siteId.orElseThrow(), requestOrigin);
         applyVaryHeaders(response);
-        if (allowed) {
-            applyCorsHeaders(response, origin);
+        if (allowed && corsOrigin != null && !corsOrigin.isBlank()) {
+            applyCorsHeaders(response, corsOrigin);
         }
 
         if (CorsUtils.isPreFlightRequest(request)) {
