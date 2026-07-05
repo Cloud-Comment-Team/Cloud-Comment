@@ -5,6 +5,7 @@ import toast from 'react-hot-toast'
 
 import { getApiErrorMessage } from '../../api/auth'
 import { checkAutoModeration, deleteSite, getEmbedCode, getSite, replaceAllowedOrigins, updateSite } from '../../api/sites'
+import { OwnerAnalyticsPanel } from '../../components/analytics/OwnerAnalyticsPanel'
 import { AsyncState } from '../../components/common/AsyncState'
 import { Badge } from '../../components/common/Badge'
 import type {
@@ -42,13 +43,6 @@ const automodStrictnessLabels: Record<AutoModerationStrictness, string> = {
   BALANCED: 'Баланс',
   STRICT: 'Строгая',
 }
-
-Object.assign(automodStrictnessLabels, {
-  OFF: 'Выключена',
-  RELAXED: 'Мягкая',
-  BALANCED: 'Баланс',
-  STRICT: 'Строгая',
-})
 
 const automodStrictnessDescriptions: Record<Exclude<AutoModerationStrictness, 'OFF'>, string> = {
   RELAXED: 'Меньше ложных срабатываний: держим только явные спам-сигналы.',
@@ -349,6 +343,8 @@ const SiteDetail = () => {
               </div>
             </div>
 
+            <OwnerAnalyticsPanel siteId={site.id} compact />
+
             <section
               className="cc-card p-5 md:p-6"
               style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}
@@ -391,97 +387,6 @@ const SiteDetail = () => {
                     <option value="DISABLED">Отключена</option>
                   </select>
                 </label>
-                <div
-                  className="hidden rounded-lg border p-4 md:col-span-2"
-                  style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface-muted)' }}
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <label className="inline-flex items-center gap-2 text-sm font-semibold" style={{ color: 'var(--text-h)' }}>
-                      <input
-                        type="checkbox"
-                        checked={autoModeration.enabled}
-                        onChange={(event) => updateAutoModeration({
-                          enabled: event.target.checked,
-                          strictness: event.target.checked ? autoModeration.strictness : 'OFF',
-                        })}
-                      />
-                      Автомодерация
-                    </label>
-                    <span className="rounded-full px-2.5 py-1 text-xs font-bold" style={{ backgroundColor: 'var(--accent-soft)', color: 'var(--accent)' }}>
-                      {autoModeration.enabled
-                        ? automodStrictnessLabels[autoModeration.strictness]
-                        : automodStrictnessLabels.OFF}
-                    </span>
-                  </div>
-
-                  <div className="mt-4 grid gap-4 md:grid-cols-3">
-                    <label className="block">
-                      <span className="mb-2 block text-sm font-medium" style={{ color: 'var(--text-h)' }}>
-                        Строгость
-                      </span>
-                      <select
-                        className="cc-field"
-                        value={autoModeration.strictness === 'OFF' ? 'BALANCED' : autoModeration.strictness}
-                        disabled={!autoModeration.enabled}
-                        onChange={(event) => updateAutoModeration({
-                          strictness: event.target.value as AutoModerationStrictness,
-                        })}
-                      >
-                        <option value="RELAXED">Мягкая</option>
-                        <option value="BALANCED">Баланс</option>
-                        <option value="STRICT">Строгая</option>
-                      </select>
-                    </label>
-                    <label className="block">
-                      <span className="mb-2 block text-sm font-medium" style={{ color: 'var(--text-h)' }}>
-                        Лимит ссылок
-                      </span>
-                      <input
-                        type="number"
-                        min={0}
-                        max={20}
-                        className="cc-field"
-                        value={autoModeration.maxLinks}
-                        disabled={!autoModeration.enabled}
-                        onChange={(event) => updateAutoModeration({
-                          maxLinks: Number(event.target.value),
-                        })}
-                      />
-                    </label>
-                    <div className="grid content-end gap-2">
-                      <label className="inline-flex items-center gap-2 text-sm" style={{ color: 'var(--text)' }}>
-                        <input
-                          type="checkbox"
-                          checked={autoModeration.holdLinks}
-                          disabled={!autoModeration.enabled}
-                          onChange={(event) => updateAutoModeration({ holdLinks: event.target.checked })}
-                        />
-                        Проверять ссылки
-                      </label>
-                      <label className="inline-flex items-center gap-2 text-sm" style={{ color: 'var(--text)' }}>
-                        <input
-                          type="checkbox"
-                          checked={autoModeration.blockLinks}
-                          disabled={!autoModeration.enabled}
-                          onChange={(event) => updateAutoModeration({ blockLinks: event.target.checked })}
-                        />
-                        Блокировать ссылки
-                      </label>
-                    </div>
-                  </div>
-
-                  <label className="mt-4 block">
-                    <span className="mb-2 block text-sm font-medium" style={{ color: 'var(--text-h)' }}>
-                      Стоп-слова
-                    </span>
-                    <textarea
-                      className="cc-field min-h-24"
-                      value={autoModerationBlockedWords}
-                      disabled={!autoModeration.enabled}
-                      onChange={(event) => setAutoModerationBlockedWords(event.target.value)}
-                    />
-                  </label>
-                </div>
                 <div
                   className="rounded-lg border p-4 md:col-span-2"
                   style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface-muted)' }}

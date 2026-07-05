@@ -6,6 +6,10 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+  datasource:
+    hikari:
+      maximum-pool-size: ${SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE:3}
+      minimum-idle: ${SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE:0}
   web:
     resources:
       add-mappings: false
@@ -34,6 +38,14 @@ cloud-comment:
     session-retention-days: ${CLOUD_COMMENT_SESSION_RETENTION_DAYS:30}
     deletion-request-retention-days: ${CLOUD_COMMENT_DELETION_REQUEST_RETENTION_DAYS:30}
     retention-cleanup-cron: ${CLOUD_COMMENT_RETENTION_CLEANUP_CRON:0 0 3 * * *}
+  demo:
+    seed:
+      enabled: ${CLOUD_COMMENT_DEMO_SEED_ENABLED:false}
+      owner-email: ${CLOUD_COMMENT_DEMO_OWNER_EMAIL:demo-owner@cloudcomment.local}
+      owner-password: ${CLOUD_COMMENT_DEMO_OWNER_PASSWORD:CloudCommentDemo!2026}
+      site-id: ${CLOUD_COMMENT_DEMO_SITE_ID:c680d246-8876-4049-975c-73ccf029408f}
+      allowed-origins: ${CLOUD_COMMENT_DEMO_ALLOWED_ORIGINS:http://localhost,http://127.0.0.1,http://127.0.0.1:4173}
+      page-url: ${CLOUD_COMMENT_DEMO_PAGE_URL:http://localhost/demo-page.html}
 
 server:
   port: ${SERVER_PORT:8080}

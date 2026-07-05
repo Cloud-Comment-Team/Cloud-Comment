@@ -23,3 +23,4 @@ FROM caddy:2-alpine
 COPY docker/caddy/Caddyfile /etc/caddy/Caddyfile
 COPY --from=admin-build /workspace/frontend/admin/dist /srv/admin
 COPY --from=widget-build /workspace/widget-frontend/dist/widget /srv/widget
+COPY widget-frontend/demo-page.html /srv/demo/demo-page.html
