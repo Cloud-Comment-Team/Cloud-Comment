@@ -180,6 +180,8 @@ Response `204`, body отсутствует.
 | `/api/moderation/comments/{commentId}` | `GET` | Get comment details |
 | `/api/moderation/comments/{commentId}/actions` | `POST` | Apply moderation action |
 
+`GET /api/moderation/comments` supports optional filters `siteId`, `pageId`, `pageUrl`, `status`, `createdFrom`, `createdTo`, `search`, `page`, `pageSize`, `sortBy`, `sortOrder`. Default sort is `sortBy=SMART&sortOrder=DESC`.
+
 #### `GET /api/analytics/owner`
 
 Query:
@@ -618,6 +620,12 @@ Response:
   "content": "Comment text",
   "status": "PENDING",
   "moderationReason": "Автомодерация: Спам-маркер: казино / азартные игры",
+  "priority": "HIGH",
+  "priorityScore": 680,
+  "priorityReasons": [
+    "Ожидает решения модератора",
+    "Есть объяснение автомодерации"
+  ],
   "reactions": [
     {
       "type": "LOVE",
@@ -638,6 +646,8 @@ Response:
 `status`: `PENDING` | `APPROVED` | `REJECTED` | `HIDDEN` | `SPAM`.
 
 `moderationReason` nullable. Когда автомодерация усиливает решение до `PENDING` или `SPAM`, backend сохраняет короткую объяснимую причину для владельца сайта. Пользователь виджета не получает внутренние spam-сигналы: `SPAM`-отправка показывается нейтрально как "отправлено на проверку".
+
+Ответы очереди модерации дополнительно содержат `priority`, `priorityScore` и `priorityReasons`. По умолчанию `GET /api/moderation/comments` сортируется как `sortBy=SMART&sortOrder=DESC`: backend поднимает выше комментарии с нерешенным статусом, причиной автомодерации, ссылками/контактами, длинным текстом, контекстом ответа и большим временем ожидания.
 
 Moderation responses additionally include `parent` for reply comments. It contains the parent comment id, author summary, content, status, and creation time so the moderation card can show reply context.
 

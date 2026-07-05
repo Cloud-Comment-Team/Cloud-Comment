@@ -10,6 +10,7 @@ import com.cloudcomment.moderation.domain.CommentSortField;
 import com.cloudcomment.moderation.domain.CommentStatus;
 import com.cloudcomment.moderation.domain.ModerationAction;
 import com.cloudcomment.moderation.domain.ModerationActionType;
+import com.cloudcomment.moderation.domain.ModerationPriority;
 import com.cloudcomment.moderation.domain.SortOrder;
 import com.cloudcomment.moderation.persistence.CommentRepository;
 import com.cloudcomment.moderation.persistence.ModerationActionRepository;
@@ -270,6 +271,9 @@ class ModerationServiceTests {
             "Comment body",
             status,
             null,
+            ModerationPriority.LOW,
+            40,
+            List.of(),
             TIMESTAMP,
             TIMESTAMP
         );
@@ -288,6 +292,9 @@ class ModerationServiceTests {
             "Comment body",
             CommentStatus.PENDING,
             null,
+            ModerationPriority.MEDIUM,
+            500,
+            List.of("Ожидает решения модератора"),
             TIMESTAMP,
             TIMESTAMP
         );

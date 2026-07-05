@@ -48,7 +48,7 @@ class ModerationController {
         @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant createdFrom,
         @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant createdTo,
         @RequestParam(required = false) String search,
-        @RequestParam(defaultValue = "CREATED_AT") CommentSortField sortBy,
+        @RequestParam(defaultValue = "SMART") CommentSortField sortBy,
         @RequestParam(defaultValue = "DESC") SortOrder sortOrder,
         @RequestParam(defaultValue = "1") @Min(1) @Max(100_000) int page,
         @RequestParam(defaultValue = "20") @Min(1) @Max(100) int pageSize

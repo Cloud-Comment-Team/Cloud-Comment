@@ -6,6 +6,7 @@ import com.cloudcomment.moderation.domain.Comment;
 import com.cloudcomment.moderation.domain.CommentAuthor;
 import com.cloudcomment.moderation.domain.CommentSortField;
 import com.cloudcomment.moderation.domain.CommentStatus;
+import com.cloudcomment.moderation.domain.ModerationPriority;
 import com.cloudcomment.moderation.domain.ParentComment;
 import com.cloudcomment.moderation.domain.SortOrder;
 import lombok.RequiredArgsConstructor;
@@ -23,11 +24,17 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 @Repository
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 class JdbcCommentRepository implements CommentRepository {
+
+    private static final Pattern LINK_OR_CONTACT_PATTERN = Pattern.compile(
+        "(https?://|www\\.|telegram|whatsapp|@[a-z0-9_\\.-]+)",
+        Pattern.CASE_INSENSITIVE
+    );
 
     private static final String COMMENT_SELECT = """
         select
@@ -49,7 +56,21 @@ class JdbcCommentRepository implements CommentRepository {
             pc.body as parent_body,
             pc.status as parent_status,
             pc.created_at as parent_created_at,
-            c.moderation_reason
+            c.moderation_reason,
+            (
+                case c.status
+                    when 'PENDING' then 500
+                    when 'SPAM' then 450
+                    when 'REJECTED' then 120
+                    when 'HIDDEN' then 80
+                    else 40
+                end
+                + case when c.moderation_reason is not null and btrim(c.moderation_reason) <> '' then 120 else 0 end
+                + case when c.body ~* '(https?://|www\\.|telegram|whatsapp|@[a-z0-9_\\.-]+)' then 80 else 0 end
+                + case when length(c.body) >= 800 then 50 else 0 end
+                + case when c.parent_id is not null then 35 else 0 end
+                + least(120, greatest(0, floor(extract(epoch from (now() - c.created_at)) / 3600)::int * 5))
+            ) as smart_priority_score
         from comments c
         join pages p on p.id = c.page_id
         join sites s on s.id = p.site_id
@@ -172,13 +193,18 @@ class JdbcCommentRepository implements CommentRepository {
     }
 
     private String orderByClause(ModerationCommentFilters filters) {
-        CommentSortField sortBy = filters.sortBy() != null ? filters.sortBy() : CommentSortField.CREATED_AT;
+        CommentSortField sortBy = filters.sortBy() != null ? filters.sortBy() : CommentSortField.SMART;
         SortOrder sortOrder = filters.sortOrder() != null ? filters.sortOrder() : SortOrder.DESC;
         String column = switch (sortBy) {
+            case SMART -> "smart_priority_score";
             case CREATED_AT -> "c.created_at";
             case UPDATED_AT -> "c.updated_at";
             case STATUS -> "c.status";
         };
+        if (sortBy == CommentSortField.SMART) {
+            return " order by " + column + " " + sortOrder.name()
+                + ", c.created_at asc, c.id " + sortOrder.name();
+        }
         return " order by " + column + " " + sortOrder.name() + ", c.id " + sortOrder.name();
     }
 
@@ -206,6 +232,9 @@ class JdbcCommentRepository implements CommentRepository {
             resultSet.getString("body"),
             CommentStatus.valueOf(resultSet.getString("status")),
             resultSet.getString("moderation_reason"),
+            ModerationPriority.fromScore(resultSet.getInt("smart_priority_score")),
+            resultSet.getInt("smart_priority_score"),
+            priorityReasons(resultSet),
             toInstant(resultSet, "created_at"),
             toInstant(resultSet, "updated_at")
         );
@@ -235,6 +264,37 @@ class JdbcCommentRepository implements CommentRepository {
 
     private OffsetDateTime toOffsetDateTime(Instant instant) {
         return instant.atOffset(ZoneOffset.UTC);
+    }
+
+    private List<String> priorityReasons(ResultSet resultSet) throws SQLException {
+        List<String> reasons = new ArrayList<>();
+        CommentStatus status = CommentStatus.valueOf(resultSet.getString("status"));
+        String moderationReason = resultSet.getString("moderation_reason");
+        String body = resultSet.getString("body");
+        boolean hasModerationReason = moderationReason != null && !moderationReason.isBlank();
+        boolean hasLinkOrContact = body != null && LINK_OR_CONTACT_PATTERN.matcher(body).find();
+
+        if (status == CommentStatus.PENDING) {
+            reasons.add("Ожидает решения модератора");
+        } else if (status == CommentStatus.SPAM) {
+            reasons.add("Автомодерация пометила как спам");
+        }
+        if (hasModerationReason) {
+            reasons.add("Есть объяснение автомодерации");
+        }
+        if (hasLinkOrContact) {
+            reasons.add("Содержит ссылку или контакт");
+        }
+        if (body != null && body.length() >= 800) {
+            reasons.add("Длинный комментарий требует внимательной проверки");
+        }
+        if (resultSet.getObject("parent_id", UUID.class) != null) {
+            reasons.add("Ответ внутри обсуждения");
+        }
+        if (resultSet.getInt("smart_priority_score") >= 760) {
+            reasons.add("Высокий суммарный риск");
+        }
+        return reasons;
     }
 
     private record FilterQuery(String whereClause, List<Object> params) {

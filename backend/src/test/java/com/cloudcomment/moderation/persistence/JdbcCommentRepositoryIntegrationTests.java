@@ -6,6 +6,7 @@ import com.cloudcomment.moderation.domain.Comment;
 import com.cloudcomment.moderation.domain.CommentSortField;
 import com.cloudcomment.moderation.domain.CommentStatus;
 import com.cloudcomment.moderation.domain.ModerationActionType;
+import com.cloudcomment.moderation.domain.ModerationPriority;
 import com.cloudcomment.moderation.domain.SortOrder;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -292,6 +293,65 @@ class JdbcCommentRepositoryIntegrationTests {
 
         assertThat(comment.moderationReason())
             .isEqualTo("Автомодерация: Спам-маркер: казино / азартные игры");
+    }
+
+    @Test
+    void findByOwnerIdSmartSortRanksRiskyCommentsFirst() {
+        UUID ownerId = insertUser("owner");
+        UUID siteId = insertSite(ownerId, "site");
+        UUID pageId = insertPage(siteId, "https://example.com/page", "Page");
+
+        UUID approvedId = insertComment(
+            pageId,
+            "Clean approved comment",
+            "APPROVED",
+            Instant.parse("2026-06-28T10:00:00Z")
+        );
+        UUID pendingId = insertComment(
+            pageId,
+            "Regular pending comment",
+            "PENDING",
+            Instant.parse("2026-06-28T11:00:00Z")
+        );
+        UUID spamId = insertComment(
+            pageId,
+            null,
+            "Suspicious telegram contact",
+            "SPAM",
+            "Автомодерация: контакт или ссылка",
+            Instant.parse("2026-06-28T12:00:00Z")
+        );
+        UUID riskyPendingId = insertComment(
+            pageId,
+            null,
+            "Go to https://casino.example and write @fast_money",
+            "PENDING",
+            "Автомодерация: спам и ссылки",
+            Instant.parse("2026-06-28T13:00:00Z")
+        );
+
+        ModerationCommentPage result = commentRepository.findByOwnerId(
+            ownerId,
+            new ModerationCommentFilters(
+                siteId,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                CommentSortField.SMART,
+                SortOrder.DESC
+            ),
+            1,
+            20
+        );
+
+        assertThat(result.items()).extracting(Comment::id)
+            .containsExactly(riskyPendingId, spamId, pendingId, approvedId);
+        assertThat(result.items().getFirst().priority()).isEqualTo(ModerationPriority.URGENT);
+        assertThat(result.items().getFirst().priorityReasons())
+            .contains("Ожидает решения модератора", "Есть объяснение автомодерации", "Содержит ссылку или контакт");
     }
 
     private UUID insertUser(String label) {

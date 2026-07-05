@@ -2,6 +2,7 @@ package com.cloudcomment.moderation.api;
 
 import com.cloudcomment.moderation.domain.Comment;
 import com.cloudcomment.moderation.domain.CommentStatus;
+import com.cloudcomment.moderation.domain.ModerationPriority;
 
 import java.time.Instant;
 import java.util.List;
@@ -18,13 +19,17 @@ public record CommentResponse(
     String content,
     CommentStatus status,
     String moderationReason,
+    ModerationPriority priority,
+    int priorityScore,
+    List<String> priorityReasons,
     Instant createdAt,
     Instant updatedAt,
     List<CommentResponse> replies
 ) {
 
     public CommentResponse {
-        replies = List.copyOf(replies);
+        priorityReasons = priorityReasons != null ? List.copyOf(priorityReasons) : List.of();
+        replies = replies != null ? List.copyOf(replies) : List.of();
     }
 
     static CommentResponse from(Comment comment) {
@@ -39,6 +44,9 @@ public record CommentResponse(
             comment.body(),
             comment.status(),
             comment.moderationReason(),
+            comment.priority(),
+            comment.priorityScore(),
+            comment.priorityReasons(),
             comment.createdAt(),
             comment.updatedAt(),
             List.of()

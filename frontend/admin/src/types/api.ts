@@ -36,6 +36,8 @@ export interface AutoModerationCheckResponse {
 
 export type CommentStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'HIDDEN' | 'SPAM'
 
+export type ModerationPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT'
+
 export type ModerationActionType = 'APPROVE' | 'REJECT' | 'HIDE' | 'MARK_SPAM' | 'RESTORE'
 
 export interface PaginatedResponse<T> {
@@ -115,6 +117,9 @@ export interface Comment {
   content: string
   status: CommentStatus
   moderationReason: string | null
+  priority: ModerationPriority
+  priorityScore: number
+  priorityReasons: string[]
   createdAt: string
   updatedAt: string
   replies: Comment[]
@@ -147,7 +152,7 @@ export interface ListCommentsParams {
   createdFrom?: string
   createdTo?: string
   search?: string
-  sortBy?: 'CREATED_AT' | 'UPDATED_AT' | 'STATUS'
+  sortBy?: 'SMART' | 'CREATED_AT' | 'UPDATED_AT' | 'STATUS'
   sortOrder?: 'ASC' | 'DESC'
   page?: number
   pageSize?: number

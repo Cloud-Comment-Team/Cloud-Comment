@@ -1,6 +1,7 @@
 package com.cloudcomment.moderation.domain;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 public record Comment(
@@ -14,7 +15,14 @@ public record Comment(
     String body,
     CommentStatus status,
     String moderationReason,
+    ModerationPriority priority,
+    int priorityScore,
+    List<String> priorityReasons,
     Instant createdAt,
     Instant updatedAt
 ) {
+
+    public Comment {
+        priorityReasons = priorityReasons != null ? List.copyOf(priorityReasons) : List.of();
+    }
 }
