@@ -144,7 +144,8 @@ class PublicCommentServiceTests {
 
     @Test
     void createCommentRejectsForeignOriginAndParentFromAnotherPage() {
-        assertThatThrownBy(() -> service(new CapturingRepository(), ModerationMode.POST_MODERATION).createComment(
+        CapturingRepository foreignPageRepository = new CapturingRepository();
+        assertThatThrownBy(() -> service(foreignPageRepository, ModerationMode.POST_MODERATION).createComment(
             currentUser(),
             UUID.randomUUID(),
             "https://example.com",
@@ -156,6 +157,7 @@ class PublicCommentServiceTests {
             .hasMessage("Resource not found")
             .extracting("code")
             .hasToString("NOT_FOUND");
+        assertThat(foreignPageRepository.createdContent).isNull();
 
         CapturingRepository repository = new CapturingRepository();
         repository.parentExists = false;
@@ -171,6 +173,7 @@ class PublicCommentServiceTests {
             .hasMessage("Resource not found")
             .extracting("code")
             .hasToString("NOT_FOUND");
+        assertThat(repository.createdContent).isNull();
     }
 
     @Test
@@ -207,6 +210,22 @@ class PublicCommentServiceTests {
             .hasMessage("Resource not found")
             .extracting("code")
             .hasToString("NOT_FOUND");
+    }
+
+    @Test
+    void setReactionWithNullTypeClearsExistingReaction() {
+        CapturingRepository repository = new CapturingRepository();
+        PublicCommentService service = service(repository, ModerationMode.POST_MODERATION);
+        AuthenticatedUser user = currentUser();
+        UUID siteId = UUID.randomUUID();
+        UUID commentId = UUID.randomUUID();
+
+        service.setReaction(user, siteId, "https://example.com", commentId, null);
+
+        assertThat(repository.clearedReactionCommentId).isEqualTo(commentId);
+        assertThat(repository.clearedReactionUserId).isEqualTo(user.id());
+        assertThat(repository.reactionCommentId).isNull();
+        assertThat(repository.reactionType).isNull();
     }
 
     @Test
@@ -247,6 +266,60 @@ class PublicCommentServiceTests {
     }
 
     @Test
+    void updateOwnCommentAppliesAutoModerationAndRejectsUnsafeInputBeforeMutation() {
+        CapturingRepository repository = new CapturingRepository();
+        repository.autoModeration = new AutoModerationSettings(
+            true,
+            AutoModerationStrictness.STRICT,
+            List.of("blocked"),
+            true,
+            false,
+            1
+        );
+        PublicCommentService service = service(repository, ModerationMode.POST_MODERATION);
+        AuthenticatedUser user = currentUser();
+        UUID siteId = UUID.randomUUID();
+        UUID commentId = UUID.randomUUID();
+
+        service.updateOwnComment(user, siteId, "https://example.com", commentId, "Now blocked");
+
+        assertThat(repository.updatedStatus).isEqualTo(CommentStatus.SPAM);
+        assertThat(repository.updatedContent).isEqualTo("Now blocked");
+
+        assertThatThrownBy(() -> service.updateOwnComment(
+            user,
+            siteId,
+            "https://example.com",
+            commentId,
+            "   "
+        ))
+            .isInstanceOf(ApplicationException.class)
+            .hasMessage("Comment content must not be blank")
+            .extracting("code")
+            .hasToString("BAD_REQUEST");
+    }
+
+    @Test
+    void updateOwnCommentRejectsDisallowedOriginBeforeMutation() {
+        CapturingRepository repository = new CapturingRepository();
+        PublicCommentService service = service(repository, ModerationMode.POST_MODERATION);
+
+        assertThatThrownBy(() -> service.updateOwnComment(
+            currentUser(),
+            UUID.randomUUID(),
+            "https://evil.example",
+            UUID.randomUUID(),
+            "Updated"
+        ))
+            .isInstanceOf(ApplicationException.class)
+            .hasMessage("Resource not found")
+            .extracting("code")
+            .hasToString("NOT_FOUND");
+
+        assertThat(repository.updatedContent).isNull();
+    }
+
+    @Test
     void deleteOwnCommentMasksMissingComment() {
         CapturingRepository repository = new CapturingRepository();
         PublicCommentService service = service(repository, ModerationMode.POST_MODERATION);
@@ -266,6 +339,25 @@ class PublicCommentServiceTests {
             .hasMessage("Resource not found")
             .extracting("code")
             .hasToString("NOT_FOUND");
+    }
+
+    @Test
+    void deleteOwnCommentRejectsDisallowedOriginBeforeMutation() {
+        CapturingRepository repository = new CapturingRepository();
+        PublicCommentService service = service(repository, ModerationMode.POST_MODERATION);
+
+        assertThatThrownBy(() -> service.deleteOwnComment(
+            currentUser(),
+            UUID.randomUUID(),
+            "https://evil.example",
+            UUID.randomUUID()
+        ))
+            .isInstanceOf(ApplicationException.class)
+            .hasMessage("Resource not found")
+            .extracting("code")
+            .hasToString("NOT_FOUND");
+
+        assertThat(repository.deletedCommentId).isNull();
     }
 
     private PublicCommentService service(CapturingRepository repository, ModerationMode moderationMode) {
@@ -301,6 +393,8 @@ class PublicCommentServiceTests {
         private UUID reactionCommentId;
         private UUID reactionUserId;
         private CommentReactionType reactionType;
+        private UUID clearedReactionCommentId;
+        private UUID clearedReactionUserId;
         private UUID updatedSiteId;
         private UUID updatedCommentId;
         private UUID updatedAuthorUserId;
@@ -392,6 +486,13 @@ class PublicCommentServiceTests {
             reactionUserId = userId;
             this.reactionType = reactionType;
             return List.of(new CommentReactionSummary(reactionType, 1, true));
+        }
+
+        @Override
+        public List<CommentReactionSummary> clearReaction(UUID commentId, UUID userId) {
+            clearedReactionCommentId = commentId;
+            clearedReactionUserId = userId;
+            return List.of();
         }
 
         @Override
