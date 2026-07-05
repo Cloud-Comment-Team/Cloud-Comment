@@ -17,6 +17,7 @@ public record CommentResponse(
     CommentAuthorResponse author,
     String content,
     CommentStatus status,
+    String moderationReason,
     Instant createdAt,
     Instant updatedAt,
     List<CommentResponse> replies
@@ -37,6 +38,7 @@ public record CommentResponse(
             CommentAuthorResponse.from(comment.author()),
             comment.body(),
             comment.status(),
+            comment.moderationReason(),
             comment.createdAt(),
             comment.updatedAt(),
             List.of()

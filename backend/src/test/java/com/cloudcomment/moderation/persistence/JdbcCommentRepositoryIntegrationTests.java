@@ -274,6 +274,26 @@ class JdbcCommentRepositoryIntegrationTests {
         assertThat(reply.parent().status()).isEqualTo(CommentStatus.APPROVED);
     }
 
+    @Test
+    void findByIdReturnsModerationReason() {
+        UUID ownerId = insertUser("owner");
+        UUID siteId = insertSite(ownerId, "site");
+        UUID pageId = insertPage(siteId, "https://example.com/page", "Page");
+        UUID commentId = insertComment(
+            pageId,
+            null,
+            "Suspicious comment",
+            "SPAM",
+            "Автомодерация: Спам-маркер: казино / азартные игры",
+            Instant.parse("2026-06-28T11:00:00Z")
+        );
+
+        Comment comment = commentRepository.findById(commentId).orElseThrow();
+
+        assertThat(comment.moderationReason())
+            .isEqualTo("Автомодерация: Спам-маркер: казино / азартные игры");
+    }
+
     private UUID insertUser(String label) {
         return jdbcTemplate.queryForObject(
             """
@@ -322,11 +342,22 @@ class JdbcCommentRepositoryIntegrationTests {
     }
 
     private UUID insertComment(UUID pageId, UUID parentId, String body, String status, Instant createdAt) {
+        return insertComment(pageId, parentId, body, status, null, createdAt);
+    }
+
+    private UUID insertComment(
+        UUID pageId,
+        UUID parentId,
+        String body,
+        String status,
+        String moderationReason,
+        Instant createdAt
+    ) {
         OffsetDateTime timestamp = createdAt.atOffset(ZoneOffset.UTC);
         return jdbcTemplate.queryForObject(
             """
-                insert into comments (page_id, parent_id, body, status, created_at, updated_at)
-                values (?, ?, ?, ?, ?, ?)
+                insert into comments (page_id, parent_id, body, status, moderation_reason, created_at, updated_at)
+                values (?, ?, ?, ?, ?, ?, ?)
                 returning id
                 """,
             UUID.class,
@@ -334,6 +365,7 @@ class JdbcCommentRepositoryIntegrationTests {
             parentId,
             body,
             status,
+            moderationReason,
             timestamp,
             timestamp
         );

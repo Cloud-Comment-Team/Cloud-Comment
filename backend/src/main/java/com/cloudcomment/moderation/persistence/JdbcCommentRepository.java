@@ -48,7 +48,8 @@ class JdbcCommentRepository implements CommentRepository {
             coalesce(pu.display_name, pc.author_name, pc.author_email, pu.email) as parent_author_display_name,
             pc.body as parent_body,
             pc.status as parent_status,
-            pc.created_at as parent_created_at
+            pc.created_at as parent_created_at,
+            c.moderation_reason
         from comments c
         join pages p on p.id = c.page_id
         join sites s on s.id = p.site_id
@@ -204,6 +205,7 @@ class JdbcCommentRepository implements CommentRepository {
             ),
             resultSet.getString("body"),
             CommentStatus.valueOf(resultSet.getString("status")),
+            resultSet.getString("moderation_reason"),
             toInstant(resultSet, "created_at"),
             toInstant(resultSet, "updated_at")
         );

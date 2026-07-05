@@ -21,6 +21,19 @@ export interface AutoModerationSettings {
   maxLinks: number
 }
 
+export interface AutoModerationSignal {
+  category: string
+  score: number
+  reason: string
+}
+
+export interface AutoModerationCheckResponse {
+  status: CommentStatus
+  score: number
+  reason: string | null
+  signals: AutoModerationSignal[]
+}
+
 export type CommentStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'HIDDEN' | 'SPAM'
 
 export type ModerationActionType = 'APPROVE' | 'REJECT' | 'HIDE' | 'MARK_SPAM' | 'RESTORE'
@@ -101,6 +114,7 @@ export interface Comment {
   author: CommentAuthor | null
   content: string
   status: CommentStatus
+  moderationReason: string | null
   createdAt: string
   updatedAt: string
   replies: Comment[]

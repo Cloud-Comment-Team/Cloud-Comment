@@ -459,6 +459,37 @@ Script attributes:
 
 `autoModeration.strictness`: `OFF` | `RELAXED` | `BALANCED` | `STRICT`. `blockedWords` are owner-defined stop words/phrases. `holdLinks` sends suspicious link-heavy comments to moderation, `blockLinks` can mark link comments as spam, `maxLinks` sets the allowed link count.
 
+### Предпросмотр автомодерации
+
+`POST /api/sites/{siteId}/automoderation/check` защищен bearer-авторизацией и проверкой владения сайтом. Endpoint не создает и не обновляет комментарии, а только прогоняет тот же explainable pipeline автомодерации, который используется при создании и редактировании комментариев.
+
+Request:
+
+```json
+{
+  "content": "казино ставки, быстрый заработок"
+}
+```
+
+Response:
+
+```json
+{
+  "status": "SPAM",
+  "score": 135,
+  "reason": "Автомодерация: Спам-маркер: казино / азартные игры; Спам-маркер: ставки и букмекерские предложения",
+  "signals": [
+    {
+      "category": "SPAM_PHRASE",
+      "score": 55,
+      "reason": "Спам-маркер: казино / азартные игры"
+    }
+  ]
+}
+```
+
+Чужой или отсутствующий сайт возвращает unified `404 NOT_FOUND` с `Resource not found`.
+
 ### Public widget config
 
 ```json
@@ -502,6 +533,7 @@ Script attributes:
   },
   "content": "Comment text",
   "status": "PENDING",
+  "moderationReason": "Автомодерация: Спам-маркер: казино / азартные игры",
   "reactions": [
     {
       "type": "LOVE",
@@ -520,6 +552,8 @@ Script attributes:
 ```
 
 `status`: `PENDING` | `APPROVED` | `REJECTED` | `HIDDEN` | `SPAM`.
+
+`moderationReason` nullable. Когда автомодерация усиливает решение до `PENDING` или `SPAM`, backend сохраняет короткую объяснимую причину для владельца сайта. Пользователь виджета не получает внутренние spam-сигналы: `SPAM`-отправка показывается нейтрально как "отправлено на проверку".
 
 Moderation responses additionally include `parent` for reply comments. It contains the parent comment id, author summary, content, status, and creation time so the moderation card can show reply context.
 

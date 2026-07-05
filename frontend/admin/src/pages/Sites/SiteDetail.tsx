@@ -1,15 +1,17 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Check, Copy, Globe, Palette, Power, Trash2 } from 'lucide-react'
+import { ArrowLeft, Check, Copy, Globe, Palette, Power, ShieldCheck, Sparkles, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 import { getApiErrorMessage } from '../../api/auth'
-import { deleteSite, getEmbedCode, getSite, replaceAllowedOrigins, updateSite } from '../../api/sites'
+import { checkAutoModeration, deleteSite, getEmbedCode, getSite, replaceAllowedOrigins, updateSite } from '../../api/sites'
 import { AsyncState } from '../../components/common/AsyncState'
 import { Badge } from '../../components/common/Badge'
 import type {
+  AutoModerationCheckResponse,
   AutoModerationSettings,
   AutoModerationStrictness,
+  CommentStatus,
   EmbedCode,
   ModerationMode,
   Site,
@@ -41,6 +43,35 @@ const automodStrictnessLabels: Record<AutoModerationStrictness, string> = {
   STRICT: 'Строгая',
 }
 
+Object.assign(automodStrictnessLabels, {
+  OFF: 'Выключена',
+  RELAXED: 'Мягкая',
+  BALANCED: 'Баланс',
+  STRICT: 'Строгая',
+})
+
+const automodStrictnessDescriptions: Record<Exclude<AutoModerationStrictness, 'OFF'>, string> = {
+  RELAXED: 'Меньше ложных срабатываний: держим только явные спам-сигналы.',
+  BALANCED: 'Оптимально для MVP: спам уходит в spam, сомнительное попадает в очередь.',
+  STRICT: 'Жестче для публичных сайтов: ссылки, капс и токсичность быстрее уходят на проверку.',
+}
+
+const automodStatusLabels: Record<CommentStatus, string> = {
+  PENDING: 'На проверке',
+  APPROVED: 'Будет опубликован',
+  REJECTED: 'Отклонен',
+  HIDDEN: 'Скрыт',
+  SPAM: 'Спам',
+}
+
+const automodStatusTones: Record<CommentStatus, 'success' | 'warning' | 'danger' | 'muted'> = {
+  PENDING: 'warning',
+  APPROVED: 'success',
+  REJECTED: 'danger',
+  HIDDEN: 'muted',
+  SPAM: 'danger',
+}
+
 const SiteDetail = () => {
   const navigate = useNavigate()
   const { siteId = '' } = useParams()
@@ -64,6 +95,10 @@ const SiteDetail = () => {
     maxLinks: 2,
   })
   const [autoModerationBlockedWords, setAutoModerationBlockedWords] = useState('')
+  const [autoModerationPreviewContent, setAutoModerationPreviewContent] = useState('')
+  const [autoModerationPreview, setAutoModerationPreview] = useState<AutoModerationCheckResponse | null>(null)
+  const [autoModerationPreviewError, setAutoModerationPreviewError] = useState<string | null>(null)
+  const [autoModerationPreviewLoading, setAutoModerationPreviewLoading] = useState(false)
   const [originsInput, setOriginsInput] = useState('')
   const [deleteConfirmationVisible, setDeleteConfirmationVisible] = useState(false)
   const [deleteConfirmation, setDeleteConfirmation] = useState('')
@@ -96,6 +131,8 @@ const SiteDetail = () => {
         setWidgetCornerRadius(loadedSite.widgetStyle.cornerRadius)
         setAutoModeration(loadedSite.autoModeration)
         setAutoModerationBlockedWords(formatBlockedWords(loadedSite.autoModeration.blockedWords))
+        setAutoModerationPreview(null)
+        setAutoModerationPreviewError(null)
         setOriginsInput(formatOriginsInput(loadedSite.allowedOrigins))
       } catch (loadError) {
         if (!cancelled) {
@@ -170,6 +207,31 @@ const SiteDetail = () => {
       toast.error(getApiErrorMessage(saveError, 'Не удалось сохранить настройки.'))
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function handleCheckAutoModeration() {
+    if (!site) {
+      return
+    }
+
+    const content = autoModerationPreviewContent.trim()
+    if (!content) {
+      setAutoModerationPreview(null)
+      setAutoModerationPreviewError('Введите пример комментария для проверки.')
+      return
+    }
+
+    setAutoModerationPreviewLoading(true)
+    setAutoModerationPreviewError(null)
+    try {
+      const result = await checkAutoModeration(site.id, content)
+      setAutoModerationPreview(result)
+    } catch (previewError) {
+      setAutoModerationPreview(null)
+      setAutoModerationPreviewError(getApiErrorMessage(previewError, 'Не удалось проверить текст.'))
+    } finally {
+      setAutoModerationPreviewLoading(false)
     }
   }
 
@@ -330,7 +392,7 @@ const SiteDetail = () => {
                   </select>
                 </label>
                 <div
-                  className="rounded-lg border p-4 md:col-span-2"
+                  className="hidden rounded-lg border p-4 md:col-span-2"
                   style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface-muted)' }}
                 >
                   <div className="flex flex-wrap items-center justify-between gap-3">
@@ -420,6 +482,206 @@ const SiteDetail = () => {
                     />
                   </label>
                 </div>
+                <div
+                  className="rounded-lg border p-4 md:col-span-2"
+                  style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface-muted)' }}
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="flex min-w-0 gap-3">
+                      <span
+                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg"
+                        style={{ backgroundColor: 'var(--accent-bg)', color: 'var(--accent)' }}
+                      >
+                        <ShieldCheck className="h-5 w-5" aria-hidden="true" />
+                      </span>
+                      <div className="min-w-0">
+                        <h3 className="font-semibold" style={{ color: 'var(--text-h)' }}>
+                          Автомодерация
+                        </h3>
+                        <p className="mt-1 text-sm leading-6" style={{ color: 'var(--text)' }}>
+                          Прозрачные правила без внешнего AI: стоп-слова, ссылки, токсичность, спам и обфускация.
+                        </p>
+                      </div>
+                    </div>
+                    <Badge tone={autoModeration.enabled ? 'accent' : 'muted'}>
+                      {autoModeration.enabled
+                        ? automodStrictnessLabels[autoModeration.strictness]
+                        : automodStrictnessLabels.OFF}
+                    </Badge>
+                  </div>
+
+                  <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.9fr)]">
+                    <div className="space-y-4">
+                      <label className="inline-flex items-center gap-2 text-sm font-semibold" style={{ color: 'var(--text-h)' }}>
+                        <input
+                          type="checkbox"
+                          checked={autoModeration.enabled}
+                          onChange={(event) => updateAutoModeration({
+                            enabled: event.target.checked,
+                            strictness: event.target.checked ? autoModeration.strictness : 'OFF',
+                          })}
+                        />
+                        Включить автомодерацию
+                      </label>
+
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <label className="block">
+                          <span className="mb-2 block text-sm font-medium" style={{ color: 'var(--text-h)' }}>
+                            Строгость
+                          </span>
+                          <select
+                            className="cc-field"
+                            value={autoModeration.strictness === 'OFF' ? 'BALANCED' : autoModeration.strictness}
+                            disabled={!autoModeration.enabled}
+                            onChange={(event) => updateAutoModeration({
+                              strictness: event.target.value as AutoModerationStrictness,
+                            })}
+                          >
+                            <option value="RELAXED">Мягкая</option>
+                            <option value="BALANCED">Баланс</option>
+                            <option value="STRICT">Строгая</option>
+                          </select>
+                          {autoModeration.enabled && autoModeration.strictness !== 'OFF' && (
+                            <span className="mt-2 block text-xs leading-5" style={{ color: 'var(--text)' }}>
+                              {automodStrictnessDescriptions[autoModeration.strictness as Exclude<AutoModerationStrictness, 'OFF'>]}
+                            </span>
+                          )}
+                        </label>
+
+                        <label className="block">
+                          <span className="mb-2 block text-sm font-medium" style={{ color: 'var(--text-h)' }}>
+                            Лимит ссылок
+                          </span>
+                          <input
+                            type="number"
+                            min={0}
+                            max={20}
+                            className="cc-field"
+                            value={autoModeration.maxLinks}
+                            disabled={!autoModeration.enabled}
+                            onChange={(event) => updateAutoModeration({
+                              maxLinks: Number(event.target.value),
+                            })}
+                          />
+                          <span className="mt-2 block text-xs leading-5" style={{ color: 'var(--text)' }}>
+                            Если ссылок больше лимита, комментарий попадет в очередь или spam.
+                          </span>
+                        </label>
+                      </div>
+
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <label className="inline-flex items-center gap-2 text-sm" style={{ color: 'var(--text)' }}>
+                          <input
+                            type="checkbox"
+                            checked={autoModeration.holdLinks}
+                            disabled={!autoModeration.enabled}
+                            onChange={(event) => updateAutoModeration({ holdLinks: event.target.checked })}
+                          />
+                          Отправлять ссылки на проверку
+                        </label>
+                        <label className="inline-flex items-center gap-2 text-sm" style={{ color: 'var(--text)' }}>
+                          <input
+                            type="checkbox"
+                            checked={autoModeration.blockLinks}
+                            disabled={!autoModeration.enabled}
+                            onChange={(event) => updateAutoModeration({ blockLinks: event.target.checked })}
+                          />
+                          Любая ссылка сразу spam
+                        </label>
+                      </div>
+
+                      <label className="block">
+                        <span className="mb-2 block text-sm font-medium" style={{ color: 'var(--text-h)' }}>
+                          Стоп-слова владельца
+                        </span>
+                        <textarea
+                          className="cc-field min-h-28"
+                          placeholder={'казино, спам\nили по одному слову на строку'}
+                          value={autoModerationBlockedWords}
+                          disabled={!autoModeration.enabled}
+                          onChange={(event) => setAutoModerationBlockedWords(event.target.value)}
+                        />
+                        <span className="mt-2 block text-xs leading-5" style={{ color: 'var(--text)' }}>
+                          Эти слова сильнее дефолтных правил и сразу поднимают score.
+                        </span>
+                      </label>
+                    </div>
+
+                    <div
+                      className="rounded-lg border p-4"
+                      style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
+                    >
+                      <div className="mb-3 flex items-center gap-2">
+                        <Sparkles className="h-4 w-4" style={{ color: 'var(--accent)' }} aria-hidden="true" />
+                        <h4 className="font-semibold" style={{ color: 'var(--text-h)' }}>
+                          Проверить текст
+                        </h4>
+                      </div>
+                      <textarea
+                        className="cc-field min-h-28"
+                        placeholder="Например: казино ставки, быстрый заработок..."
+                        value={autoModerationPreviewContent}
+                        onChange={(event) => setAutoModerationPreviewContent(event.target.value)}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void handleCheckAutoModeration()}
+                        disabled={autoModerationPreviewLoading}
+                        className="cc-button-secondary mt-3"
+                      >
+                        {autoModerationPreviewLoading ? 'Проверяем...' : 'Проверить'}
+                      </button>
+
+                      {autoModerationPreviewError && (
+                        <p className="mt-3 text-sm" style={{ color: 'var(--danger)' }}>
+                          {autoModerationPreviewError}
+                        </p>
+                      )}
+
+                      {autoModerationPreview && (
+                        <div
+                          className="mt-4 rounded-lg border p-3"
+                          style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface-muted)' }}
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <Badge tone={automodStatusTones[autoModerationPreview.status]}>
+                              {automodStatusLabels[autoModerationPreview.status]}
+                            </Badge>
+                            <span className="text-sm font-semibold" style={{ color: 'var(--text-h)' }}>
+                              score {autoModerationPreview.score}
+                            </span>
+                          </div>
+                          {autoModerationPreview.reason && (
+                            <p className="mt-3 text-sm leading-6" style={{ color: 'var(--text-h)' }}>
+                              {autoModerationPreview.reason}
+                            </p>
+                          )}
+                          {autoModerationPreview.signals.length > 0 ? (
+                            <ul className="mt-3 space-y-2">
+                              {autoModerationPreview.signals.map((signal, index) => (
+                                <li
+                                  key={`${signal.category}-${index}`}
+                                  className="rounded-md border px-3 py-2 text-sm"
+                                  style={{ borderColor: 'var(--border)', color: 'var(--text)' }}
+                                >
+                                  <span className="font-semibold" style={{ color: 'var(--text-h)' }}>
+                                    +{signal.score} {signal.category}
+                                  </span>
+                                  <span className="block">{signal.reason}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="mt-3 text-sm" style={{ color: 'var(--text)' }}>
+                              Сигналы не найдены: текст считается чистым.
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
                 <div className="grid gap-4 md:col-span-2 md:grid-cols-3">
                   <label className="block">
                     <span className="mb-2 block text-sm font-medium" style={{ color: 'var(--text-h)' }}>

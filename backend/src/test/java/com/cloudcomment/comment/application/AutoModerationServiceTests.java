@@ -6,7 +6,6 @@ import com.cloudcomment.site.domain.AutoModerationStrictness;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
-import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -16,7 +15,7 @@ class AutoModerationServiceTests {
     private final AutoModerationService service = new AutoModerationService();
 
     @Test
-    void customBlockedWordsMarkCommentAsSpam() {
+    void customBlockedWordsMarkCommentAsSpamAndExplainSignal() {
         AutoModerationDecision decision = service.review(
             "Normal intro, but contains Casino keyword",
             new AutoModerationSettings(
@@ -31,7 +30,49 @@ class AutoModerationServiceTests {
         );
 
         assertThat(decision.status()).isEqualTo(CommentStatus.SPAM);
-        assertThat(decision.reason()).contains("custom blocked words");
+        assertThat(decision.score()).isGreaterThanOrEqualTo(120);
+        assertThat(decision.reason()).contains("Стоп-слово владельца: casino");
+        assertThat(decision.signals()).extracting(AutoModerationSignal::category)
+            .contains("CUSTOM_BLOCKED_WORD");
+    }
+
+    @Test
+    void russianSpamAndObfuscationEscalateToSpam() {
+        AutoModerationDecision decision = service.review(
+            "К-а-з-и-н-о ставки, быстрый заработок!!!",
+            AutoModerationSettings.defaultSettings(),
+            CommentStatus.APPROVED
+        );
+
+        assertThat(decision.status()).isEqualTo(CommentStatus.SPAM);
+        assertThat(decision.reason()).contains("Спам-маркер", "обфускация");
+        assertThat(decision.signals()).extracting(AutoModerationSignal::category)
+            .contains("SPAM_PHRASE", "OBFUSCATION");
+    }
+
+    @Test
+    void leetspeakSpamIsNormalized() {
+        AutoModerationDecision decision = service.review(
+            "c@sin0 crypto giveaway",
+            AutoModerationSettings.defaultSettings(),
+            CommentStatus.APPROVED
+        );
+
+        assertThat(decision.status()).isEqualTo(CommentStatus.SPAM);
+        assertThat(decision.signals()).extracting(AutoModerationSignal::category)
+            .contains("SPAM_PHRASE");
+    }
+
+    @Test
+    void singleWordRulesDoNotMatchInsideNormalWords() {
+        AutoModerationDecision decision = service.review(
+            "Спасибо за быстрые доставки и понятный сервис.",
+            AutoModerationSettings.defaultSettings(),
+            CommentStatus.APPROVED
+        );
+
+        assertThat(decision.status()).isEqualTo(CommentStatus.APPROVED);
+        assertThat(decision.signals()).isEmpty();
     }
 
     @Test
@@ -50,11 +91,11 @@ class AutoModerationServiceTests {
         );
 
         assertThat(decision.status()).isEqualTo(CommentStatus.PENDING);
-        assertThat(decision.reason()).contains("contains link");
+        assertThat(decision.reason()).contains("Комментарий содержит ссылку");
     }
 
     @Test
-    void disabledAutomoderationKeepsFallbackStatus() {
+    void disabledAutomoderationKeepsFallbackStatusWithoutSignals() {
         AutoModerationDecision decision = service.review(
             "casino https://example.com",
             new AutoModerationSettings(
@@ -69,7 +110,9 @@ class AutoModerationServiceTests {
         );
 
         assertThat(decision.status()).isEqualTo(CommentStatus.APPROVED);
+        assertThat(decision.score()).isZero();
         assertThat(decision.reason()).isNull();
+        assertThat(decision.signals()).isEmpty();
     }
 
     @Test
@@ -88,7 +131,9 @@ class AutoModerationServiceTests {
         );
 
         assertThat(decision.status()).isEqualTo(CommentStatus.SPAM);
-        assertThat(decision.reason()).contains("links are blocked");
+        assertThat(decision.reason()).contains("Ссылки запрещены");
+        assertThat(decision.signals()).extracting(AutoModerationSignal::category)
+            .contains("BLOCKED_LINK");
     }
 
     @Test
@@ -107,19 +152,44 @@ class AutoModerationServiceTests {
         );
 
         assertThat(decision.status()).isEqualTo(CommentStatus.PENDING);
-        assertThat(decision.reason()).contains("too many links: 3");
+        assertThat(decision.reason()).contains("Слишком много ссылок: 3");
     }
 
     @Test
-    void defaultSpamSignalsCanEscalateToPendingOrSpam() {
+    void relaxedBalancedAndStrictModesUseDifferentThresholds() {
+        AutoModerationSettings relaxed = new AutoModerationSettings(
+            true,
+            AutoModerationStrictness.RELAXED,
+            List.of(),
+            true,
+            false,
+            2
+        );
+        AutoModerationSettings strict = new AutoModerationSettings(
+            true,
+            AutoModerationStrictness.STRICT,
+            List.of(),
+            true,
+            false,
+            2
+        );
+
+        assertThat(service.review("https://example.com", relaxed, CommentStatus.APPROVED).status())
+            .isEqualTo(CommentStatus.APPROVED);
+        assertThat(service.review("https://example.com", strict, CommentStatus.APPROVED).status())
+            .isEqualTo(CommentStatus.PENDING);
+    }
+
+    @Test
+    void defaultSpamSignalsCanEscalateToSpam() {
         AutoModerationDecision decision = service.review(
             "Free money and crypto giveaway for everyone",
             AutoModerationSettings.defaultSettings(),
             CommentStatus.APPROVED
         );
 
-        assertThat(decision.status()).isIn(CommentStatus.PENDING, CommentStatus.SPAM);
-        assertThat(decision.reason()).contains("spam signals");
+        assertThat(decision.status()).isEqualTo(CommentStatus.SPAM);
+        assertThat(decision.reason()).contains("Спам-маркер");
     }
 
     @Test
@@ -138,7 +208,19 @@ class AutoModerationServiceTests {
         );
 
         assertThat(decision.status()).isEqualTo(CommentStatus.PENDING);
-        assertThat(decision.reason()).contains("toxicity signals", "repeated characters");
+        assertThat(decision.reason()).contains("Токсичный маркер", "повторяющихся символов");
+    }
+
+    @Test
+    void suspiciousContactsHoldForModeration() {
+        AutoModerationDecision decision = service.review(
+            "Пишите в telegram @fast_money_bot",
+            AutoModerationSettings.defaultSettings(),
+            CommentStatus.APPROVED
+        );
+
+        assertThat(decision.status()).isEqualTo(CommentStatus.PENDING);
+        assertThat(decision.reason()).contains("мессенджер");
     }
 
     @Test
@@ -157,11 +239,11 @@ class AutoModerationServiceTests {
         );
 
         assertThat(decision.status()).isEqualTo(CommentStatus.PENDING);
-        assertThat(decision.reason()).contains("too much uppercase text");
+        assertThat(decision.reason()).contains("капсом");
     }
 
     @Test
-    void approvedResultDoesNotExposeLowScoreReasons() {
+    void approvedResultDoesNotPersistLowScoreReasonsButKeepsPreviewSignals() {
         AutoModerationDecision decision = service.review(
             "Look at https://example.com",
             new AutoModerationSettings(
@@ -177,14 +259,30 @@ class AutoModerationServiceTests {
 
         assertThat(decision.status()).isEqualTo(CommentStatus.APPROVED);
         assertThat(decision.reason()).isNull();
+        assertThat(decision.signals()).extracting(AutoModerationSignal::category)
+            .contains("CONTAINS_LINK");
+    }
+
+    @Test
+    void cleanCommentDoesNotReceiveReasonOrSignals() {
+        AutoModerationDecision decision = service.review(
+            "Спасибо за полезный материал, помогло разобраться.",
+            AutoModerationSettings.defaultSettings(),
+            CommentStatus.APPROVED
+        );
+
+        assertThat(decision.status()).isEqualTo(CommentStatus.APPROVED);
+        assertThat(decision.score()).isZero();
+        assertThat(decision.reason()).isNull();
+        assertThat(decision.signals()).isEmpty();
     }
 
     @Test
     void longModerationReasonIsBounded() {
-        List<String> blockedWords = IntStream.rangeClosed(1, 60)
-            .mapToObj(index -> "blockedword" + index)
+        List<String> blockedWords = IntStream.rangeClosed(1, 8)
+            .mapToObj(index -> "blockedword-" + index + "-" + "x".repeat(70))
             .toList();
-        String content = blockedWords.stream().collect(Collectors.joining(" "));
+        String content = String.join(" ", blockedWords);
 
         AutoModerationDecision decision = service.review(
             content,

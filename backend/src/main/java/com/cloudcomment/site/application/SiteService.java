@@ -2,6 +2,9 @@ package com.cloudcomment.site.application;
 
 import com.cloudcomment.access.application.ResourceOwnershipService;
 import com.cloudcomment.auth.application.AuthenticatedUser;
+import com.cloudcomment.comment.application.AutoModerationDecision;
+import com.cloudcomment.comment.application.AutoModerationService;
+import com.cloudcomment.comment.domain.CommentStatus;
 import com.cloudcomment.shared.error.ApiErrorCode;
 import com.cloudcomment.shared.error.ApplicationException;
 import com.cloudcomment.site.domain.ModerationMode;
@@ -31,6 +34,7 @@ public class SiteService {
     private final ResourceOwnershipService resourceOwnershipService;
     private final PublicKeyGenerator publicKeyGenerator;
     private final EmbedCodeService embedCodeService;
+    private final AutoModerationService autoModerationService;
 
     @Transactional(readOnly = true)
     public SitePage listSites(AuthenticatedUser currentUser, int page, int pageSize) {
@@ -189,6 +193,22 @@ public class SiteService {
         return embedCodeService.build(siteId);
     }
 
+    @Transactional(readOnly = true)
+    public AutoModerationDecision checkAutoModeration(
+        AuthenticatedUser currentUser,
+        UUID siteId,
+        String content
+    ) {
+        resourceOwnershipService.assertSiteOwnedBy(currentUser, siteId);
+        Site site = siteRepository.findById(siteId).orElseThrow(this::notFound);
+        String normalizedContent = normalizeCommentContent(content);
+        return autoModerationService.review(
+            normalizedContent,
+            site.autoModeration(),
+            initialCommentStatus(site.moderationMode())
+        );
+    }
+
     @Transactional
     public void deleteSite(AuthenticatedUser currentUser, UUID siteId) {
         resourceOwnershipService.assertSiteOwnedBy(currentUser, siteId);
@@ -203,6 +223,23 @@ public class SiteService {
             throw badRequest("Site name must not be blank");
         }
         return normalizedName;
+    }
+
+    private String normalizeCommentContent(String content) {
+        if (content == null) {
+            throw badRequest("Comment content must not be blank");
+        }
+        String normalizedContent = content.trim();
+        if (normalizedContent.isBlank()) {
+            throw badRequest("Comment content must not be blank");
+        }
+        return normalizedContent;
+    }
+
+    private CommentStatus initialCommentStatus(ModerationMode moderationMode) {
+        return moderationMode == ModerationMode.PRE_MODERATION
+            ? CommentStatus.PENDING
+            : CommentStatus.APPROVED;
     }
 
     private String normalizeDomain(String domain) {

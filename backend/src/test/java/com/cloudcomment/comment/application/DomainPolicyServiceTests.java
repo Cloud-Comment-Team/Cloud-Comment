@@ -119,5 +119,20 @@ class DomainPolicyServiceTests {
         ) {
             throw new UnsupportedOperationException();
         }
+
+        @Override
+        public CommentView createComment(
+            UUID siteId,
+            UUID pageId,
+            UUID parentId,
+            UUID authorUserId,
+            String authorName,
+            String authorEmail,
+            String content,
+            CommentStatus status,
+            String moderationReason
+        ) {
+            throw new UnsupportedOperationException();
+        }
     }
 }

@@ -478,6 +478,25 @@ const Moderation = () => {
                   </p>
                 </div>
 
+                {comment.moderationReason && (
+                  <div className="border-t px-4 py-4" style={{ borderColor: statusStyle.border }}>
+                    <div
+                      className="rounded-lg border p-3"
+                      style={{ backgroundColor: statusStyle.metaBackground, borderColor: statusStyle.border }}
+                    >
+                      <div className="mb-2 flex items-center gap-2">
+                        <ShieldAlert className="h-4 w-4" style={{ color: statusStyle.accent }} aria-hidden="true" />
+                        <span className="text-xs font-semibold uppercase" style={{ color: 'var(--text-h)' }}>
+                          Сработала автомодерация
+                        </span>
+                      </div>
+                      <p className="text-sm leading-6" style={{ color: 'var(--text-h)' }}>
+                        {comment.moderationReason}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 {availableActions.length > 0 && (
                   <div className="border-t px-4 py-4" style={{ borderColor: statusStyle.border }}>
                     <label className="mb-3 block">

@@ -269,6 +269,7 @@ class ModerationServiceTests {
             new CommentAuthor(UUID.randomUUID(), "author@example.com", "Author"),
             "Comment body",
             status,
+            null,
             TIMESTAMP,
             TIMESTAMP
         );
@@ -286,6 +287,7 @@ class ModerationServiceTests {
             new CommentAuthor(UUID.randomUUID(), "author@example.com", "Author"),
             "Comment body",
             CommentStatus.PENDING,
+            null,
             TIMESTAMP,
             TIMESTAMP
         );

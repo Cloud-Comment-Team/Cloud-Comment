@@ -140,6 +140,7 @@ class PublicCommentServiceTests {
         );
 
         assertThat(repository.createdStatus).isEqualTo(CommentStatus.SPAM);
+        assertThat(repository.createdModerationReason).contains("Стоп-слово владельца: blocked");
     }
 
     @Test
@@ -285,6 +286,7 @@ class PublicCommentServiceTests {
 
         assertThat(repository.updatedStatus).isEqualTo(CommentStatus.SPAM);
         assertThat(repository.updatedContent).isEqualTo("Now blocked");
+        assertThat(repository.updatedModerationReason).contains("Стоп-слово владельца: blocked");
 
         assertThatThrownBy(() -> service.updateOwnComment(
             user,
@@ -388,6 +390,7 @@ class PublicCommentServiceTests {
         private String createdAuthorEmail;
         private String createdContent;
         private CommentStatus createdStatus;
+        private String createdModerationReason;
         private UUID checkedReactionSiteId;
         private UUID checkedReactionCommentId;
         private UUID reactionCommentId;
@@ -400,6 +403,7 @@ class PublicCommentServiceTests {
         private UUID updatedAuthorUserId;
         private String updatedContent;
         private CommentStatus updatedStatus;
+        private String updatedModerationReason;
         private UUID deletedSiteId;
         private UUID deletedCommentId;
         private UUID deletedAuthorUserId;
@@ -470,6 +474,22 @@ class PublicCommentServiceTests {
         }
 
         @Override
+        public CommentView createComment(
+            UUID siteId,
+            UUID pageId,
+            UUID parentId,
+            UUID authorUserId,
+            String authorName,
+            String authorEmail,
+            String content,
+            CommentStatus status,
+            String moderationReason
+        ) {
+            createdModerationReason = moderationReason;
+            return createComment(siteId, pageId, parentId, authorUserId, authorName, authorEmail, content, status);
+        }
+
+        @Override
         public boolean existsApprovedCommentInSite(UUID siteId, UUID commentId) {
             checkedReactionSiteId = siteId;
             checkedReactionCommentId = commentId;
@@ -509,6 +529,7 @@ class PublicCommentServiceTests {
             updatedAuthorUserId = authorUserId;
             updatedContent = content;
             updatedStatus = status;
+            updatedModerationReason = moderationReason;
             if (!updateReturnsComment) {
                 return Optional.empty();
             }
