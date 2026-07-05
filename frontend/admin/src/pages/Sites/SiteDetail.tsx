@@ -5,6 +5,7 @@ import toast from 'react-hot-toast'
 
 import { getApiErrorMessage } from '../../api/auth'
 import { checkAutoModeration, deleteSite, getEmbedCode, getSite, replaceAllowedOrigins, updateSite } from '../../api/sites'
+import { OwnerAnalyticsPanel } from '../../components/analytics/OwnerAnalyticsPanel'
 import { AsyncState } from '../../components/common/AsyncState'
 import { Badge } from '../../components/common/Badge'
 import type {
@@ -348,6 +349,8 @@ const SiteDetail = () => {
                 </button>
               </div>
             </div>
+
+            <OwnerAnalyticsPanel siteId={site.id} compact />
 
             <section
               className="cc-card p-5 md:p-6"

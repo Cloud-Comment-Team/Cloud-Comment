@@ -152,3 +152,74 @@ export interface ListCommentsParams {
   page?: number
   pageSize?: number
 }
+
+export type AnalyticsRange = '7d' | '30d' | '90d' | 'all'
+
+export interface AnalyticsSummary {
+  sites: number
+  pages: number
+  comments: number
+  replies: number
+  reactions: number
+  pending: number
+  approved: number
+  rejected: number
+  hidden: number
+  spam: number
+}
+
+export interface CommentTimePoint {
+  bucket: string
+  total: number
+  approved: number
+  pending: number
+  spam: number
+}
+
+export interface ModerationStatusCount {
+  status: CommentStatus
+  count: number
+}
+
+export interface ReactionTypeCount {
+  type: 'LIKE' | 'LOVE' | 'LAUGH' | 'WOW'
+  count: number
+}
+
+export interface TopPageAnalytics {
+  pageId: string
+  siteId: string
+  siteName: string
+  pageUrl: string
+  comments: number
+  replies: number
+  reactions: number
+  approved: number
+  pending: number
+  spam: number
+  lastCommentAt: string | null
+}
+
+export interface ActiveCommenter {
+  userId: string | null
+  email: string | null
+  displayName: string | null
+  comments: number
+  approved: number
+  pending: number
+  rejectedOrSpam: number
+  lastActivityAt: string | null
+}
+
+export interface OwnerAnalytics {
+  range: AnalyticsRange
+  siteId: string | null
+  from: string | null
+  to: string
+  summary: AnalyticsSummary
+  commentsOverTime: CommentTimePoint[]
+  moderationFunnel: ModerationStatusCount[]
+  reactionDistribution: ReactionTypeCount[]
+  topPages: TopPageAnalytics[]
+  activeCommenters: ActiveCommenter[]
+}

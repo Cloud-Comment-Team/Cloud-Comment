@@ -170,6 +170,8 @@ model {
 
       moderationPages = component 'Страницы модерации' 'Просмотр, скрытие и публикация комментариев'
 
+      analyticsPages = component 'Страницы аналитики' 'Дашборд владельца и аналитика конкретного сайта по комментариям, реакциям и модерации'
+
       adminApiClient = component 'Admin API Client' 'Единый клиент для запросов в backend API'
     }
 
@@ -217,6 +219,8 @@ model {
       commentModule = component 'Comment module' 'Создание, получение, редактирование, soft-delete, реакции и хранение комментариев'
 
       moderationModule = component 'Moderation module' 'Смена статусов комментариев и управление очередью модерации'
+
+      analyticsModule = component 'Analytics module' 'Owner-scoped read-model для метрик сайтов, страниц, комментариев, реакций и модерации'
 
       antiSpamModule = component 'Anti-spam / automoderation module' 'Правила автомодерации сайта, стоп-слова, ссылки, токсичные и спамные сигналы'
 
@@ -290,6 +294,8 @@ model {
 
   cloudComment.adminWebApp.moderationPages -[internal]-> cloudComment.adminWebApp.adminApiClient 'Управляет модерацией'
 
+  cloudComment.adminWebApp.analyticsPages -[internal]-> cloudComment.adminWebApp.adminApiClient 'Запрашивает owner-scoped аналитику'
+
   cloudComment.adminWebApp.adminApiClient -[http]-> cloudComment.backendApi.adminApiController 'Выполняет admin API запросы'
 
   cloudComment.widgetRuntime.embedLoader -[internal]-> cloudComment.widgetRuntime.widgetShell 'Инициализирует виджет на странице'
@@ -320,6 +326,8 @@ model {
 
   cloudComment.backendApi.adminApiController -[internal]-> cloudComment.backendApi.moderationModule 'Выполняет действия модерации'
 
+  cloudComment.backendApi.adminApiController -[internal]-> cloudComment.backendApi.analyticsModule 'Возвращает аналитику владельца сайта'
+
   cloudComment.backendApi.publicWidgetController -[internal]-> cloudComment.backendApi.domainPolicyModule 'Проверяет разрешенный домен'
 
   cloudComment.backendApi.publicWidgetController -[internal]-> cloudComment.backendApi.widgetConfigModule 'Отдает публичную конфигурацию виджета'
@@ -349,6 +357,8 @@ model {
   cloudComment.backendApi.commentModule -[stores]-> cloudComment.backendApi.persistenceModule 'Сохраняет комментарии'
 
   cloudComment.backendApi.moderationModule -[stores]-> cloudComment.backendApi.persistenceModule 'Обновляет статусы комментариев'
+
+  cloudComment.backendApi.analyticsModule -[reads]-> cloudComment.backendApi.persistenceModule 'Агрегирует owner-scoped метрики из sites, pages, comments и comment_reactions'
 
   cloudComment.backendApi.embedCodeModule -[reads]-> cloudComment.backendApi.siteModule 'Берет идентификатор сайта'
 

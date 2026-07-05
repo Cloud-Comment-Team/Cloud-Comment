@@ -26,6 +26,9 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-cloud_comment}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-cloud_comment}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-cloud_comment}
+      CLOUD_COMMENT_DEMO_SEED_ENABLED: ${CLOUD_COMMENT_DEMO_SEED_ENABLED:-true}
+      CLOUD_COMMENT_DEMO_ALLOWED_ORIGINS: ${CLOUD_COMMENT_DEMO_ALLOWED_ORIGINS:-http://localhost,http://127.0.0.1,http://127.0.0.1:4173}
+      CLOUD_COMMENT_DEMO_PAGE_URL: ${CLOUD_COMMENT_DEMO_PAGE_URL:-http://localhost/demo-page.html}
     depends_on:
       postgres:
         condition: service_healthy

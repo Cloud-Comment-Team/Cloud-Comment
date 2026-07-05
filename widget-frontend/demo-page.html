@@ -196,10 +196,11 @@
           <div>
             <h1>Внешняя страница сайта</h1>
             <p>
-              Это отдельный origin <code>http://127.0.0.1:4173</code>. Здесь подключается реальный CloudComment widget bundle через Caddy.
+              Это демо-страница, которую Caddy отдает рядом с админкой. Здесь подключается реальный
+              CloudComment widget bundle и используется локальный backend API.
             </p>
           </div>
-          <button class="theme-toggle" id="themeToggle" type="button">Тёмная тема</button>
+          <button class="theme-toggle" id="themeToggle" type="button">Темная тема</button>
         </div>
         <div class="row">
           <div>
@@ -208,19 +209,23 @@
           </div>
           <button id="loadWidget" type="button">Загрузить виджет</button>
         </div>
-        <p class="desktop-hint">Можно открыть сразу так: <code>/demo-page.html?siteId=&lt;uuid&gt;</code></p>
+        <p class="desktop-hint">
+          В Docker Compose демо-сайт создается автоматически. Другой сайт можно открыть так:
+          <code>/demo-page.html?siteId=&lt;uuid&gt;</code>
+        </p>
       </article>
 
       <div id="comments"></div>
     </main>
 
-    <script src="http://localhost/widget/cloud-comment-widget.js"></script>
+    <script src="/widget/cloud-comment-widget.js"></script>
     <script>
+      const DEFAULT_DEMO_SITE_ID = "c680d246-8876-4049-975c-73ccf029408f";
       const input = document.querySelector("#siteId");
       const button = document.querySelector("#loadWidget");
       const themeToggle = document.querySelector("#themeToggle");
       const params = new URLSearchParams(window.location.search);
-      const initialSiteId = params.get("siteId") || "";
+      const initialSiteId = params.get("siteId") || DEFAULT_DEMO_SITE_ID;
       const storedTheme = window.localStorage.getItem("cloud-comment.demo.theme");
       const initialTheme = storedTheme === "dark" || storedTheme === "light"
         ? storedTheme
@@ -233,7 +238,7 @@
         document.documentElement.dataset.theme = theme;
         document.documentElement.style.colorScheme = theme;
         window.localStorage.setItem("cloud-comment.demo.theme", theme);
-        themeToggle.textContent = theme === "dark" ? "Светлая тема" : "Тёмная тема";
+        themeToggle.textContent = theme === "dark" ? "Светлая тема" : "Темная тема";
       }
 
       function initWidget() {
@@ -245,7 +250,7 @@
         window.history.replaceState(null, "", `${window.location.pathname}?siteId=${encodeURIComponent(siteId)}`);
         window.CloudCommentWidget.init({
           siteId,
-          apiBaseUrl: "http://localhost/api",
+          apiBaseUrl: `${window.location.origin}/api`,
           pageUrl: `${window.location.origin}${window.location.pathname}`,
           target: "#comments",
           theme: "auto"
@@ -257,7 +262,7 @@
       });
 
       button.addEventListener("click", initWidget);
-      if (initialSiteId) initWidget();
+      initWidget();
     </script>
   </body>
 </html>
