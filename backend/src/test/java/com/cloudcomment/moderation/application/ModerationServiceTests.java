@@ -9,6 +9,7 @@ import com.cloudcomment.moderation.domain.CommentAuthor;
 import com.cloudcomment.moderation.domain.CommentSortField;
 import com.cloudcomment.moderation.domain.CommentStatus;
 import com.cloudcomment.moderation.domain.ModerationAction;
+import com.cloudcomment.moderation.domain.ModerationActionAppliedEvent;
 import com.cloudcomment.moderation.domain.ModerationActionType;
 import com.cloudcomment.moderation.domain.ModerationPriority;
 import com.cloudcomment.moderation.domain.SortOrder;
@@ -16,8 +17,10 @@ import com.cloudcomment.moderation.persistence.CommentRepository;
 import com.cloudcomment.moderation.persistence.ModerationActionRepository;
 import com.cloudcomment.shared.error.ApplicationException;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -156,10 +159,12 @@ class ModerationServiceTests {
     void applyActionUpdatesStatusAndRecordsModerationAction() {
         CapturingCommentRepository commentRepository = new CapturingCommentRepository();
         CapturingModerationActionRepository actionRepository = new CapturingModerationActionRepository();
+        CapturingEventPublisher eventPublisher = new CapturingEventPublisher();
         ModerationService service = new ModerationService(
             commentRepository,
             actionRepository,
-            new ResourceOwnershipService((ownerId, resourceType, resourceId) -> true)
+            new ResourceOwnershipService((ownerId, resourceType, resourceId) -> true),
+            eventPublisher
         );
         AuthenticatedUser currentUser = currentUser();
         UUID commentId = commentRepository.comment.id();
@@ -175,6 +180,18 @@ class ModerationServiceTests {
         assertThat(action.toStatus()).isEqualTo(CommentStatus.APPROVED);
         assertThat(action.reason()).isEqualTo("Looks good");
         assertThat(action.moderatorId()).isEqualTo(currentUser.id());
+        assertThat(eventPublisher.events).singleElement()
+            .satisfies(event -> {
+                ModerationActionAppliedEvent appliedEvent = (ModerationActionAppliedEvent) event;
+                assertThat(appliedEvent.siteId()).isEqualTo(commentRepository.comment.siteId());
+                assertThat(appliedEvent.pageId()).isEqualTo(commentRepository.comment.pageId());
+                assertThat(appliedEvent.commentId()).isEqualTo(commentId);
+                assertThat(appliedEvent.action()).isEqualTo(ModerationActionType.APPROVE);
+                assertThat(appliedEvent.fromStatus()).isEqualTo(CommentStatus.PENDING);
+                assertThat(appliedEvent.toStatus()).isEqualTo(CommentStatus.APPROVED);
+                assertThat(appliedEvent.reason()).isEqualTo("Looks good");
+                assertThat(appliedEvent.moderatorId()).isEqualTo(currentUser.id());
+            });
     }
 
     @Test
@@ -206,7 +223,9 @@ class ModerationServiceTests {
         ModerationService service = new ModerationService(
             commentRepository,
             actionRepository,
-            new ResourceOwnershipService((ownerId, resourceType, resourceId) -> true)
+            new ResourceOwnershipService((ownerId, resourceType, resourceId) -> true),
+            ignored -> {
+            }
         );
 
         assertThatThrownBy(() -> service.applyAction(
@@ -238,7 +257,9 @@ class ModerationServiceTests {
         ModerationService service = new ModerationService(
             commentRepository,
             actionRepository,
-            new ResourceOwnershipService((ownerId, resourceType, resourceId) -> true)
+            new ResourceOwnershipService((ownerId, resourceType, resourceId) -> true),
+            ignored -> {
+            }
         );
 
         service.applyAction(currentUser(), commentRepository.comment.id(), actionType, null);
@@ -251,7 +272,9 @@ class ModerationServiceTests {
         return new ModerationService(
             commentRepository,
             new CapturingModerationActionRepository(),
-            new ResourceOwnershipService(ownershipRepository)
+            new ResourceOwnershipService(ownershipRepository),
+            ignored -> {
+            }
         );
     }
 
@@ -371,6 +394,16 @@ class ModerationServiceTests {
                 "owner@example.com",
                 TIMESTAMP
             );
+        }
+    }
+
+    private static class CapturingEventPublisher implements ApplicationEventPublisher {
+
+        private final List<Object> events = new ArrayList<>();
+
+        @Override
+        public void publishEvent(Object event) {
+            events.add(event);
         }
     }
 }

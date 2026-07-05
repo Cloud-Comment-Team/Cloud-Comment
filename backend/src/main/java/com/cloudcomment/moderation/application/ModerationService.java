@@ -5,12 +5,14 @@ import com.cloudcomment.auth.application.AuthenticatedUser;
 import com.cloudcomment.moderation.domain.Comment;
 import com.cloudcomment.moderation.domain.CommentStatus;
 import com.cloudcomment.moderation.domain.ModerationAction;
+import com.cloudcomment.moderation.domain.ModerationActionAppliedEvent;
 import com.cloudcomment.moderation.domain.ModerationActionType;
 import com.cloudcomment.moderation.persistence.CommentRepository;
 import com.cloudcomment.moderation.persistence.ModerationActionRepository;
 import com.cloudcomment.shared.error.ApiErrorCode;
 import com.cloudcomment.shared.error.ApplicationException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,6 +25,7 @@ public class ModerationService {
     private final CommentRepository commentRepository;
     private final ModerationActionRepository moderationActionRepository;
     private final ResourceOwnershipService resourceOwnershipService;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Transactional(readOnly = true)
     public ModerationCommentPage listComments(
@@ -58,10 +61,10 @@ public class ModerationService {
             throw alreadyHasStatus(targetStatus);
         }
 
-        commentRepository.updateStatus(commentId, comment.status(), targetStatus, normalizedReason)
+        Comment updatedComment = commentRepository.updateStatus(commentId, comment.status(), targetStatus, normalizedReason)
             .orElseThrow(() -> concurrentStatusChange(commentId, targetStatus));
 
-        return moderationActionRepository.create(
+        ModerationAction moderationAction = moderationActionRepository.create(
             commentId,
             currentUser.id(),
             action,
@@ -69,6 +72,18 @@ public class ModerationService {
             targetStatus,
             normalizedReason
         );
+        eventPublisher.publishEvent(new ModerationActionAppliedEvent(
+            updatedComment.siteId(),
+            updatedComment.pageId(),
+            commentId,
+            action,
+            comment.status(),
+            targetStatus,
+            normalizedReason,
+            currentUser.id(),
+            moderationAction.createdAt()
+        ));
+        return moderationAction;
     }
 
     private ModerationCommentFilters normalizeFilters(ModerationCommentFilters filters) {

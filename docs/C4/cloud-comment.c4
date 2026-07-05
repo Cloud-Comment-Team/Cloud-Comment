@@ -173,7 +173,7 @@ model {
       analyticsPages = component 'Страницы аналитики' 'Дашборд владельца и аналитика конкретного сайта по комментариям, реакциям и модерации'
 
       adminApiClient = component 'Admin API Client' 'Единый клиент для запросов в backend API'
-      realtimeClient = component 'Realtime Client' 'WebSocket-подключение для уведомлений владельца сайта'
+      realtimeClient = component 'Realtime Client' 'Единое WebSocket-подключение для уведомлений, live-модерации и обновления аналитики'
     }
 
     widgetRuntime = widgetApp 'JS-виджет комментариев' 'Встраиваемый виджет, который запускается на внешнем сайте клиента' {
@@ -223,7 +223,7 @@ model {
 
       analyticsModule = component 'Analytics module' 'Owner-scoped read-model для метрик сайтов, страниц, комментариев, реакций и модерации'
 
-      realtimeGateway = component 'Realtime Gateway' 'Bearer-auth WebSocket endpoint и owner-scoped доставка событий'
+      realtimeGateway = component 'Realtime Gateway' 'Bearer-auth WebSocket endpoint и owner-scoped доставка typed realtime-событий'
 
       antiSpamModule = component 'Anti-spam / automoderation module' 'Правила автомодерации сайта, стоп-слова, ссылки, токсичные и спамные сигналы'
 
@@ -301,7 +301,7 @@ model {
 
   cloudComment.adminWebApp.adminApiClient -[http]-> cloudComment.backendApi.adminApiController 'Выполняет admin API запросы'
 
-  cloudComment.adminWebApp.realtimeClient -[websocket]-> cloudComment.backendApi.realtimeGateway 'Получает owner-scoped уведомления о новых комментариях'
+  cloudComment.adminWebApp.realtimeClient -[websocket]-> cloudComment.backendApi.realtimeGateway 'Получает owner-scoped события comment.created и comment.moderation_action_applied'
 
   cloudComment.widgetRuntime.embedLoader -[internal]-> cloudComment.widgetRuntime.widgetShell 'Инициализирует виджет на странице'
 
@@ -342,6 +342,8 @@ model {
   cloudComment.backendApi.publicWidgetController -[internal]-> cloudComment.backendApi.commentModule 'Создает, получает, редактирует и soft-delete комментарии'
 
   cloudComment.backendApi.commentModule -[internal]-> cloudComment.backendApi.realtimeGateway 'Публикует события comment.created после сохранения комментария'
+
+  cloudComment.backendApi.moderationModule -[internal]-> cloudComment.backendApi.realtimeGateway 'Публикует события comment.moderation_action_applied после действий модерации'
 
   cloudComment.backendApi.realtimeGateway -[internal]-> cloudComment.backendApi.authModule 'Проверяет bearer token при WebSocket handshake'
 

@@ -29,12 +29,15 @@ import { PaginationControls } from '../../components/common/PaginationControls'
 import type {
   Comment,
   CommentStatus,
+  ModerationActionNotification,
   ModerationActionType,
   ModerationPriority,
+  NewCommentNotification,
   Site,
 } from '../../types/api'
 import { formatDateTime } from '../../utils/formatDate'
 import { getAvailableModerationActions } from '../../utils/moderationActions'
+import { useRealtimeEvent } from '../../components/realtime/useRealtime'
 
 const statusLabels: Record<CommentStatus, string> = {
   PENDING: 'На модерации',
@@ -152,6 +155,44 @@ const emptyFilters = {
   search: '',
 }
 
+function matchesCommentNotificationFilters(
+  payload: NewCommentNotification,
+  filters: typeof emptyFilters,
+): boolean {
+  if (filters.siteId && payload.siteId !== filters.siteId) {
+    return false
+  }
+  if (filters.pageId && payload.pageId !== filters.pageId.trim()) {
+    return false
+  }
+  if (filters.status && payload.status !== filters.status) {
+    return false
+  }
+  if (filters.pageUrl.trim() && !payload.pageUrl.includes(filters.pageUrl.trim())) {
+    return false
+  }
+  if (filters.search.trim() && !payload.contentPreview.toLowerCase().includes(filters.search.trim().toLowerCase())) {
+    return false
+  }
+  return true
+}
+
+function matchesModerationActionFilters(
+  payload: ModerationActionNotification,
+  filters: typeof emptyFilters,
+): boolean {
+  if (filters.siteId && payload.siteId !== filters.siteId) {
+    return false
+  }
+  if (filters.pageId && payload.pageId !== filters.pageId.trim()) {
+    return false
+  }
+  if (filters.status && payload.fromStatus !== filters.status && payload.toStatus !== filters.status) {
+    return false
+  }
+  return true
+}
+
 function getInitials(value: string): string {
   const trimmed = value.trim()
   return trimmed ? trimmed.slice(0, 2).toUpperCase() : '??'
@@ -233,6 +274,23 @@ const Moderation = () => {
 
   const siteNamesById = useMemo(() => new Map(sites.map((site) => [site.id, site.name])), [sites])
   const filtersApplied = Object.values(appliedFilters).some(Boolean)
+
+  useRealtimeEvent((event) => {
+    if (event.type === 'comment.created') {
+      const payload = event.payload as NewCommentNotification
+      if (matchesCommentNotificationFilters(payload, appliedFilters)) {
+        setReloadKey((current) => current + 1)
+      }
+      return
+    }
+
+    if (event.type === 'comment.moderation_action_applied') {
+      const payload = event.payload as ModerationActionNotification
+      if (matchesModerationActionFilters(payload, appliedFilters)) {
+        setReloadKey((current) => current + 1)
+      }
+    }
+  })
 
   useEffect(() => {
     let cancelled = false

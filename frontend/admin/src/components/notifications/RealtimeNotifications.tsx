@@ -1,14 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { Bell, BellRing, Circle, ExternalLink, WifiOff, X } from 'lucide-react'
 
-import { getRealtimeWebSocketUrl } from '../../config/env'
 import { useAuthStore } from '../../store'
-import type { CommentStatus, NewCommentNotification, RealtimeEnvelope } from '../../types/api'
+import type { CommentStatus, NewCommentNotification } from '../../types/api'
 import { formatDateTime } from '../../utils/formatDate'
-
-type ConnectionStatus = 'connecting' | 'connected' | 'disconnected'
+import { useRealtimeConnectionStatus, useRealtimeEvent } from '../realtime/useRealtime'
 
 interface CommentNotification extends NewCommentNotification {
   receivedAt: string
@@ -23,93 +21,28 @@ const statusLabels: Record<CommentStatus, string> = {
 }
 
 export function RealtimeNotifications() {
-  const token = useAuthStore((state) => state.token)
   const authStatus = useAuthStore((state) => state.status)
+  const connectionStatus = useRealtimeConnectionStatus()
   const navigate = useNavigate()
-  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('disconnected')
   const [notifications, setNotifications] = useState<CommentNotification[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
   const [isOpen, setIsOpen] = useState(false)
-  const reconnectTimerRef = useRef<number | null>(null)
-  const shouldReconnectRef = useRef(true)
 
   const latestNotifications = useMemo(() => notifications.slice(0, 6), [notifications])
 
-  useEffect(() => {
-    if (authStatus !== 'authenticated' || !token) {
+  useRealtimeEvent((event) => {
+    if (event.type !== 'comment.created') {
       return
     }
 
-    let websocket: WebSocket | null = null
-    let reconnectAttempt = 0
-    shouldReconnectRef.current = true
-
-    const clearReconnectTimer = () => {
-      if (reconnectTimerRef.current) {
-        window.clearTimeout(reconnectTimerRef.current)
-        reconnectTimerRef.current = null
-      }
+    const notification: CommentNotification = {
+      ...(event.payload as NewCommentNotification),
+      receivedAt: event.sentAt ?? new Date().toISOString(),
     }
-
-    const handleRealtimeMessage = (rawMessage: string) => {
-      let envelope: RealtimeEnvelope<NewCommentNotification>
-      try {
-        envelope = JSON.parse(rawMessage) as RealtimeEnvelope<NewCommentNotification>
-      } catch {
-        return
-      }
-
-      if (envelope.type !== 'comment.created') {
-        return
-      }
-
-      const notification: CommentNotification = {
-        ...envelope.payload,
-        receivedAt: envelope.sentAt ?? new Date().toISOString(),
-      }
-      setNotifications((current) => [notification, ...current].slice(0, 20))
-      setUnreadCount((current) => current + 1)
-      toast.success(`Новый комментарий: ${notification.siteName}`)
-    }
-
-    const connect = () => {
-      clearReconnectTimer()
-      setConnectionStatus('connecting')
-      websocket = new WebSocket(getRealtimeWebSocketUrl(token))
-
-      websocket.addEventListener('open', () => {
-        reconnectAttempt = 0
-        setConnectionStatus('connected')
-      })
-
-      websocket.addEventListener('message', (event) => {
-        handleRealtimeMessage(event.data)
-      })
-
-      websocket.addEventListener('close', () => {
-        setConnectionStatus('disconnected')
-        if (!shouldReconnectRef.current) {
-          return
-        }
-
-        reconnectAttempt += 1
-        const delay = Math.min(1000 * 2 ** reconnectAttempt, 10000)
-        reconnectTimerRef.current = window.setTimeout(connect, delay)
-      })
-
-      websocket.addEventListener('error', () => {
-        websocket?.close()
-      })
-    }
-
-    connect()
-
-    return () => {
-      shouldReconnectRef.current = false
-      clearReconnectTimer()
-      websocket?.close()
-    }
-  }, [authStatus, token])
+    setNotifications((current) => [notification, ...current].slice(0, 20))
+    setUnreadCount((current) => current + 1)
+    toast.success(`Новый комментарий: ${notification.siteName}`)
+  })
 
   function openPanel() {
     setIsOpen((current) => !current)
