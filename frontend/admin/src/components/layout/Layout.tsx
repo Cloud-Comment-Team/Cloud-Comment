@@ -5,6 +5,8 @@ import { Toaster } from 'react-hot-toast'
 
 import Header from './Header'
 import Sidebar from './Sidebar'
+import { RealtimeNotifications } from '../notifications/RealtimeNotifications'
+import { useAuthStore } from '../../store'
 import { PageTransition, RouteFlowOverlay } from './RouteTransition'
 import {
   FLOW_INTENT_TTL_MS,
@@ -17,6 +19,7 @@ import {
 const Layout = () => {
   const outlet = useOutlet()
   const location = useLocation()
+  const token = useAuthStore((state) => state.token)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [navigationIntent, setNavigationIntent] = useState<NavigationIntent | null>(null)
   const [mainBounds, setMainBounds] = useState<ElementBounds | null>(null)
@@ -106,6 +109,7 @@ const Layout = () => {
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} onNavigationIntent={captureNavigationIntent} />
       <div className="flex min-h-screen flex-col lg:pl-64">
         <Header onMenuClick={() => setSidebarOpen(true)} />
+        <RealtimeNotifications key={token ?? 'guest'} />
         <main className="flex-1 px-4 py-5 md:px-6 lg:px-8 lg:py-7">
           <div ref={mainRef} className="mx-auto grid w-full max-w-7xl">
             <AnimatePresence initial={false} mode="popLayout">

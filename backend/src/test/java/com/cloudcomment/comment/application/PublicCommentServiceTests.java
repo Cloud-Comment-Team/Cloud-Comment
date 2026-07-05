@@ -2,6 +2,7 @@ package com.cloudcomment.comment.application;
 
 import com.cloudcomment.auth.application.AuthenticatedUser;
 import com.cloudcomment.comment.domain.CommentAuthor;
+import com.cloudcomment.comment.domain.CommentCreatedEvent;
 import com.cloudcomment.comment.domain.CommentReactionSummary;
 import com.cloudcomment.comment.domain.CommentReactionType;
 import com.cloudcomment.comment.domain.CommentStatus;
@@ -12,8 +13,10 @@ import com.cloudcomment.site.domain.AutoModerationSettings;
 import com.cloudcomment.site.domain.AutoModerationStrictness;
 import com.cloudcomment.site.domain.ModerationMode;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -48,7 +51,8 @@ class PublicCommentServiceTests {
     @Test
     void createCommentCreatesPageAndUsesPendingStatusForPreModeration() {
         CapturingRepository repository = new CapturingRepository();
-        PublicCommentService service = service(repository, ModerationMode.PRE_MODERATION);
+        CapturingEventPublisher eventPublisher = new CapturingEventPublisher();
+        PublicCommentService service = service(repository, ModerationMode.PRE_MODERATION, eventPublisher);
         AuthenticatedUser user = currentUser();
         UUID siteId = UUID.randomUUID();
 
@@ -69,6 +73,17 @@ class PublicCommentServiceTests {
         assertThat(repository.createdContent).isEqualTo("Hello world");
         assertThat(repository.createdStatus).isEqualTo(CommentStatus.PENDING);
         assertThat(comment.status()).isEqualTo(CommentStatus.PENDING);
+        assertThat(eventPublisher.events).singleElement()
+            .satisfies(event -> {
+                CommentCreatedEvent createdEvent = (CommentCreatedEvent) event;
+                assertThat(createdEvent.siteId()).isEqualTo(siteId);
+                assertThat(createdEvent.pageId()).isEqualTo(repository.pageId);
+                assertThat(createdEvent.commentId()).isEqualTo(comment.id());
+                assertThat(createdEvent.parentId()).isNull();
+                assertThat(createdEvent.authorEmail()).isEqualTo(user.email());
+                assertThat(createdEvent.content()).isEqualTo("Hello world");
+                assertThat(createdEvent.status()).isEqualTo(CommentStatus.PENDING);
+            });
     }
 
     @Test
@@ -363,8 +378,22 @@ class PublicCommentServiceTests {
     }
 
     private PublicCommentService service(CapturingRepository repository, ModerationMode moderationMode) {
+        return service(repository, moderationMode, ignored -> {
+        });
+    }
+
+    private PublicCommentService service(
+        CapturingRepository repository,
+        ModerationMode moderationMode,
+        ApplicationEventPublisher eventPublisher
+    ) {
         repository.moderationMode = moderationMode;
-        return new PublicCommentService(new DomainPolicyService(repository), repository);
+        return new PublicCommentService(
+            new DomainPolicyService(repository),
+            repository,
+            new AutoModerationService(),
+            eventPublisher
+        );
     }
 
     private AuthenticatedUser currentUser() {
@@ -553,6 +582,16 @@ class PublicCommentServiceTests {
             deletedCommentId = commentId;
             deletedAuthorUserId = authorUserId;
             return deleteReturnsSuccess;
+        }
+    }
+
+    private static class CapturingEventPublisher implements ApplicationEventPublisher {
+
+        private final List<Object> events = new ArrayList<>();
+
+        @Override
+        public void publishEvent(Object event) {
+            events.add(event);
         }
     }
 }
