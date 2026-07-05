@@ -35,7 +35,7 @@ public interface PublicCommentRepository {
 
     boolean existsApprovedRootCommentOnPage(UUID pageId, UUID commentId);
 
-    CommentView createComment(
+    default CommentView createComment(
         UUID siteId,
         UUID pageId,
         UUID parentId,
@@ -44,9 +44,11 @@ public interface PublicCommentRepository {
         String authorEmail,
         String content,
         CommentStatus status
-    );
+    ) {
+        return createComment(siteId, pageId, parentId, authorUserId, authorName, authorEmail, content, status, null);
+    }
 
-    default CommentView createComment(
+    CommentView createComment(
         UUID siteId,
         UUID pageId,
         UUID parentId,
@@ -56,9 +58,7 @@ public interface PublicCommentRepository {
         String content,
         CommentStatus status,
         String moderationReason
-    ) {
-        return createComment(siteId, pageId, parentId, authorUserId, authorName, authorEmail, content, status);
-    }
+    );
 
     default boolean existsApprovedCommentInSite(UUID siteId, UUID commentId) {
         return false;

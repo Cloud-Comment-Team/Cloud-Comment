@@ -293,8 +293,10 @@ export function renderWidget(
     state.notice = null;
     render();
 
+    let submittedStatus: PublicComment["status"] | null = null;
     try {
       const createdComment = await api.createComment(content, parentId, state.token);
+      submittedStatus = createdComment.status;
       const refreshedComments = await api.listComments(state.token);
       state.comments = parentId
         ? mergeCreatedReply(createdComment, refreshedComments.items, parentId, state.comments)
@@ -315,6 +317,9 @@ export function renderWidget(
       }
       state.error = getErrorMessage(error);
     } finally {
+      if (submittedStatus) {
+        state.notice = getSubmissionNotice(submittedStatus, parentId !== null, replyAuthor);
+      }
       state.submitting = false;
       render();
     }
@@ -1412,6 +1417,22 @@ function getStatusLabel(status: PublicComment["status"]): string {
     return "Опубликован";
   }
   return status;
+}
+
+function getSubmissionNotice(
+  status: PublicComment["status"],
+  isReply: boolean,
+  replyAuthor: string | null
+): string {
+  if (status === "APPROVED") {
+    return isReply ? "Ответ опубликован." : "Комментарий опубликован.";
+  }
+
+  if (isReply) {
+    return `Ответ для ${replyAuthor ?? "комментария"} отправлен на проверку.`;
+  }
+
+  return "Комментарий отправлен на проверку.";
 }
 
 function getInitials(value: string): string {

@@ -4,6 +4,8 @@ import com.cloudcomment.access.application.ResourceOwnershipService;
 import com.cloudcomment.access.domain.OwnedResourceType;
 import com.cloudcomment.access.persistence.ResourceOwnershipRepository;
 import com.cloudcomment.auth.application.AuthenticatedUser;
+import com.cloudcomment.comment.application.AutoModerationService;
+import com.cloudcomment.comment.domain.CommentStatus;
 import com.cloudcomment.shared.error.ApplicationException;
 import com.cloudcomment.site.domain.AutoModerationSettings;
 import com.cloudcomment.site.domain.AutoModerationStrictness;
@@ -294,6 +296,40 @@ class SiteServiceTests {
     }
 
     @Test
+    void checkAutoModerationReturnsExplainableDecisionForOwnedSite() {
+        CapturingSiteRepository repository = new CapturingSiteRepository();
+        repository.existingAutoModeration = new AutoModerationSettings(
+            true,
+            AutoModerationStrictness.BALANCED,
+            List.of("casino"),
+            true,
+            false,
+            2
+        );
+        SiteService service = service(repository, true);
+
+        var decision = service.checkAutoModeration(currentUser(), UUID.randomUUID(), "К-а-з-и-н-о casino");
+
+        assertThat(decision.status()).isEqualTo(CommentStatus.SPAM);
+        assertThat(decision.score()).isGreaterThanOrEqualTo(90);
+        assertThat(decision.reason()).contains("Автомодерация");
+        assertThat(decision.signals())
+            .extracting("category")
+            .contains("CUSTOM_BLOCKED_WORD", "SPAM_PHRASE");
+    }
+
+    @Test
+    void checkAutoModerationMasksForeignOrMissingSiteAsNotFound() {
+        SiteService service = service(new CapturingSiteRepository(), false);
+
+        assertThatThrownBy(() -> service.checkAutoModeration(currentUser(), UUID.randomUUID(), "casino"))
+            .isInstanceOf(ApplicationException.class)
+            .hasMessage("Resource not found")
+            .extracting("code")
+            .hasToString("NOT_FOUND");
+    }
+
+    @Test
     void deleteSiteChecksOwnershipAndDeletesSite() {
         CapturingSiteRepository repository = new CapturingSiteRepository();
         SiteService service = service(repository, true);
@@ -338,7 +374,8 @@ class SiteServiceTests {
             new EmbedCodeService(new EmbedCodeProperties(
                 "http://localhost/widget/cloud-comment-widget.js",
                 "http://localhost/api"
-            ))
+            )),
+            new AutoModerationService()
         );
     }
 
@@ -385,6 +422,7 @@ class SiteServiceTests {
         private List<String> replacedAllowedOrigins;
         private UUID deletedSiteId;
         private boolean deleteReturnsFalse;
+        private AutoModerationSettings existingAutoModeration = AutoModerationSettings.defaultSettings();
 
         @Override
         public boolean deleteById(UUID siteId) {
@@ -402,7 +440,14 @@ class SiteServiceTests {
 
         @Override
         public Optional<Site> findById(UUID siteId) {
-            return Optional.of(site(siteId, UUID.randomUUID(), "example.com", List.of("https://example.com")));
+            return Optional.of(site(
+                siteId,
+                UUID.randomUUID(),
+                "example.com",
+                WidgetStyle.defaultStyle(),
+                existingAutoModeration,
+                List.of("https://example.com")
+            ));
         }
 
         @Override

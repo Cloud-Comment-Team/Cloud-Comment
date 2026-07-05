@@ -2,6 +2,9 @@ package com.cloudcomment.site.api;
 
 import com.cloudcomment.auth.application.AuthenticatedUser;
 import com.cloudcomment.auth.application.CurrentUserService;
+import com.cloudcomment.comment.application.AutoModerationDecision;
+import com.cloudcomment.comment.application.AutoModerationSignal;
+import com.cloudcomment.comment.domain.CommentStatus;
 import com.cloudcomment.shared.error.ApiErrorCode;
 import com.cloudcomment.shared.error.ApplicationException;
 import com.cloudcomment.site.application.EmbedCode;
@@ -529,6 +532,78 @@ class SiteControllerTests {
             .andExpect(jsonPath("$.dataAttributes.apiBaseUrl", is("http://localhost/api")));
 
         verify(siteService).getEmbedCode(currentUser, siteId);
+    }
+
+    @Test
+    void checkAutoModerationReturnsExplainableDecision() throws Exception {
+        AuthenticatedUser currentUser = currentUser();
+        UUID siteId = UUID.randomUUID();
+        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(siteService.checkAutoModeration(currentUser, siteId, "казино ставки"))
+            .thenReturn(new AutoModerationDecision(
+                CommentStatus.SPAM,
+                "Автомодерация: Спам-маркер: казино / азартные игры",
+                110,
+                List.of(new AutoModerationSignal("SPAM_PHRASE", 55, "Спам-маркер: казино / азартные игры"))
+            ));
+
+        mockMvc.perform(post("/api/sites/{siteId}/automoderation/check", siteId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "content": "казино ставки"
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.status", is("SPAM")))
+            .andExpect(jsonPath("$.score", is(110)))
+            .andExpect(jsonPath("$.reason", is("Автомодерация: Спам-маркер: казино / азартные игры")))
+            .andExpect(jsonPath("$.signals[0].category", is("SPAM_PHRASE")))
+            .andExpect(jsonPath("$.signals[0].score", is(55)))
+            .andExpect(jsonPath("$.signals[0].reason", is("Спам-маркер: казино / азартные игры")));
+    }
+
+    @Test
+    void checkAutoModerationReturnsNotFoundForForeignOrMissingSite() throws Exception {
+        AuthenticatedUser currentUser = currentUser();
+        UUID siteId = UUID.randomUUID();
+        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(siteService.checkAutoModeration(currentUser, siteId, "casino"))
+            .thenThrow(new ApplicationException(ApiErrorCode.NOT_FOUND, "Resource not found"));
+
+        mockMvc.perform(post("/api/sites/{siteId}/automoderation/check", siteId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "content": "casino"
+                    }
+                    """))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error.code", is("NOT_FOUND")))
+            .andExpect(jsonPath("$.error.message", is("Resource not found")));
+    }
+
+    @Test
+    void checkAutoModerationRejectsBlankContent() throws Exception {
+        AuthenticatedUser currentUser = currentUser();
+        UUID siteId = UUID.randomUUID();
+        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+
+        mockMvc.perform(post("/api/sites/{siteId}/automoderation/check", siteId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "content": " "
+                    }
+                    """))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code", is("VALIDATION_FAILED")))
+            .andExpect(jsonPath("$.error.path", is("/api/sites/" + siteId + "/automoderation/check")));
+
+        verifyNoInteractions(siteService);
     }
 
     @Test

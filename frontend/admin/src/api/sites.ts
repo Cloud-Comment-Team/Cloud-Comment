@@ -1,4 +1,5 @@
 import type {
+  AutoModerationCheckResponse,
   CreateSiteRequest,
   EmbedCode,
   PaginatedResponse,
@@ -49,6 +50,13 @@ export async function getEmbedCode(siteId: string): Promise<EmbedCode> {
 
 export async function deleteSite(siteId: string): Promise<void> {
   await apiClient.delete(`/sites/${siteId}`)
+}
+
+export async function checkAutoModeration(siteId: string, content: string): Promise<AutoModerationCheckResponse> {
+  const response = await apiClient.post<AutoModerationCheckResponse>(`/sites/${siteId}/automoderation/check`, {
+    content,
+  })
+  return response.data
 }
 
 export async function listAllSites(): Promise<Site[]> {

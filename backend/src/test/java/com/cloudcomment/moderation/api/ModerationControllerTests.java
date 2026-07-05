@@ -97,6 +97,7 @@ class ModerationControllerTests {
             .andExpect(jsonPath("$.items[0].author.email", is("author@example.com")))
             .andExpect(jsonPath("$.items[0].content", is("Comment body")))
             .andExpect(jsonPath("$.items[0].status", is("PENDING")))
+            .andExpect(jsonPath("$.items[0].moderationReason", is(comment.moderationReason())))
             .andExpect(jsonPath("$.items[0].replies", empty()))
             .andExpect(jsonPath("$.page", is(1)))
             .andExpect(jsonPath("$.pageSize", is(20)))
@@ -233,7 +234,8 @@ class ModerationControllerTests {
             .andExpect(jsonPath("$.id", is(comment.id().toString())))
             .andExpect(jsonPath("$.pageUrl", is("https://example.com/page")))
             .andExpect(jsonPath("$.content", is("Comment body")))
-            .andExpect(jsonPath("$.status", is("PENDING")));
+            .andExpect(jsonPath("$.status", is("PENDING")))
+            .andExpect(jsonPath("$.moderationReason", is(comment.moderationReason())));
     }
 
     @Test
@@ -324,6 +326,7 @@ class ModerationControllerTests {
             new CommentAuthor(ownerId, "author@example.com", "Author"),
             "Comment body",
             CommentStatus.PENDING,
+            "Автомодерация: Спам-маркер: казино / азартные игры",
             TIMESTAMP,
             TIMESTAMP
         );
@@ -347,6 +350,7 @@ class ModerationControllerTests {
             new CommentAuthor(ownerId, "reply@example.com", "Reply Author"),
             "Reply body",
             CommentStatus.PENDING,
+            "Автомодерация: Токсичный маркер: оскорбление",
             TIMESTAMP,
             TIMESTAMP
         );

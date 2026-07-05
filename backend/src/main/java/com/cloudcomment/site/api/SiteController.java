@@ -103,6 +103,19 @@ class SiteController {
         return EmbedCodeResponse.from(siteService.getEmbedCode(currentUser, siteId));
     }
 
+    @PostMapping("/{siteId}/automoderation/check")
+    AutoModerationCheckResponse checkAutoModeration(
+        @CurrentUser AuthenticatedUser currentUser,
+        @PathVariable UUID siteId,
+        @Valid @RequestBody AutoModerationCheckRequest request
+    ) {
+        return AutoModerationCheckResponse.from(siteService.checkAutoModeration(
+            currentUser,
+            siteId,
+            request.content()
+        ));
+    }
+
     @DeleteMapping("/{siteId}")
     ResponseEntity<Void> deleteSite(@CurrentUser AuthenticatedUser currentUser, @PathVariable UUID siteId) {
         siteService.deleteSite(currentUser, siteId);

@@ -13,6 +13,7 @@ public record Comment(
     CommentAuthor author,
     String body,
     CommentStatus status,
+    String moderationReason,
     Instant createdAt,
     Instant updatedAt
 ) {
