@@ -436,6 +436,153 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   await expect(commentsAfterAutomodResponse).toBeOK()
   expect(JSON.stringify(await commentsAfterAutomodResponse.json())).not.toContain(spamCommentText)
 
+  const policiesAfterLegacyResponse = await request.get(`${API_BASE_URL}/sites/${siteId}/automoderation/policies`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  await expect(policiesAfterLegacyResponse).toBeOK()
+  const policiesAfterLegacy = await policiesAfterLegacyResponse.json()
+  expect(policiesAfterLegacy.activePolicy).toMatchObject({
+    enabled: true,
+    preset: 'CUSTOM',
+    executionMode: 'LIVE',
+    active: true,
+  })
+
+  const createShadowDraftResponse = await request.post(`${API_BASE_URL}/sites/${siteId}/automoderation/policies`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { preset: 'CUSTOM', enabled: true, executionMode: 'SHADOW' },
+  })
+  expect(createShadowDraftResponse.status()).toBe(201)
+  const createdShadowDraft = await createShadowDraftResponse.json()
+  const shadowBlockedWord = `shadow-${suffix}`
+  const updateShadowDraftResponse = await request.patch(
+    `${API_BASE_URL}/sites/${siteId}/automoderation/policies/${createdShadowDraft.id}`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        expectedRevision: createdShadowDraft.revision,
+        enabled: true,
+        preset: 'CUSTOM',
+        executionMode: 'SHADOW',
+        reviewThreshold: 45,
+        spamThreshold: 90,
+        cleanAction: 'APPROVE',
+        linkAction: 'REVIEW',
+        maxLinks: 2,
+        blockedWords: [shadowBlockedWord],
+      },
+    },
+  )
+  await expect(updateShadowDraftResponse).toBeOK()
+  const shadowDraft = await updateShadowDraftResponse.json()
+
+  const simulateShadowResponse = await request.post(
+    `${API_BASE_URL}/sites/${siteId}/automoderation/policies/${shadowDraft.id}/simulate`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { content: `Проверка ${shadowBlockedWord}` },
+    },
+  )
+  await expect(simulateShadowResponse).toBeOK()
+  expect(await simulateShadowResponse.json()).toMatchObject({
+    decision: 'SPAM',
+    baselineStatus: 'APPROVED',
+    effectiveStatus: 'APPROVED',
+    applied: false,
+  })
+
+  const publishShadowResponse = await request.post(
+    `${API_BASE_URL}/sites/${siteId}/automoderation/policies/${shadowDraft.id}/publish`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        expectedRevision: shadowDraft.revision,
+        expectedActiveVersionId: policiesAfterLegacy.activePolicy.id,
+      },
+    },
+  )
+  await expect(publishShadowResponse).toBeOK()
+  const shadowPolicy = await publishShadowResponse.json()
+  expect(shadowPolicy).toMatchObject({ executionMode: 'SHADOW', active: true })
+
+  const shadowCommentText = `E2E shadow ${shadowBlockedWord}`
+  const createShadowCommentResponse = await request.post(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
+    headers: { Authorization: `Bearer ${token}`, Origin: ADMIN_ORIGIN },
+    data: { pageUrl, parentId: null, content: shadowCommentText },
+  })
+  expect(createShadowCommentResponse.status()).toBe(201)
+  const shadowComment = await createShadowCommentResponse.json()
+  expect(shadowComment).toMatchObject({ content: shadowCommentText, status: 'APPROVED' })
+  expect(shadowComment).not.toHaveProperty('autoModeration')
+
+  const shadowModerationResponse = await request.get(`${API_BASE_URL}/moderation/comments/${shadowComment.id}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  await expect(shadowModerationResponse).toBeOK()
+  expect(await shadowModerationResponse.json()).toMatchObject({
+    id: shadowComment.id,
+    status: 'APPROVED',
+    moderationReason: null,
+    autoModeration: {
+      policyVersionId: shadowPolicy.id,
+      executionMode: 'SHADOW',
+      decision: 'SPAM',
+      feedback: null,
+    },
+  })
+
+  const feedbackResponse = await request.put(
+    `${API_BASE_URL}/moderation/comments/${shadowComment.id}/automoderation-feedback`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { type: 'FALSE_POSITIVE' },
+    },
+  )
+  await expect(feedbackResponse).toBeOK()
+  expect(await feedbackResponse.json()).toMatchObject({ type: 'FALSE_POSITIVE' })
+
+  const createLiveDraftResponse = await request.post(`${API_BASE_URL}/sites/${siteId}/automoderation/policies`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { preset: 'CUSTOM', enabled: true, executionMode: 'LIVE' },
+  })
+  expect(createLiveDraftResponse.status()).toBe(201)
+  const liveDraft = await createLiveDraftResponse.json()
+  const publishLiveResponse = await request.post(
+    `${API_BASE_URL}/sites/${siteId}/automoderation/policies/${liveDraft.id}/publish`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        expectedRevision: liveDraft.revision,
+        expectedActiveVersionId: shadowPolicy.id,
+      },
+    },
+  )
+  await expect(publishLiveResponse).toBeOK()
+  const livePolicy = await publishLiveResponse.json()
+  expect(livePolicy).toMatchObject({ executionMode: 'LIVE', active: true })
+
+  const liveCommentText = `E2E live ${shadowBlockedWord}`
+  const createLiveCommentResponse = await request.post(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
+    headers: { Authorization: `Bearer ${token}`, Origin: ADMIN_ORIGIN },
+    data: { pageUrl, parentId: null, content: liveCommentText },
+  })
+  expect(createLiveCommentResponse.status()).toBe(201)
+  expect(await createLiveCommentResponse.json()).toMatchObject({ content: liveCommentText, status: 'SPAM' })
+
+  const rollbackShadowResponse = await request.post(
+    `${API_BASE_URL}/sites/${siteId}/automoderation/versions/${shadowPolicy.id}/rollback`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { expectedActiveVersionId: livePolicy.id },
+    },
+  )
+  await expect(rollbackShadowResponse).toBeOK()
+  expect(await rollbackShadowResponse.json()).toMatchObject({
+    executionMode: 'SHADOW',
+    active: true,
+    basedOnVersionId: shadowPolicy.id,
+  })
+
   const enablePreModerationResponse = await request.patch(`${API_BASE_URL}/sites/${siteId}`, {
     headers: {
       Authorization: `Bearer ${token}`,

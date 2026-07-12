@@ -1,5 +1,11 @@
 package com.cloudcomment.moderation.persistence;
 
+import com.cloudcomment.automoderation.domain.AutoModerationCommentMetadata;
+import com.cloudcomment.automoderation.domain.AutoModerationDecisionType;
+import com.cloudcomment.automoderation.domain.AutoModerationExecutionMode;
+import com.cloudcomment.automoderation.domain.AutoModerationFeedback;
+import com.cloudcomment.automoderation.domain.AutoModerationFeedbackType;
+import com.cloudcomment.automoderation.domain.AutoModerationSignalSnapshot;
 import com.cloudcomment.moderation.application.ModerationCommentFilters;
 import com.cloudcomment.moderation.application.ModerationCommentPage;
 import com.cloudcomment.moderation.domain.Comment;
@@ -13,6 +19,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -54,6 +62,18 @@ class JdbcCommentRepository implements CommentRepository {
             c.is_favorite,
             c.created_at,
             c.updated_at,
+            c.automod_policy_version_id,
+            ap.version as automod_policy_version,
+            c.automod_execution_mode,
+            c.automod_score,
+            c.automod_decision,
+            c.automod_signals,
+            c.automod_reason,
+            c.automod_evaluated_at,
+            af.id as automod_feedback_id,
+            af.owner_id as automod_feedback_owner_id,
+            af.feedback_type as automod_feedback_type,
+            af.created_at as automod_feedback_created_at,
             pc.author_user_id as parent_author_user_id,
             coalesce(pu.email, pc.author_email) as parent_author_email,
             coalesce(pu.display_name, pc.author_name, pc.author_email, pu.email) as parent_author_display_name,
@@ -81,9 +101,13 @@ class JdbcCommentRepository implements CommentRepository {
         left join app_users u on u.id = c.author_user_id
         left join comments pc on pc.id = c.parent_id
         left join app_users pu on pu.id = pc.author_user_id
+        left join automod_policy_versions ap on ap.id = c.automod_policy_version_id
+        left join automod_policy_feedback af
+          on af.comment_id = c.id and af.policy_version_id = c.automod_policy_version_id
         """;
 
     private final JdbcTemplate jdbcTemplate;
+    private final ObjectMapper objectMapper;
 
     @Override
     public ModerationCommentPage findByOwnerId(
@@ -294,9 +318,48 @@ class JdbcCommentRepository implements CommentRepository {
             ModerationPriority.fromScore(resultSet.getInt("smart_priority_score")),
             resultSet.getInt("smart_priority_score"),
             priorityReasons(resultSet),
+            mapAutoModeration(resultSet),
             toInstant(resultSet, "created_at"),
             toInstant(resultSet, "updated_at")
         );
+    }
+
+    private AutoModerationCommentMetadata mapAutoModeration(ResultSet resultSet) throws SQLException {
+        UUID policyVersionId = resultSet.getObject("automod_policy_version_id", UUID.class);
+        if (policyVersionId == null) {
+            return null;
+        }
+        UUID feedbackId = resultSet.getObject("automod_feedback_id", UUID.class);
+        AutoModerationFeedback feedback = feedbackId != null
+            ? new AutoModerationFeedback(
+                feedbackId,
+                resultSet.getObject("id", UUID.class),
+                policyVersionId,
+                resultSet.getObject("automod_feedback_owner_id", UUID.class),
+                AutoModerationFeedbackType.valueOf(resultSet.getString("automod_feedback_type")),
+                toInstant(resultSet, "automod_feedback_created_at")
+            )
+            : null;
+        return new AutoModerationCommentMetadata(
+            policyVersionId,
+            resultSet.getInt("automod_policy_version"),
+            AutoModerationExecutionMode.valueOf(resultSet.getString("automod_execution_mode")),
+            AutoModerationDecisionType.valueOf(resultSet.getString("automod_decision")),
+            resultSet.getInt("automod_score"),
+            resultSet.getString("automod_reason"),
+            deserializeSignals(resultSet.getString("automod_signals")),
+            toInstant(resultSet, "automod_evaluated_at"),
+            feedback
+        );
+    }
+
+    private List<AutoModerationSignalSnapshot> deserializeSignals(String json) throws SQLException {
+        try {
+            return objectMapper.readValue(json, new TypeReference<List<AutoModerationSignalSnapshot>>() {
+            });
+        } catch (RuntimeException exception) {
+            throw new SQLException("failed to deserialize auto-moderation signals", exception);
+        }
     }
 
     private ParentComment mapParentComment(ResultSet resultSet) throws SQLException {

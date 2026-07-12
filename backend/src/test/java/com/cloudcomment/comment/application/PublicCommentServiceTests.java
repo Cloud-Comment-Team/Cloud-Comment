@@ -1,6 +1,11 @@
 package com.cloudcomment.comment.application;
 
 import com.cloudcomment.auth.application.AuthenticatedUser;
+import com.cloudcomment.automoderation.application.AutoModerationEvaluation;
+import com.cloudcomment.automoderation.application.AutoModerationPolicyService;
+import com.cloudcomment.automoderation.domain.AutoModerationDecisionType;
+import com.cloudcomment.automoderation.domain.AutoModerationExecutionMode;
+import com.cloudcomment.automoderation.domain.AutoModerationSnapshot;
 import com.cloudcomment.comment.domain.CommentAuthor;
 import com.cloudcomment.comment.domain.CommentCreatedEvent;
 import com.cloudcomment.comment.domain.CommentReactionSummary;
@@ -171,7 +176,55 @@ class PublicCommentServiceTests {
         );
 
         assertThat(repository.createdStatus).isEqualTo(CommentStatus.SPAM);
-        assertThat(repository.createdModerationReason).contains("Стоп-слово владельца: blocked");
+        assertThat(repository.createdModerationReason).contains("Найдено стоп-слово владельца").doesNotContain("blocked");
+    }
+
+    @Test
+    void shadowEvaluationStoresSnapshotWithoutChangingStatusOrLegacyReason() {
+        CapturingRepository repository = new CapturingRepository();
+        repository.moderationMode = ModerationMode.POST_MODERATION;
+        AutoModerationPolicyService policyService = org.mockito.Mockito.mock(AutoModerationPolicyService.class);
+        UUID siteId = UUID.randomUUID();
+        UUID policyId = UUID.randomUUID();
+        org.mockito.Mockito.when(policyService.evaluateForComment(
+            siteId,
+            "casino free money",
+            CommentStatus.APPROVED,
+            CommentStatus.APPROVED
+        )).thenReturn(new AutoModerationEvaluation(
+            policyId,
+            AutoModerationExecutionMode.SHADOW,
+            130,
+            AutoModerationDecisionType.SPAM,
+            CommentStatus.APPROVED,
+            CommentStatus.APPROVED,
+            false,
+            "Автомодерация: Найден спам-маркер",
+            List.of(new AutoModerationSignal("SPAM_PHRASE", 130, "Найден спам-маркер")),
+            Instant.parse("2026-07-13T10:00:00Z")
+        ));
+        PublicCommentService service = new PublicCommentService(
+            new DomainPolicyService(
+                repository,
+                org.mockito.Mockito.mock(com.cloudcomment.site.application.SiteInstallationHealthService.class)
+            ),
+            repository,
+            new AutoModerationService(),
+            policyService,
+            ignored -> {
+            }
+        );
+
+        service.createComment(
+            currentUser(), siteId, "https://example.com", "https://example.com/page",
+            null, "casino free money"
+        );
+
+        assertThat(repository.createdStatus).isEqualTo(CommentStatus.APPROVED);
+        assertThat(repository.createdModerationReason).isNull();
+        assertThat(repository.createdAutoModeration.policyVersionId()).isEqualTo(policyId);
+        assertThat(repository.createdAutoModeration.decision()).isEqualTo(AutoModerationDecisionType.SPAM);
+        assertThat(repository.createdAutoModeration.reason()).isEqualTo("Автомодерация: Найден спам-маркер");
     }
 
     @Test
@@ -317,7 +370,7 @@ class PublicCommentServiceTests {
 
         assertThat(repository.updatedStatus).isEqualTo(CommentStatus.SPAM);
         assertThat(repository.updatedContent).isEqualTo("Now blocked");
-        assertThat(repository.updatedModerationReason).contains("Стоп-слово владельца: blocked");
+        assertThat(repository.updatedModerationReason).contains("Найдено стоп-слово владельца").doesNotContain("blocked");
 
         assertThatThrownBy(() -> service.updateOwnComment(
             user,
@@ -439,6 +492,7 @@ class PublicCommentServiceTests {
         private String createdContent;
         private CommentStatus createdStatus;
         private String createdModerationReason;
+        private AutoModerationSnapshot createdAutoModeration;
         private UUID checkedReactionSiteId;
         private UUID checkedReactionCommentId;
         private UUID reactionCommentId;
@@ -535,6 +589,25 @@ class PublicCommentServiceTests {
         ) {
             createdModerationReason = moderationReason;
             return createComment(siteId, pageId, parentId, authorUserId, authorName, authorEmail, content, status);
+        }
+
+        @Override
+        public CommentView createComment(
+            UUID siteId,
+            UUID pageId,
+            UUID parentId,
+            UUID authorUserId,
+            String authorName,
+            String authorEmail,
+            String content,
+            CommentStatus status,
+            String moderationReason,
+            AutoModerationSnapshot autoModeration
+        ) {
+            createdAutoModeration = autoModeration;
+            return createComment(
+                siteId, pageId, parentId, authorUserId, authorName, authorEmail, content, status, moderationReason
+            );
         }
 
         @Override

@@ -2,7 +2,7 @@ package com.cloudcomment.privacy.application;
 
 public final class ConsentTestSupport {
 
-    public static final String PRIVACY_POLICY_VERSION = "2026-07-01";
+    public static final String PRIVACY_POLICY_VERSION = "2026-07-12";
     public static final String TERMS_VERSION = "2026-07-01";
 
     private ConsentTestSupport() {

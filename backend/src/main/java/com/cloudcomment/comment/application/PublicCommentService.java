@@ -1,6 +1,9 @@
 package com.cloudcomment.comment.application;
 
 import com.cloudcomment.auth.application.AuthenticatedUser;
+import com.cloudcomment.automoderation.application.AutoModerationEvaluation;
+import com.cloudcomment.automoderation.application.AutoModerationPolicyService;
+import com.cloudcomment.automoderation.domain.AutoModerationSnapshot;
 import com.cloudcomment.comment.domain.CommentCreatedEvent;
 import com.cloudcomment.comment.domain.CommentReactionSummary;
 import com.cloudcomment.comment.domain.CommentReactionType;
@@ -27,6 +30,7 @@ public class PublicCommentService {
     private final DomainPolicyService domainPolicyService;
     private final PublicCommentRepository publicCommentRepository;
     private final AutoModerationService autoModerationService;
+    private final AutoModerationPolicyService autoModerationPolicyService;
     private final ApplicationEventPublisher eventPublisher;
 
     @Autowired
@@ -34,11 +38,13 @@ public class PublicCommentService {
         DomainPolicyService domainPolicyService,
         PublicCommentRepository publicCommentRepository,
         AutoModerationService autoModerationService,
+        AutoModerationPolicyService autoModerationPolicyService,
         ApplicationEventPublisher eventPublisher
     ) {
         this.domainPolicyService = domainPolicyService;
         this.publicCommentRepository = publicCommentRepository;
         this.autoModerationService = autoModerationService;
+        this.autoModerationPolicyService = autoModerationPolicyService;
         this.eventPublisher = eventPublisher;
     }
 
@@ -46,8 +52,17 @@ public class PublicCommentService {
         DomainPolicyService domainPolicyService,
         PublicCommentRepository publicCommentRepository
     ) {
-        this(domainPolicyService, publicCommentRepository, new AutoModerationService(), ignored -> {
+        this(domainPolicyService, publicCommentRepository, new AutoModerationService(), null, ignored -> {
         });
+    }
+
+    PublicCommentService(
+        DomainPolicyService domainPolicyService,
+        PublicCommentRepository publicCommentRepository,
+        AutoModerationService autoModerationService,
+        ApplicationEventPublisher eventPublisher
+    ) {
+        this(domainPolicyService, publicCommentRepository, autoModerationService, null, eventPublisher);
     }
 
     public PublicWidgetConfig getConfig(UUID siteId, String origin) {
@@ -154,11 +169,19 @@ public class PublicCommentService {
             throw notFound();
         }
 
-        AutoModerationDecision decision = autoModerationService.review(
-            normalizedContent,
-            access.autoModeration(),
-            initialStatus(access.moderationMode())
-        );
+        CommentStatus baseline = initialStatus(access.moderationMode());
+        AutoModerationEvaluation evaluation = autoModerationPolicyService != null
+            ? autoModerationPolicyService.evaluateForComment(
+                access.siteId(), normalizedContent, baseline, baseline
+            )
+            : null;
+        AutoModerationDecision decision = evaluation == null
+            ? autoModerationService.review(normalizedContent, access.autoModeration(), baseline)
+            : null;
+        CommentStatus effectiveStatus = evaluation != null ? evaluation.effectiveStatus() : decision.status();
+        String moderationReason = evaluation != null
+            ? evaluation.applied() ? evaluation.reason() : null
+            : decision.reason();
         CommentView comment = publicCommentRepository.createComment(
             access.siteId(),
             pageId,
@@ -167,8 +190,9 @@ public class PublicCommentService {
             currentUser.email(),
             currentUser.email(),
             normalizedContent,
-            decision.status(),
-            decision.reason()
+            effectiveStatus,
+            moderationReason,
+            snapshot(evaluation)
         );
         eventPublisher.publishEvent(new CommentCreatedEvent(
             comment.siteId(),
@@ -193,18 +217,30 @@ public class PublicCommentService {
     ) {
         WidgetSiteAccess access = domainPolicyService.validate(siteId, origin);
         String normalizedContent = normalizeContent(content);
-        AutoModerationDecision decision = autoModerationService.review(
-            normalizedContent,
-            access.autoModeration(),
-            initialStatus(access.moderationMode())
-        );
+        CommentStatus baseline = initialStatus(access.moderationMode());
+        CommentStatus currentStatus = autoModerationPolicyService != null
+            ? publicCommentRepository.findOwnCommentStatus(
+                access.siteId(), commentId, currentUser.id()
+            ).orElseThrow(this::notFound)
+            : baseline;
+        AutoModerationEvaluation evaluation = autoModerationPolicyService != null
+            ? autoModerationPolicyService.evaluateForComment(
+                access.siteId(), normalizedContent, baseline, currentStatus
+            )
+            : null;
+        AutoModerationDecision decision = evaluation == null
+            ? autoModerationService.review(normalizedContent, access.autoModeration(), baseline)
+            : null;
         return publicCommentRepository.updateOwnComment(
             access.siteId(),
             commentId,
             currentUser.id(),
             normalizedContent,
-            decision.status(),
-            decision.reason()
+            evaluation != null ? evaluation.effectiveStatus() : decision.status(),
+            evaluation != null
+                ? evaluation.applied() ? evaluation.reason() : null
+                : decision.reason(),
+            snapshot(evaluation)
         ).orElseThrow(this::notFound);
     }
 
@@ -267,6 +303,22 @@ public class PublicCommentService {
         return moderationMode == ModerationMode.PRE_MODERATION
             ? CommentStatus.PENDING
             : CommentStatus.APPROVED;
+    }
+
+    private AutoModerationSnapshot snapshot(AutoModerationEvaluation evaluation) {
+        if (evaluation == null) {
+            return null;
+        }
+        return new AutoModerationSnapshot(
+            evaluation.policyVersionId(),
+            evaluation.executionMode(),
+            evaluation.score(),
+            evaluation.decision(),
+            evaluation.safeSignals(),
+            evaluation.reason(),
+            evaluation.effectiveStatus(),
+            evaluation.evaluatedAt()
+        );
     }
 
     private ApplicationException notFound() {

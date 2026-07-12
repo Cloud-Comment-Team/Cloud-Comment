@@ -84,6 +84,11 @@ specification {
     color green
   }
 
+  relationship websocket {
+    line solid
+    color green
+  }
+
   relationship internal {
     line solid
     color indigo
@@ -170,6 +175,8 @@ model {
 
       moderationPages = component 'Страницы модерации' 'Компактная owner-scoped очередь, подробности, массовые действия, горячие клавиши и отмена'
 
+      automodPolicyPages = component 'Политика автомодерации' 'Черновик с optimistic revision, моделирование, SHADOW/LIVE, публикация, история, откат и feedback'
+
       analyticsPages = component 'Страницы аналитики' 'Дашборд владельца и аналитика конкретного сайта по комментариям, реакциям и модерации'
 
       adminApiClient = component 'Admin API Client' 'Единый клиент для запросов в backend API'
@@ -229,7 +236,7 @@ model {
 
       realtimeGateway = component 'Realtime Gateway' 'Одноразовые owner-bound WebSocket ticket-ы и owner-scoped доставка typed realtime-событий'
 
-      antiSpamModule = component 'Anti-spam / automoderation module' 'Правила автомодерации сайта, стоп-слова, ссылки, токсичные и спамные сигналы'
+      automodPolicyModule = component 'Automoderation policy module' 'Owner-scoped версии политик, mutable DRAFT с optimistic revision, immutable PUBLISHED, моделирование, SHADOW/LIVE, rollback, snapshots и feedback без внешнего AI'
 
       fileModule = component 'File module' 'Работа с файлами через MinIO, необязательная часть MVP'
 
@@ -301,6 +308,8 @@ model {
 
   cloudComment.adminWebApp.moderationPages -[internal]-> cloudComment.adminWebApp.adminApiClient 'Управляет модерацией'
 
+  cloudComment.adminWebApp.automodPolicyPages -[internal]-> cloudComment.adminWebApp.adminApiClient 'Управляет черновиком, моделированием, публикацией, откатом и feedback'
+
   cloudComment.adminWebApp.analyticsPages -[internal]-> cloudComment.adminWebApp.adminApiClient 'Запрашивает owner-scoped аналитику'
 
   cloudComment.adminWebApp.adminApiClient -[http]-> cloudComment.backendApi.adminApiController 'Выполняет admin API запросы'
@@ -337,6 +346,8 @@ model {
 
   cloudComment.backendApi.adminApiController -[internal]-> cloudComment.backendApi.moderationModule 'Выполняет действия модерации'
 
+  cloudComment.backendApi.adminApiController -[internal]-> cloudComment.backendApi.automodPolicyModule 'Обслуживает owner-scoped API политик и обратной связи'
+
   cloudComment.backendApi.adminApiController -[internal]-> cloudComment.backendApi.analyticsModule 'Возвращает аналитику владельца сайта'
 
   cloudComment.backendApi.adminApiController -[internal]-> cloudComment.backendApi.notificationModule 'Возвращает и отмечает owner-scoped уведомления'
@@ -361,7 +372,7 @@ model {
 
   cloudComment.backendApi.publicWidgetController -[internal]-> cloudComment.backendApi.accountPrivacyModule 'Обслуживает самообслуживание аккаунта в виджете: профиль, logout, экспорт данных и запрос удаления'
 
-  cloudComment.backendApi.publicWidgetController -[internal]-> cloudComment.backendApi.antiSpamModule 'Проверяет базовую антиспам-защиту'
+  cloudComment.backendApi.publicWidgetController -[internal]-> cloudComment.backendApi.automodPolicyModule 'Вычисляет решение активной политики без внешней передачи текста'
 
   cloudComment.backendApi.projectModule -[internal]-> cloudComment.backendApi.siteModule 'Использует site как проект MVP'
 
@@ -381,6 +392,8 @@ model {
 
   cloudComment.backendApi.moderationModule -[stores]-> cloudComment.backendApi.persistenceModule 'Обновляет статусы, pin и favorite flags комментариев'
 
+  cloudComment.backendApi.moderationModule -[internal]-> cloudComment.backendApi.automodPolicyModule 'Записывает owner-scoped FALSE_POSITIVE/FALSE_NEGATIVE без копии текста'
+
   cloudComment.backendApi.analyticsModule -[reads]-> cloudComment.backendApi.persistenceModule 'Агрегирует owner-scoped метрики из sites, pages, comments и comment_reactions'
 
   cloudComment.backendApi.notificationModule -[stores]-> cloudComment.backendApi.persistenceModule 'Хранит ссылки на владельца и комментарий, read_at и ключ дедупликации'
@@ -395,7 +408,9 @@ model {
 
   cloudComment.backendApi.domainPolicyModule -[reads]-> cloudComment.backendApi.siteModule 'Проверяет список разрешенных доменов'
 
-  cloudComment.backendApi.commentModule -[internal]-> cloudComment.backendApi.antiSpamModule 'Проверяет комментарий перед созданием и редактированием'
+  cloudComment.backendApi.commentModule -[internal]-> cloudComment.backendApi.automodPolicyModule 'Проверяет комментарий перед созданием и редактированием и сохраняет snapshot решения'
+
+  cloudComment.backendApi.automodPolicyModule -[stores]-> cloudComment.backendApi.persistenceModule 'Хранит V14 policy versions/state, comment snapshots и 90-дневный feedback без raw content в логах'
 
   cloudComment.backendApi.fileModule -[stores]-> cloudComment.minio 'Сохраняет файлы'
 
@@ -497,6 +512,7 @@ views {
     include cloudComment.backendApi.authModule
     include cloudComment.backendApi.accessPolicyModule
     include cloudComment.backendApi.moderationModule
+    include cloudComment.backendApi.automodPolicyModule
     include cloudComment.backendApi.commentModule
     include cloudComment.backendApi.auditLogModule
     include cloudComment.backendApi.persistenceModule
@@ -570,7 +586,7 @@ views {
 
     cloudComment.backendApi.publicWidgetController -> cloudComment.backendApi.domainPolicyModule 'Проверяет origin домена'
 
-    cloudComment.backendApi.publicWidgetController -> cloudComment.backendApi.antiSpamModule 'Применяет правила автомодерации сайта'
+    cloudComment.backendApi.publicWidgetController -> cloudComment.backendApi.automodPolicyModule 'Вычисляет score и решение активной версии политики'
 
     cloudComment.backendApi.publicWidgetController -> cloudComment.backendApi.pageModule 'Определяет страницу обсуждения'
 
@@ -635,6 +651,52 @@ views {
     cloudComment.adminWebApp.adminApiClient -> cloudComment.backendApi.adminApiController 'POST /api/moderation/actions/{actionId}/undo'
 
     cloudComment.backendApi.persistenceModule -> cloudComment.postgres 'INSERT moderation_actions (UNDO, reverts_action_id)'
+
+    websiteOwner -> cloudComment.adminWebApp.moderationPages 'Отмечает ложное срабатывание или пропуск'
+
+    cloudComment.adminWebApp.adminApiClient -> cloudComment.backendApi.adminApiController 'PUT /api/moderation/comments/{commentId}/automoderation-feedback'
+
+    cloudComment.backendApi.adminApiController -> cloudComment.backendApi.automodPolicyModule 'Проверяет владельца и записывает только тип feedback и ссылки'
+
+    cloudComment.backendApi.automodPolicyModule -> cloudComment.backendApi.persistenceModule 'UPSERT feedback с retention 90 дней'
+  }
+
+  dynamic view automod_policy_flow {
+    title 'Сценарий: владелец безопасно публикует политику автомодерации'
+
+    websiteOwner -> cloudComment.adminWebApp.automodPolicyPages 'Создает или изменяет черновик политики'
+
+    cloudComment.adminWebApp.automodPolicyPages -> cloudComment.adminWebApp.adminApiClient 'Передает expectedRevision'
+
+    cloudComment.adminWebApp.adminApiClient -> cloudComment.backendApi.adminApiController 'PATCH /api/sites/{siteId}/automoderation/policies/{policyId}'
+
+    cloudComment.backendApi.adminApiController -> cloudComment.backendApi.authModule 'Проверяет bearer-сессию'
+
+    cloudComment.backendApi.adminApiController -> cloudComment.backendApi.accessPolicyModule 'Проверяет владение сайтом'
+
+    cloudComment.backendApi.adminApiController -> cloudComment.backendApi.automodPolicyModule 'Сохраняет DRAFT только при совпавшей revision'
+
+    cloudComment.backendApi.automodPolicyModule -> cloudComment.backendApi.persistenceModule 'UPDATE DRAFT revision или 409 при гонке'
+
+    websiteOwner -> cloudComment.adminWebApp.automodPolicyPages 'Моделирует текст без сохранения комментария'
+
+    cloudComment.adminWebApp.adminApiClient -> cloudComment.backendApi.adminApiController 'POST /api/sites/{siteId}/automoderation/policies/{policyId}/simulate'
+
+    cloudComment.backendApi.adminApiController -> cloudComment.backendApi.automodPolicyModule 'Возвращает score, decision, effective status и безопасные signals'
+
+    websiteOwner -> cloudComment.adminWebApp.automodPolicyPages 'Публикует согласованную revision'
+
+    cloudComment.adminWebApp.adminApiClient -> cloudComment.backendApi.adminApiController 'POST /api/sites/{siteId}/automoderation/policies/{policyId}/publish'
+
+    cloudComment.backendApi.adminApiController -> cloudComment.backendApi.automodPolicyModule 'Проверяет expectedRevision и expectedActiveVersionId'
+
+    cloudComment.backendApi.automodPolicyModule -> cloudComment.backendApi.persistenceModule 'Фиксирует immutable PUBLISHED и active pointer либо возвращает 409'
+
+    websiteOwner -> cloudComment.adminWebApp.automodPolicyPages 'Возвращает выбранную старую версию'
+
+    cloudComment.adminWebApp.adminApiClient -> cloudComment.backendApi.adminApiController 'POST /api/sites/{siteId}/automoderation/versions/{versionId}/rollback'
+
+    cloudComment.backendApi.automodPolicyModule -> cloudComment.backendApi.persistenceModule 'Создает новую PUBLISHED с basedOnVersionId, не меняя историю'
   }
 
   deployment view deployment_mvp {

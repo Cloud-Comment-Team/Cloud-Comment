@@ -1,0 +1,60 @@
+{"id":"ru-safe-thanks","label":"SAFE","template":"Спасибо за полезный материал, вариант %s.","count":3,"tags":[]}
+{"id":"ru-safe-question","label":"SAFE","template":"Подскажите, когда выйдет следующая статья, вариант %s?","count":3,"tags":[]}
+{"id":"ru-safe-detail","label":"SAFE","template":"Описание понятное, особенно раздел про установку, вариант %s.","count":3,"tags":[]}
+{"id":"ru-safe-feedback","label":"SAFE","template":"Всё работает стабильно, благодарю команду, вариант %s.","count":3,"tags":[]}
+{"id":"ru-safe-correction","label":"SAFE","template":"В третьем абзаце стоит уточнить формулировку, вариант %s.","count":3,"tags":[]}
+{"id":"ru-safe-experience","label":"SAFE","template":"Пользуюсь сервисом неделю, впечатления положительные, вариант %s.","count":3,"tags":[]}
+{"id":"ru-safe-accessibility","label":"SAFE","template":"Навигация с клавиатуры стала удобнее, вариант %s.","count":3,"tags":[]}
+{"id":"ru-safe-mobile","label":"SAFE","template":"На мобильном экране страница читается хорошо, вариант %s.","count":3,"tags":[]}
+{"id":"ru-safe-release","label":"SAFE","template":"Обновление установилось без ошибок, вариант %s.","count":3,"tags":[]}
+{"id":"ru-safe-docs","label":"SAFE","template":"Документация отвечает на мой вопрос, вариант %s.","count":3,"tags":[]}
+{"id":"ru-safe-link-docs","label":"SAFE","template":"Дополнение есть на https://docs.example.com, вариант %s.","count":3,"tags":["legitimate"]}
+{"id":"ru-safe-link-source","label":"SAFE","template":"Исходный пример доступен на https://source.example.org, вариант %s.","count":3,"tags":["legitimate"]}
+{"id":"ru-safe-link-guide","label":"SAFE","template":"Полезная инструкция: https://guide.example.net, вариант %s.","count":3,"tags":["legitimate"]}
+{"id":"ru-safe-link-reference","label":"SAFE","template":"Сверился со справкой https://reference.example.dev, вариант %s.","count":3,"tags":["legitimate"]}
+{"id":"ru-safe-link-status","label":"SAFE","template":"Статус проекта опубликован на https://status.example.io, вариант %s.","count":3,"tags":["legitimate"]}
+{"id":"ru-safe-comparison","label":"SAFE","template":"Новый интерфейс аккуратнее предыдущего, вариант %s.","count":3,"tags":[]}
+{"id":"ru-safe-table","label":"SAFE","template":"Таблица помогла быстро сравнить параметры, вариант %s.","count":3,"tags":[]}
+{"id":"ru-safe-theme","label":"SAFE","template":"Тёмная тема выглядит спокойно и читаемо, вариант %s.","count":3,"tags":[]}
+{"id":"ru-safe-answer","label":"SAFE","template":"Ответ автора полностью решил проблему, вариант %s.","count":3,"tags":[]}
+{"id":"ru-safe-request","label":"SAFE","template":"Добавьте, пожалуйста, пример настройки, вариант %s.","count":3,"tags":[]}
+{"id":"ru-review-telegram","label":"REVIEW","template":"Напишите мне в telegram пользователю @helper_%s.","count":3,"tags":["contact"]}
+{"id":"ru-review-whatsapp","label":"REVIEW","template":"Продолжим разговор в whatsapp, кодовое имя %s.","count":3,"tags":["contact"]}
+{"id":"ru-review-viber","label":"REVIEW","template":"Свяжитесь со мной через viber, вариант %s.","count":3,"tags":["contact"]}
+{"id":"ru-review-handle","label":"REVIEW","template":"Подробности отправлю пользователю @private_helper_%s.","count":3,"tags":["contact"]}
+{"id":"ru-review-tme","label":"REVIEW","template":"Все ответы находятся в t.me/private_channel, вариант %s.","count":3,"tags":["contact"]}
+{"id":"ru-review-wame","label":"REVIEW","template":"Перейдите в wa.me/privatechat для ответа, вариант %s.","count":3,"tags":["contact"]}
+{"id":"ru-review-toxic-idiot","label":"REVIEW","template":"Автор ведёт себя как идиот, вариант %s.","count":3,"tags":["adversarial"]}
+{"id":"ru-review-toxic-fool","label":"REVIEW","template":"Какой же дурак написал этот текст, вариант %s.","count":3,"tags":["adversarial"]}
+{"id":"ru-review-toxic-dumb","label":"REVIEW","template":"Это очень тупой ответ, вариант %s.","count":3,"tags":["adversarial"]}
+{"id":"ru-review-toxic-hate","label":"REVIEW","template":"Ненавижу такой подход, вариант %s.","count":3,"tags":["adversarial"]}
+{"id":"ru-review-toxic-scum","label":"REVIEW","template":"Автор настоящая мразь, вариант %s.","count":3,"tags":["adversarial"]}
+{"id":"ru-review-toxic-fraud","label":"REVIEW","template":"Похоже на лохотрон, вариант %s.","count":3,"tags":["adversarial"]}
+{"id":"ru-review-casino","label":"REVIEW","template":"Обсудим казино отдельно, вариант %s.","count":3,"tags":["adversarial"]}
+{"id":"ru-review-bets","label":"REVIEW","template":"Мне предлагают ставки, вариант %s.","count":3,"tags":["adversarial"]}
+{"id":"ru-review-bookmaker","label":"REVIEW","template":"Здесь упомянут букмекер, вариант %s.","count":3,"tags":["adversarial"]}
+{"id":"ru-review-fast-income","label":"REVIEW","template":"Обещают быстрый заработок, вариант %s.","count":3,"tags":["adversarial"]}
+{"id":"ru-review-followers","label":"REVIEW","template":"Предлагают купить подписчиков, вариант %s.","count":3,"tags":["adversarial"]}
+{"id":"ru-review-loan","label":"REVIEW","template":"Рекламируют займ без отказа, вариант %s.","count":3,"tags":["adversarial"]}
+{"id":"ru-review-link-flood","label":"REVIEW","template":"Смотрите https://one.example.com https://two.example.com https://three.example.com, вариант %s.","count":3,"tags":["adversarial"]}
+{"id":"ru-review-obfuscated","label":"REVIEW","template":"Предлагают к-а-з-и-н-о, вариант %s.","count":3,"tags":["adversarial"]}
+{"id":"ru-spam-casino-bets","label":"SPAM","template":"Казино и ставки ждут вас, вариант %s.","count":3,"tags":["adversarial"]}
+{"id":"ru-spam-casino-income","label":"SPAM","template":"Казино и быстрый заработок, вариант %s.","count":3,"tags":["adversarial"]}
+{"id":"ru-spam-bets-bookmaker","label":"SPAM","template":"Ставки у букмекера, вариант %s.","count":3,"tags":["adversarial"]}
+{"id":"ru-spam-income-passive","label":"SPAM","template":"Быстрый заработок и пассивный доход, вариант %s.","count":3,"tags":["adversarial"]}
+{"id":"ru-spam-followers-cheap","label":"SPAM","template":"Купить подписчиков, подписчики дешево, вариант %s.","count":3,"tags":["adversarial"]}
+{"id":"ru-spam-loan-income","label":"SPAM","template":"Займ без отказа и быстрый заработок, вариант %s.","count":3,"tags":["adversarial"]}
+{"id":"ru-spam-casino-contact","label":"SPAM","template":"Казино, пишите в telegram @dealer_%s.","count":3,"tags":["adversarial"]}
+{"id":"ru-spam-bets-contact","label":"SPAM","template":"Ставки доступны через whatsapp, вариант %s.","count":3,"tags":["adversarial"]}
+{"id":"ru-spam-income-contact","label":"SPAM","template":"Быстрый заработок через viber, вариант %s.","count":3,"tags":["adversarial"]}
+{"id":"ru-spam-crypto-casino","label":"SPAM","template":"Крипто раздача и казино, вариант %s.","count":3,"tags":["adversarial"]}
+{"id":"ru-spam-pump-casino","label":"SPAM","template":"Накрутка активности для казино, вариант %s.","count":3,"tags":["adversarial"]}
+{"id":"ru-spam-pump-followers","label":"SPAM","template":"Накрутка и купить подписчиков, вариант %s.","count":3,"tags":["adversarial"]}
+{"id":"ru-spam-discount-casino","label":"SPAM","template":"Скидка 90 и казино, вариант %s.","count":3,"tags":["adversarial"]}
+{"id":"ru-spam-obfuscated-bets","label":"SPAM","template":"К-а-з-и-н-о и ставки, вариант %s.","count":3,"tags":["adversarial"]}
+{"id":"ru-spam-caps-contact","label":"SPAM","template":"БЫСТРЫЙ ЗАРАБОТОК ПИШИТЕ В TELEGRAM, вариант %s.","count":3,"tags":["adversarial"]}
+{"id":"ru-spam-three-links-contact","label":"SPAM","template":"telegram https://one.example.com https://two.example.com https://three.example.com, вариант %s.","count":3,"tags":["adversarial"]}
+{"id":"ru-spam-toxic-casino","label":"SPAM","template":"Идиот, иди в казино, вариант %s.","count":3,"tags":["adversarial"]}
+{"id":"ru-spam-toxic-bets","label":"SPAM","template":"Дурак предлагает ставки, вариант %s.","count":3,"tags":["adversarial"]}
+{"id":"ru-spam-toxic-income","label":"SPAM","template":"Тупой быстрый заработок, вариант %s.","count":3,"tags":["adversarial"]}
+{"id":"ru-spam-contact-followers","label":"SPAM","template":"Купить подписчиков через telegram @seller_%s.","count":3,"tags":["adversarial"]}

@@ -1,0 +1,60 @@
+{"id":"en-safe-thanks","label":"SAFE","template":"Thank you for the helpful article, variant %s.","count":3,"tags":[]}
+{"id":"en-safe-question","label":"SAFE","template":"When will the next guide be published, variant %s?","count":3,"tags":[]}
+{"id":"en-safe-detail","label":"SAFE","template":"The installation section is clear, variant %s.","count":3,"tags":[]}
+{"id":"en-safe-feedback","label":"SAFE","template":"Everything works reliably, variant %s.","count":3,"tags":[]}
+{"id":"en-safe-correction","label":"SAFE","template":"The third paragraph needs a clearer phrase, variant %s.","count":3,"tags":[]}
+{"id":"en-safe-experience","label":"SAFE","template":"I have used the service for a week and like it, variant %s.","count":3,"tags":[]}
+{"id":"en-safe-accessibility","label":"SAFE","template":"Keyboard navigation is much easier now, variant %s.","count":3,"tags":[]}
+{"id":"en-safe-mobile","label":"SAFE","template":"The page reads well on a mobile screen, variant %s.","count":3,"tags":[]}
+{"id":"en-safe-release","label":"SAFE","template":"The update installed without errors, variant %s.","count":3,"tags":[]}
+{"id":"en-safe-docs","label":"SAFE","template":"The documentation answers my question, variant %s.","count":3,"tags":[]}
+{"id":"en-safe-link-docs","label":"SAFE","template":"More details are at https://docs.example.com, variant %s.","count":3,"tags":["legitimate"]}
+{"id":"en-safe-link-source","label":"SAFE","template":"The source example is at https://source.example.org, variant %s.","count":3,"tags":["legitimate"]}
+{"id":"en-safe-link-guide","label":"SAFE","template":"This guide is useful: https://guide.example.net, variant %s.","count":3,"tags":["legitimate"]}
+{"id":"en-safe-link-reference","label":"SAFE","template":"I checked https://reference.example.dev, variant %s.","count":3,"tags":["legitimate"]}
+{"id":"en-safe-link-status","label":"SAFE","template":"Project status is at https://status.example.io, variant %s.","count":3,"tags":["legitimate"]}
+{"id":"en-safe-comparison","label":"SAFE","template":"The new interface feels calmer than before, variant %s.","count":3,"tags":[]}
+{"id":"en-safe-table","label":"SAFE","template":"The table made comparison quick, variant %s.","count":3,"tags":[]}
+{"id":"en-safe-theme","label":"SAFE","template":"The dark theme is readable and balanced, variant %s.","count":3,"tags":[]}
+{"id":"en-safe-answer","label":"SAFE","template":"The author answer solved the issue, variant %s.","count":3,"tags":[]}
+{"id":"en-safe-request","label":"SAFE","template":"Please add a configuration example, variant %s.","count":3,"tags":[]}
+{"id":"en-review-telegram","label":"REVIEW","template":"Contact me on telegram as @helper_%s.","count":3,"tags":["contact"]}
+{"id":"en-review-whatsapp","label":"REVIEW","template":"Continue the conversation in whatsapp, variant %s.","count":3,"tags":["contact"]}
+{"id":"en-review-viber","label":"REVIEW","template":"Reach me through viber, variant %s.","count":3,"tags":["contact"]}
+{"id":"en-review-handle","label":"REVIEW","template":"Send details to @private_helper_%s.","count":3,"tags":["contact"]}
+{"id":"en-review-tme","label":"REVIEW","template":"Answers are in t.me/private_channel, variant %s.","count":3,"tags":["contact"]}
+{"id":"en-review-wame","label":"REVIEW","template":"Open wa.me/privatechat for the reply, variant %s.","count":3,"tags":["contact"]}
+{"id":"en-review-casino","label":"REVIEW","template":"This message mentions casino, variant %s.","count":3,"tags":["adversarial"]}
+{"id":"en-review-viagra","label":"REVIEW","template":"This offer mentions viagra, variant %s.","count":3,"tags":["adversarial"]}
+{"id":"en-review-free-money","label":"REVIEW","template":"They promise free money, variant %s.","count":3,"tags":["adversarial"]}
+{"id":"en-review-crypto","label":"REVIEW","template":"It advertises crypto giveaway, variant %s.","count":3,"tags":["adversarial"]}
+{"id":"en-review-scam","label":"REVIEW","template":"This looks like a scam, variant %s.","count":3,"tags":["adversarial"]}
+{"id":"en-review-link-flood-one","label":"REVIEW","template":"See https://one.example.com https://two.example.com https://three.example.com, variant %s.","count":3,"tags":["adversarial"]}
+{"id":"en-review-link-flood-two","label":"REVIEW","template":"Sources: https://a.example.org https://b.example.org https://c.example.org, variant %s.","count":3,"tags":["adversarial"]}
+{"id":"en-review-casino-context","label":"REVIEW","template":"A casino advertisement appeared here, variant %s.","count":3,"tags":["adversarial"]}
+{"id":"en-review-money-context","label":"REVIEW","template":"The phrase free money is suspicious, variant %s.","count":3,"tags":["adversarial"]}
+{"id":"en-review-crypto-context","label":"REVIEW","template":"Someone posted crypto giveaway, variant %s.","count":3,"tags":["adversarial"]}
+{"id":"en-review-obfuscated","label":"REVIEW","template":"They wrote c-a-s-i-n-o, variant %s.","count":3,"tags":["adversarial"]}
+{"id":"en-review-contact-caps","label":"REVIEW","template":"CONTACT ME ON TELEGRAM, variant %s.","count":3,"tags":["adversarial"]}
+{"id":"en-review-handle-caps","label":"REVIEW","template":"WRITE TO @private_user_%s FOR DETAILS.","count":3,"tags":["adversarial"]}
+{"id":"en-review-repeated-scam","label":"REVIEW","template":"This is scam aaaaaa, variant %s.","count":3,"tags":["adversarial"]}
+{"id":"en-spam-casino-money","label":"SPAM","template":"Casino and free money offer, variant %s.","count":3,"tags":["adversarial"]}
+{"id":"en-spam-casino-crypto","label":"SPAM","template":"Casino crypto giveaway, variant %s.","count":3,"tags":["adversarial"]}
+{"id":"en-spam-money-crypto","label":"SPAM","template":"Free money crypto giveaway, variant %s.","count":3,"tags":["adversarial"]}
+{"id":"en-spam-viagra-casino","label":"SPAM","template":"Viagra casino promotion, variant %s.","count":3,"tags":["adversarial"]}
+{"id":"en-spam-viagra-money","label":"SPAM","template":"Viagra and free money, variant %s.","count":3,"tags":["adversarial"]}
+{"id":"en-spam-viagra-crypto","label":"SPAM","template":"Viagra crypto giveaway, variant %s.","count":3,"tags":["adversarial"]}
+{"id":"en-spam-casino-contact","label":"SPAM","template":"Casino, contact telegram @dealer_%s.","count":3,"tags":["adversarial"]}
+{"id":"en-spam-money-contact","label":"SPAM","template":"Free money through whatsapp, variant %s.","count":3,"tags":["adversarial"]}
+{"id":"en-spam-crypto-contact","label":"SPAM","template":"Crypto giveaway through viber, variant %s.","count":3,"tags":["adversarial"]}
+{"id":"en-spam-viagra-contact","label":"SPAM","template":"Viagra details at @seller_%s.","count":3,"tags":["adversarial"]}
+{"id":"en-spam-obfuscated-money","label":"SPAM","template":"C-a-s-i-n-o and free money, variant %s.","count":3,"tags":["adversarial"]}
+{"id":"en-spam-obfuscated-crypto","label":"SPAM","template":"C@sino crypto giveaway, variant %s.","count":3,"tags":["adversarial"]}
+{"id":"en-spam-three-links-contact","label":"SPAM","template":"telegram https://one.example.com https://two.example.com https://three.example.com, variant %s.","count":3,"tags":["adversarial"]}
+{"id":"en-spam-scam-casino","label":"SPAM","template":"Scam casino message, variant %s.","count":3,"tags":["adversarial"]}
+{"id":"en-spam-scam-money","label":"SPAM","template":"Scam free money message, variant %s.","count":3,"tags":["adversarial"]}
+{"id":"en-spam-scam-crypto","label":"SPAM","template":"Scam crypto giveaway, variant %s.","count":3,"tags":["adversarial"]}
+{"id":"en-spam-caps-casino","label":"SPAM","template":"CASINO FREE MONEY FOR EVERYONE, variant %s.","count":3,"tags":["adversarial"]}
+{"id":"en-spam-caps-crypto","label":"SPAM","template":"CRYPTO GIVEAWAY CONTACT TELEGRAM, variant %s.","count":3,"tags":["adversarial"]}
+{"id":"en-spam-repeated-casino","label":"SPAM","template":"Casino aaaaaa free money, variant %s.","count":3,"tags":["adversarial"]}
+{"id":"en-spam-contact-casino","label":"SPAM","template":"Message @promo_%s about casino, variant alpha.","count":3,"tags":["adversarial"]}

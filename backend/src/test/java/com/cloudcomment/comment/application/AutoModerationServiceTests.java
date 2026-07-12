@@ -31,7 +31,7 @@ class AutoModerationServiceTests {
 
         assertThat(decision.status()).isEqualTo(CommentStatus.SPAM);
         assertThat(decision.score()).isGreaterThanOrEqualTo(120);
-        assertThat(decision.reason()).contains("Стоп-слово владельца: casino");
+        assertThat(decision.reason()).contains("Найдено стоп-слово владельца").doesNotContain("casino");
         assertThat(decision.signals()).extracting(AutoModerationSignal::category)
             .contains("CUSTOM_BLOCKED_WORD");
     }
@@ -278,7 +278,7 @@ class AutoModerationServiceTests {
     }
 
     @Test
-    void longModerationReasonIsBounded() {
+    void repeatedBlockedWordSignalsDoNotExposeWordsInReason() {
         List<String> blockedWords = IntStream.rangeClosed(1, 8)
             .mapToObj(index -> "blockedword-" + index + "-" + "x".repeat(70))
             .toList();
@@ -298,6 +298,8 @@ class AutoModerationServiceTests {
         );
 
         assertThat(decision.status()).isEqualTo(CommentStatus.SPAM);
-        assertThat(decision.reason()).hasSizeLessThanOrEqualTo(500).endsWith("...");
+        assertThat(decision.reason())
+            .isEqualTo("Автомодерация: Найдено стоп-слово владельца")
+            .doesNotContain(blockedWords.toArray(String[]::new));
     }
 }

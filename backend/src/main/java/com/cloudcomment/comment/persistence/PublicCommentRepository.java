@@ -1,5 +1,6 @@
 package com.cloudcomment.comment.persistence;
 
+import com.cloudcomment.automoderation.domain.AutoModerationSnapshot;
 import com.cloudcomment.comment.application.CommentPage;
 import com.cloudcomment.comment.application.WidgetSite;
 import com.cloudcomment.comment.domain.CommentReactionSummary;
@@ -94,6 +95,23 @@ public interface PublicCommentRepository {
         String moderationReason
     );
 
+    default CommentView createComment(
+        UUID siteId,
+        UUID pageId,
+        UUID parentId,
+        UUID authorUserId,
+        String authorName,
+        String authorEmail,
+        String content,
+        CommentStatus status,
+        String moderationReason,
+        AutoModerationSnapshot autoModeration
+    ) {
+        return createComment(
+            siteId, pageId, parentId, authorUserId, authorName, authorEmail, content, status, moderationReason
+        );
+    }
+
     default boolean existsApprovedCommentInSite(UUID siteId, UUID commentId) {
         return false;
     }
@@ -106,6 +124,22 @@ public interface PublicCommentRepository {
         CommentStatus status,
         String moderationReason
     ) {
+        return Optional.empty();
+    }
+
+    default Optional<CommentView> updateOwnComment(
+        UUID siteId,
+        UUID commentId,
+        UUID authorUserId,
+        String content,
+        CommentStatus status,
+        String moderationReason,
+        AutoModerationSnapshot autoModeration
+    ) {
+        return updateOwnComment(siteId, commentId, authorUserId, content, status, moderationReason);
+    }
+
+    default Optional<CommentStatus> findOwnCommentStatus(UUID siteId, UUID commentId, UUID authorUserId) {
         return Optional.empty();
     }
 

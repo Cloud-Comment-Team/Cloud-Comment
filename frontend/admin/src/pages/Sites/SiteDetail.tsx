@@ -1,19 +1,15 @@
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Link, useBlocker, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Check, CircleCheck, CircleDashed, Copy, Globe, Palette, Power, ShieldCheck, Sparkles, Trash2, TriangleAlert } from 'lucide-react'
+import { ArrowLeft, Check, CircleCheck, CircleDashed, Copy, Globe, Palette, Power, Trash2, TriangleAlert } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 import { getApiErrorMessage } from '../../api/auth'
-import { checkAutoModeration, deleteSite, getEmbedCode, getInstallationStatus, getSite, replaceAllowedOrigins, updateSite } from '../../api/sites'
+import { deleteSite, getEmbedCode, getInstallationStatus, getSite, replaceAllowedOrigins, updateSite } from '../../api/sites'
 import { OwnerAnalyticsPanel } from '../../components/analytics/OwnerAnalyticsPanel'
 import { AsyncState } from '../../components/common/AsyncState'
 import { Badge } from '../../components/common/Badge'
 import { Dialog } from '../../components/common/Workspace'
 import type {
-  AutoModerationCheckResponse,
-  AutoModerationSettings,
-  AutoModerationStrictness,
-  CommentStatus,
   EmbedCode,
   ModerationMode,
   Site,
@@ -26,49 +22,7 @@ import { moderationModeLabels } from '../../utils/moderationModeLabels'
 import { DEFAULT_WIDGET_STYLE, isWidgetAccentAccessible } from '../../utils/widgetStyle'
 import { formatDateTime } from '../../utils/formatDate'
 
-function parseBlockedWords(value: string): string[] {
-  return Array.from(
-    new Set(
-      value
-        .split(/\r?\n|,/)
-        .map((word) => word.trim())
-        .filter(Boolean),
-    ),
-  )
-}
-
-function formatBlockedWords(words: string[]): string {
-  return words.join('\n')
-}
-
-const automodStrictnessLabels: Record<AutoModerationStrictness, string> = {
-  OFF: 'Выключена',
-  RELAXED: 'Мягкая',
-  BALANCED: 'Баланс',
-  STRICT: 'Строгая',
-}
-
-const automodStrictnessDescriptions: Record<Exclude<AutoModerationStrictness, 'OFF'>, string> = {
-  RELAXED: 'Меньше ложных срабатываний: держим только явные спам-сигналы.',
-  BALANCED: 'Оптимально для MVP: спам уходит в spam, сомнительное попадает в очередь.',
-  STRICT: 'Жестче для публичных сайтов: ссылки, капс и токсичность быстрее уходят на проверку.',
-}
-
-const automodStatusLabels: Record<CommentStatus, string> = {
-  PENDING: 'На проверке',
-  APPROVED: 'Будет опубликован',
-  REJECTED: 'Отклонен',
-  HIDDEN: 'Скрыт',
-  SPAM: 'Спам',
-}
-
-const automodStatusTones: Record<CommentStatus, 'success' | 'warning' | 'danger' | 'muted'> = {
-  PENDING: 'warning',
-  APPROVED: 'success',
-  REJECTED: 'danger',
-  HIDDEN: 'muted',
-  SPAM: 'danger',
-}
+const AutoModerationPolicyPanel = lazy(() => import('../../components/automoderation/AutoModerationPolicyPanel'))
 
 const reactionLabels: Record<CommentReactionType, string> = {
   LIKE: 'Нравится',
@@ -136,25 +90,14 @@ const SiteDetail = () => {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [policyDirty, setPolicyDirty] = useState(false)
+  const [pendingSection, setPendingSection] = useState<SiteWorkspaceSection | null>(null)
   const [name, setName] = useState('')
   const [domain, setDomain] = useState('')
   const [moderationMode, setModerationMode] = useState<ModerationMode>('PRE_MODERATION')
   const [widgetStyle, setWidgetStyle] = useState<WidgetStyle>(DEFAULT_WIDGET_STYLE)
   const previewRef = useRef<HTMLIFrameElement>(null)
   const installationRequestIdRef = useRef(0)
-  const [autoModeration, setAutoModeration] = useState<AutoModerationSettings>({
-    enabled: true,
-    strictness: 'BALANCED',
-    blockedWords: [],
-    holdLinks: true,
-    blockLinks: false,
-    maxLinks: 2,
-  })
-  const [autoModerationBlockedWords, setAutoModerationBlockedWords] = useState('')
-  const [autoModerationPreviewContent, setAutoModerationPreviewContent] = useState('')
-  const [autoModerationPreview, setAutoModerationPreview] = useState<AutoModerationCheckResponse | null>(null)
-  const [autoModerationPreviewError, setAutoModerationPreviewError] = useState<string | null>(null)
-  const [autoModerationPreviewLoading, setAutoModerationPreviewLoading] = useState(false)
   const [originsInput, setOriginsInput] = useState('')
   const [deleteConfirmation, setDeleteConfirmation] = useState('')
   const allowNavigationRef = useRef(false)
@@ -168,9 +111,8 @@ const SiteDetail = () => {
     || normalizeDomainInput(domain) !== site.domain
     || moderationMode !== site.moderationMode
     || JSON.stringify(widgetStyle) !== JSON.stringify(site.widgetStyle)
-    || JSON.stringify(autoModeration) !== JSON.stringify(site.autoModeration)
-    || formatBlockedWords(site.autoModeration.blockedWords) !== autoModerationBlockedWords
     || originsInput !== formatOriginsInput(site.allowedOrigins)
+    || policyDirty
   ) : false
   const hasNewerRejectedAttempt = Boolean(
     installationStatus?.lastRejectedAt
@@ -180,9 +122,6 @@ const SiteDetail = () => {
   const navigationBlocker = useBlocker(() => settingsDirty && !allowNavigationRef.current)
   const updateWidgetStyle = <K extends keyof WidgetStyle>(key: K, value: WidgetStyle[K]) => {
     setWidgetStyle((current) => ({ ...current, [key]: value }))
-  }
-  const updateAutoModeration = (patch: Partial<AutoModerationSettings>) => {
-    setAutoModeration((current) => ({ ...current, ...patch }))
   }
 
   useEffect(() => {
@@ -208,10 +147,6 @@ const SiteDetail = () => {
         setDomain(loadedSite.domain)
         setModerationMode(loadedSite.moderationMode)
         setWidgetStyle(loadedSite.widgetStyle)
-        setAutoModeration(loadedSite.autoModeration)
-        setAutoModerationBlockedWords(formatBlockedWords(loadedSite.autoModeration.blockedWords))
-        setAutoModerationPreview(null)
-        setAutoModerationPreviewError(null)
         setOriginsInput(formatOriginsInput(loadedSite.allowedOrigins))
       } catch (loadError) {
         if (!cancelled) {
@@ -285,15 +220,8 @@ const SiteDetail = () => {
       } else if (activeSection === 'moderation') {
         updatedSite = await updateSite(site.id, {
           moderationMode,
-          autoModeration: {
-            ...autoModeration,
-            strictness: autoModeration.enabled ? autoModeration.strictness : 'OFF',
-            blockedWords: parseBlockedWords(autoModerationBlockedWords),
-          },
         })
         setModerationMode(updatedSite.moderationMode)
-        setAutoModeration(updatedSite.autoModeration)
-        setAutoModerationBlockedWords(formatBlockedWords(updatedSite.autoModeration.blockedWords))
       } else if (activeSection === 'appearance') {
         if (!/^#[0-9a-fA-F]{6}$/.test(widgetStyle.accentColor)) {
           toast.error('Цвет виджета должен быть в формате #RRGGBB')
@@ -324,31 +252,6 @@ const SiteDetail = () => {
     }
   }
 
-  async function handleCheckAutoModeration() {
-    if (!site) {
-      return
-    }
-
-    const content = autoModerationPreviewContent.trim()
-    if (!content) {
-      setAutoModerationPreview(null)
-      setAutoModerationPreviewError('Введите пример комментария для проверки.')
-      return
-    }
-
-    setAutoModerationPreviewLoading(true)
-    setAutoModerationPreviewError(null)
-    try {
-      const result = await checkAutoModeration(site.id, content)
-      setAutoModerationPreview(result)
-    } catch (previewError) {
-      setAutoModerationPreview(null)
-      setAutoModerationPreviewError(getApiErrorMessage(previewError, 'Не удалось проверить текст.'))
-    } finally {
-      setAutoModerationPreviewLoading(false)
-    }
-  }
-
   async function handleToggleActive() {
     if (!site) {
       return
@@ -364,8 +267,6 @@ const SiteDetail = () => {
       setDomain(updatedSite.domain)
       setModerationMode(updatedSite.moderationMode)
       setWidgetStyle(updatedSite.widgetStyle)
-      setAutoModeration(updatedSite.autoModeration)
-      setAutoModerationBlockedWords(formatBlockedWords(updatedSite.autoModeration.blockedWords))
       setOriginsInput(formatOriginsInput(updatedSite.allowedOrigins))
       toast.success(updatedSite.isActive ? 'Сайт активирован' : 'Сайт деактивирован')
       void refreshInstallationStatus(false)
@@ -455,6 +356,21 @@ const SiteDetail = () => {
     }
   }
 
+  function handleSectionChange(section: SiteWorkspaceSection) {
+    if (activeSection === 'moderation' && section !== 'moderation' && policyDirty) {
+      setPendingSection(section)
+      return
+    }
+    setActiveSection(section)
+  }
+
+  function handleDiscardPolicyChanges() {
+    if (!pendingSection) return
+    setPolicyDirty(false)
+    setActiveSection(pendingSection)
+    setPendingSection(null)
+  }
+
   return (
     <div className="cc-page">
       <Link
@@ -498,7 +414,7 @@ const SiteDetail = () => {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setActiveSection('danger')}
+                  onClick={() => handleSectionChange('danger')}
                   disabled={saving}
                   className="cc-button-danger"
                 >
@@ -515,7 +431,7 @@ const SiteDetail = () => {
                   type="button"
                   className={activeSection === section.id ? 'cc-button-primary shrink-0' : 'cc-button-secondary shrink-0'}
                   aria-current={activeSection === section.id ? 'page' : undefined}
-                  onClick={() => setActiveSection(section.id)}
+                  onClick={() => handleSectionChange(section.id)}
                 >
                   {section.label}
                 </button>
@@ -638,204 +554,27 @@ const SiteDetail = () => {
                     <option value="DISABLED">Отключена</option>
                   </select>
                 </label>
-                <div
-                  className="rounded-lg border p-4 md:col-span-2"
-                  style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface-muted)' }}
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="flex min-w-0 gap-3">
-                      <span
-                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg"
-                        style={{ backgroundColor: 'var(--accent-bg)', color: 'var(--accent)' }}
-                      >
-                        <ShieldCheck className="h-5 w-5" aria-hidden="true" />
-                      </span>
-                      <div className="min-w-0">
-                        <h3 className="font-semibold" style={{ color: 'var(--text-h)' }}>
-                          Автомодерация
-                        </h3>
-                        <p className="mt-1 text-sm leading-6" style={{ color: 'var(--text)' }}>
-                          Прозрачные правила без внешнего AI: стоп-слова, ссылки, токсичность, спам и обфускация.
-                        </p>
-                      </div>
-                    </div>
-                    <Badge tone={autoModeration.enabled ? 'accent' : 'muted'}>
-                      {autoModeration.enabled
-                        ? automodStrictnessLabels[autoModeration.strictness]
-                        : automodStrictnessLabels.OFF}
-                    </Badge>
-                  </div>
-
-                  <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.9fr)]">
-                    <div className="space-y-4">
-                      <label className="inline-flex items-center gap-2 text-sm font-semibold" style={{ color: 'var(--text-h)' }}>
-                        <input
-                          type="checkbox"
-                          checked={autoModeration.enabled}
-                          onChange={(event) => updateAutoModeration({
-                            enabled: event.target.checked,
-                            strictness: event.target.checked ? autoModeration.strictness : 'OFF',
-                          })}
-                        />
-                        Включить автомодерацию
-                      </label>
-
-                      <div className="grid gap-4 md:grid-cols-2">
-                        <label className="block">
-                          <span className="mb-2 block text-sm font-medium" style={{ color: 'var(--text-h)' }}>
-                            Строгость
-                          </span>
-                          <select
-                            className="cc-field"
-                            value={autoModeration.strictness === 'OFF' ? 'BALANCED' : autoModeration.strictness}
-                            disabled={!autoModeration.enabled}
-                            onChange={(event) => updateAutoModeration({
-                              strictness: event.target.value as AutoModerationStrictness,
-                            })}
-                          >
-                            <option value="RELAXED">Мягкая</option>
-                            <option value="BALANCED">Баланс</option>
-                            <option value="STRICT">Строгая</option>
-                          </select>
-                          {autoModeration.enabled && autoModeration.strictness !== 'OFF' && (
-                            <span className="mt-2 block text-xs leading-5" style={{ color: 'var(--text)' }}>
-                              {automodStrictnessDescriptions[autoModeration.strictness as Exclude<AutoModerationStrictness, 'OFF'>]}
-                            </span>
-                          )}
-                        </label>
-
-                        <label className="block">
-                          <span className="mb-2 block text-sm font-medium" style={{ color: 'var(--text-h)' }}>
-                            Лимит ссылок
-                          </span>
-                          <input
-                            type="number"
-                            min={0}
-                            max={20}
-                            className="cc-field"
-                            value={autoModeration.maxLinks}
-                            disabled={!autoModeration.enabled}
-                            onChange={(event) => updateAutoModeration({
-                              maxLinks: Number(event.target.value),
-                            })}
-                          />
-                          <span className="mt-2 block text-xs leading-5" style={{ color: 'var(--text)' }}>
-                            Если ссылок больше лимита, комментарий попадет в очередь или spam.
-                          </span>
-                        </label>
-                      </div>
-
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        <label className="inline-flex items-center gap-2 text-sm" style={{ color: 'var(--text)' }}>
-                          <input
-                            type="checkbox"
-                            checked={autoModeration.holdLinks}
-                            disabled={!autoModeration.enabled}
-                            onChange={(event) => updateAutoModeration({ holdLinks: event.target.checked })}
-                          />
-                          Отправлять ссылки на проверку
-                        </label>
-                        <label className="inline-flex items-center gap-2 text-sm" style={{ color: 'var(--text)' }}>
-                          <input
-                            type="checkbox"
-                            checked={autoModeration.blockLinks}
-                            disabled={!autoModeration.enabled}
-                            onChange={(event) => updateAutoModeration({ blockLinks: event.target.checked })}
-                          />
-                          Любая ссылка сразу spam
-                        </label>
-                      </div>
-
-                      <label className="block">
-                        <span className="mb-2 block text-sm font-medium" style={{ color: 'var(--text-h)' }}>
-                          Стоп-слова владельца
-                        </span>
-                        <textarea
-                          className="cc-field min-h-28"
-                          placeholder={'казино, спам\nили по одному слову на строку'}
-                          value={autoModerationBlockedWords}
-                          disabled={!autoModeration.enabled}
-                          onChange={(event) => setAutoModerationBlockedWords(event.target.value)}
-                        />
-                        <span className="mt-2 block text-xs leading-5" style={{ color: 'var(--text)' }}>
-                          Эти слова сильнее дефолтных правил и сразу поднимают score.
-                        </span>
-                      </label>
-                    </div>
-
-                    <div
-                      className="rounded-lg border p-4"
-                      style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
-                    >
-                      <div className="mb-3 flex items-center gap-2">
-                        <Sparkles className="h-4 w-4" style={{ color: 'var(--accent)' }} aria-hidden="true" />
-                        <h4 className="font-semibold" style={{ color: 'var(--text-h)' }}>
-                          Проверить текст
-                        </h4>
-                      </div>
-                      <textarea
-                        className="cc-field min-h-28"
-                        placeholder="Например: казино ставки, быстрый заработок..."
-                        value={autoModerationPreviewContent}
-                        onChange={(event) => setAutoModerationPreviewContent(event.target.value)}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => void handleCheckAutoModeration()}
-                        disabled={autoModerationPreviewLoading}
-                        className="cc-button-secondary mt-3"
-                      >
-                        {autoModerationPreviewLoading ? 'Проверяем...' : 'Проверить'}
-                      </button>
-
-                      {autoModerationPreviewError && (
-                        <p className="mt-3 text-sm" style={{ color: 'var(--danger)' }}>
-                          {autoModerationPreviewError}
-                        </p>
-                      )}
-
-                      {autoModerationPreview && (
-                        <div
-                          className="mt-4 rounded-lg border p-3"
-                          style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface-muted)' }}
-                        >
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <Badge tone={automodStatusTones[autoModerationPreview.status]}>
-                              {automodStatusLabels[autoModerationPreview.status]}
-                            </Badge>
-                            <span className="text-sm font-semibold" style={{ color: 'var(--text-h)' }}>
-                              score {autoModerationPreview.score}
-                            </span>
-                          </div>
-                          {autoModerationPreview.reason && (
-                            <p className="mt-3 text-sm leading-6" style={{ color: 'var(--text-h)' }}>
-                              {autoModerationPreview.reason}
-                            </p>
-                          )}
-                          {autoModerationPreview.signals.length > 0 ? (
-                            <ul className="mt-3 space-y-2">
-                              {autoModerationPreview.signals.map((signal, index) => (
-                                <li
-                                  key={`${signal.category}-${index}`}
-                                  className="rounded-md border px-3 py-2 text-sm"
-                                  style={{ borderColor: 'var(--border)', color: 'var(--text)' }}
-                                >
-                                  <span className="font-semibold" style={{ color: 'var(--text-h)' }}>
-                                    +{signal.score} {signal.category}
-                                  </span>
-                                  <span className="block">{signal.reason}</span>
-                                </li>
-                              ))}
-                            </ul>
-                          ) : (
-                            <p className="mt-3 text-sm" style={{ color: 'var(--text)' }}>
-                              Сигналы не найдены: текст считается чистым.
-                            </p>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                <div className="md:col-span-2">
+                  <button
+                    type="button"
+                    onClick={() => void handleSaveSettings()}
+                    disabled={saving || moderationMode === site.moderationMode}
+                    className="cc-button-primary"
+                  >
+                    <Check className="h-4 w-4" aria-hidden="true" />
+                    {saving ? 'Сохраняем...' : 'Сохранить режим сайта'}
+                  </button>
+                  {moderationMode !== site.moderationMode && (
+                    <p className="mt-2 text-sm" role="status" style={{ color: 'var(--warning)' }}>
+                      Политика ниже пока моделируется для сохранённого режима «{moderationModeLabels[site.moderationMode]}».
+                      Сохраните новый режим сайта, чтобы применить его к расчётам.
+                    </p>
+                  )}
+                </div>
+                <div className="min-w-0 md:col-span-2">
+                  <Suspense fallback={<div className="cc-card p-5" role="status">Загружаем политики автомодерации…</div>}>
+                    <AutoModerationPolicyPanel siteId={site.id} moderationMode={site.moderationMode} onDirtyChange={setPolicyDirty} />
+                  </Suspense>
                 </div>
                 </>}
 
@@ -1005,7 +744,7 @@ const SiteDetail = () => {
                 </label>
                 )}
               </div>
-              <button
+              {activeSection !== 'moderation' && <button
                 type="button"
                 onClick={() => void handleSaveSettings()}
                 disabled={saving || (activeSection === 'appearance' && !widgetColorAccessible)}
@@ -1013,7 +752,7 @@ const SiteDetail = () => {
               >
                 <Check className="h-4 w-4" aria-hidden="true" />
                 {saving ? 'Сохраняем...' : 'Сохранить раздел'}
-              </button>
+              </button>}
             </section>}
 
             {activeSection === 'overview' && <OwnerAnalyticsPanel siteId={site.id} compact />}
@@ -1111,6 +850,21 @@ const SiteDetail = () => {
           </div>
         )}
       </AsyncState>
+      <Dialog
+        title="Несохранённые изменения политики"
+        open={pendingSection !== null}
+        onClose={() => setPendingSection(null)}
+        actions={(
+          <>
+            <button type="button" className="cc-button-secondary" onClick={() => setPendingSection(null)}>Остаться</button>
+            <button type="button" className="cc-button-primary" onClick={handleDiscardPolicyChanges}>Перейти без сохранения</button>
+          </>
+        )}
+      >
+        <p className="text-sm" style={{ color: 'var(--text)' }}>
+          Несохранённые поля черновика будут потеряны. Уже сохранённый на сервере черновик останется доступен.
+        </p>
+      </Dialog>
       <Dialog
         title="Несохранённые изменения"
         open={navigationBlocker.state === 'blocked'}

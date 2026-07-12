@@ -2,6 +2,8 @@ package com.cloudcomment.site.application;
 
 import com.cloudcomment.access.application.ResourceOwnershipService;
 import com.cloudcomment.auth.application.AuthenticatedUser;
+import com.cloudcomment.automoderation.application.AutoModerationEvaluation;
+import com.cloudcomment.automoderation.application.AutoModerationPolicyService;
 import com.cloudcomment.comment.application.AutoModerationDecision;
 import com.cloudcomment.comment.application.AutoModerationService;
 import com.cloudcomment.comment.domain.CommentStatus;
@@ -15,7 +17,7 @@ import com.cloudcomment.site.domain.AutoModerationStrictness;
 import com.cloudcomment.site.domain.WidgetStyle;
 import com.cloudcomment.site.persistence.SiteRepository;
 import com.cloudcomment.site.persistence.SiteUpdate;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,7 +27,6 @@ import java.util.Optional;
 import java.util.UUID;
 
 @Service
-@RequiredArgsConstructor
 public class SiteService {
 
     private static final int PUBLIC_KEY_CREATE_ATTEMPTS = 5;
@@ -35,6 +36,41 @@ public class SiteService {
     private final PublicKeyGenerator publicKeyGenerator;
     private final EmbedCodeService embedCodeService;
     private final AutoModerationService autoModerationService;
+    private final AutoModerationPolicyService autoModerationPolicyService;
+
+    @Autowired
+    public SiteService(
+        SiteRepository siteRepository,
+        ResourceOwnershipService resourceOwnershipService,
+        PublicKeyGenerator publicKeyGenerator,
+        EmbedCodeService embedCodeService,
+        AutoModerationService autoModerationService,
+        AutoModerationPolicyService autoModerationPolicyService
+    ) {
+        this.siteRepository = siteRepository;
+        this.resourceOwnershipService = resourceOwnershipService;
+        this.publicKeyGenerator = publicKeyGenerator;
+        this.embedCodeService = embedCodeService;
+        this.autoModerationService = autoModerationService;
+        this.autoModerationPolicyService = autoModerationPolicyService;
+    }
+
+    SiteService(
+        SiteRepository siteRepository,
+        ResourceOwnershipService resourceOwnershipService,
+        PublicKeyGenerator publicKeyGenerator,
+        EmbedCodeService embedCodeService,
+        AutoModerationService autoModerationService
+    ) {
+        this(
+            siteRepository,
+            resourceOwnershipService,
+            publicKeyGenerator,
+            embedCodeService,
+            autoModerationService,
+            null
+        );
+    }
 
     @Transactional(readOnly = true)
     public SitePage listSites(AuthenticatedUser currentUser, int page, int pageSize) {
@@ -84,7 +120,7 @@ public class SiteService {
 
         for (int attempt = 0; attempt < PUBLIC_KEY_CREATE_ATTEMPTS; attempt++) {
             try {
-                return siteRepository.create(
+                Site created = siteRepository.create(
                     currentUser.id(),
                     normalizedName,
                     normalizedDomain,
@@ -94,6 +130,10 @@ public class SiteService {
                     normalizedAutoModeration,
                     normalizedOrigins
                 );
+                if (autoModerationPolicyService != null) {
+                    autoModerationPolicyService.initializeSite(created.id());
+                }
+                return created;
             } catch (DuplicateKeyException exception) {
                 if (siteRepository.existsByOwnerIdAndDomain(currentUser.id(), normalizedDomain)) {
                     throw duplicateDomain();
@@ -163,14 +203,25 @@ public class SiteService {
             moderationMode,
             active,
             widgetStyle,
-            normalizedAutoModeration
+            autoModerationPolicyService != null ? null : normalizedAutoModeration
         );
-        if (!update.hasChanges()) {
+        if (!update.hasChanges() && normalizedAutoModeration == null) {
             return siteRepository.findById(siteId).orElseThrow(this::notFound);
         }
 
         try {
-            return siteRepository.update(siteId, update).orElseThrow(this::notFound);
+            if (autoModerationPolicyService != null && normalizedAutoModeration != null) {
+                autoModerationPolicyService.publishLegacySettings(
+                    currentUser,
+                    siteId,
+                    normalizedAutoModeration
+                );
+            }
+            if (!update.hasChanges()) {
+                return siteRepository.findById(siteId).orElseThrow(this::notFound);
+            }
+            Site updated = siteRepository.update(siteId, update).orElseThrow(this::notFound);
+            return updated;
         } catch (DuplicateKeyException exception) {
             throw duplicateDomain();
         }
@@ -202,6 +253,23 @@ public class SiteService {
         resourceOwnershipService.assertSiteOwnedBy(currentUser, siteId);
         Site site = siteRepository.findById(siteId).orElseThrow(this::notFound);
         String normalizedContent = normalizeCommentContent(content);
+        if (autoModerationPolicyService != null) {
+            CommentStatus baseline = initialCommentStatus(site.moderationMode());
+            AutoModerationEvaluation evaluation = autoModerationPolicyService.evaluateForComment(
+                siteId,
+                normalizedContent,
+                baseline,
+                baseline
+            );
+            if (evaluation != null) {
+                return new AutoModerationDecision(
+                    evaluation.effectiveStatus(),
+                    evaluation.reason(),
+                    evaluation.score(),
+                    evaluation.signals()
+                );
+            }
+        }
         return autoModerationService.review(
             normalizedContent,
             site.autoModeration(),
