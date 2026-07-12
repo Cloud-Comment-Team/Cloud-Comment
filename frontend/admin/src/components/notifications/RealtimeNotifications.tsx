@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
@@ -60,6 +60,7 @@ export function RealtimeNotifications() {
   const triggerRef = useRef<HTMLButtonElement>(null)
   const panelRef = useRef<HTMLElement>(null)
   const knownIdsRef = useRef(new Set<string>())
+  const restoreFocusRef = useRef(false)
   const panelId = useId()
 
   useEffect(() => {
@@ -104,9 +105,15 @@ export function RealtimeNotifications() {
   })
 
   function closePanel() {
+    restoreFocusRef.current = true
     setIsOpen(false)
-    window.requestAnimationFrame(() => triggerRef.current?.focus())
   }
+
+  useLayoutEffect(() => {
+    if (isOpen || !restoreFocusRef.current) return
+    restoreFocusRef.current = false
+    triggerRef.current?.focus({ preventScroll: true })
+  }, [isOpen])
 
   useEffect(() => {
     if (!isOpen) return
