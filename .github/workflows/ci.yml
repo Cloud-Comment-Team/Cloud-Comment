@@ -227,12 +227,14 @@ jobs:
           npm --prefix widget-frontend run build
       - name: Check bundle budgets
         run: node .github/scripts/check-bundle-budgets.mjs
-      - name: Install pinned Chromium
-        working-directory: frontend/admin
-        run: npx playwright install --with-deps chromium
-      - name: Run responsive and accessibility tests
-        working-directory: frontend/admin
-        run: npm run e2e:ux
+      - name: Run responsive and accessibility tests in pinned image
+        run: |
+          docker run --rm --ipc=host \
+            -v "$GITHUB_WORKSPACE:/work" \
+            -v /work/frontend/admin/node_modules \
+            -w /work/frontend/admin \
+            mcr.microsoft.com/playwright:v1.61.1-noble \
+            bash -lc "npm ci && npm run e2e:ux"
       - name: Upload UX report
         if: always()
         uses: actions/upload-artifact@v6
