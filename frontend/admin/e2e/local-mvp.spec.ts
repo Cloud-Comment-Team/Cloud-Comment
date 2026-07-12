@@ -42,7 +42,9 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   await page.getByRole('textbox', { name: 'Название' }).fill(siteName)
   await page.getByRole('textbox', { name: 'Домен' }).fill(domain)
   await page.getByLabel('Режим модерации').selectOption('POST_MODERATION')
-  await page.getByRole('textbox', { name: /Разрешённые origins/ }).fill(`${ADMIN_ORIGIN}\nhttp://127.0.0.1:5173`)
+  await page.getByRole('textbox', { name: /Разрешённые origins/ }).fill(
+    `${ADMIN_ORIGIN}\nhttp://127.0.0.1\nhttp://127.0.0.1:5173`,
+  )
   await page.getByLabel('Тема виджета').selectOption('DARK')
   await page.getByRole('textbox', { name: 'HEX акцентного цвета' }).fill(WIDGET_ACCENT_COLOR)
   await page.getByLabel('Скругления').selectOption('LARGE')
@@ -377,6 +379,8 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   const moderationPage = await context.newPage()
   await moderationPage.goto('/moderation')
   await expect(moderationPage.getByRole('heading', { name: 'Модерация комментариев' })).toBeVisible()
+  await moderationPage.getByRole('button', { name: 'Уведомления' }).click()
+  await expect(moderationPage.getByText('Подключено', { exact: true })).toBeVisible({ timeout: 15_000 })
 
   const realtimeCommentText = `E2E realtime comment ${suffix}`
   const realtimeCommentResponse = await request.post(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
@@ -450,6 +454,31 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   await expect(publicCommentsAfterPendingReply).toBeOK()
   const commentsAfterPendingReply = await publicCommentsAfterPendingReply.json()
   expect(JSON.stringify(commentsAfterPendingReply)).not.toContain(pendingWidgetReplyText)
+
+  const externalPage = await context.newPage()
+  await externalPage.goto(`http://127.0.0.1/demo-page.html?siteId=${siteId}`)
+  await externalPage.evaluate(
+    ({ currentSiteId, apiBaseUrl }) => {
+      window.CloudCommentWidget.init({
+        siteId: currentSiteId,
+        apiBaseUrl,
+        pageUrl: 'http://127.0.0.1/demo-page.html',
+        target: '#comments',
+      })
+    },
+    { currentSiteId: siteId!, apiBaseUrl: API_BASE_URL },
+  )
+  const externalWidget = externalPage.locator('#comments')
+  await expect(externalWidget.locator('.cloud-comment__title')).toHaveText('Комментарии')
+  await externalWidget.getByRole('button', { name: 'Регистрация' }).click()
+  await expect(externalWidget.getByRole('link', { name: 'политика' })).toHaveAttribute(
+    'href',
+    `${ADMIN_ORIGIN}/legal/privacy-policy.html`,
+  )
+  await expect(externalWidget.getByRole('link', { name: 'условия' })).toHaveAttribute(
+    'href',
+    `${ADMIN_ORIGIN}/legal/terms.html`,
+  )
 
   await moderationPage.getByRole('button', { name: 'Выйти' }).click()
   await expect(moderationPage).toHaveURL(/\/login$/)

@@ -756,7 +756,7 @@ function renderBody(state: WidgetState, options: Required<CloudCommentWidgetOpti
     body.append(renderCommentSort(state.sort), renderCommentList(state.comments, state));
   }
 
-  body.append(renderCommentForm(state), renderAccountSection(state, options), renderAuthSection(state));
+  body.append(renderCommentForm(state), renderAccountSection(state, options), renderAuthSection(state, options));
   return body;
 }
 
@@ -1166,7 +1166,7 @@ function createAccountLink(label: string, href: string, apiBaseUrl: string): HTM
   return link;
 }
 
-function renderAuthSection(state: WidgetState): HTMLElement {
+function renderAuthSection(state: WidgetState, options: Required<CloudCommentWidgetOptions>): HTMLElement {
   const section = document.createElement("section");
   section.className = "cloud-comment__auth";
 
@@ -1226,13 +1226,13 @@ function renderAuthSection(state: WidgetState): HTMLElement {
 
     if (state.consentRequirements) {
       const privacyLink = document.createElement("a");
-      privacyLink.href = state.consentRequirements.privacyPolicyUrl;
+      privacyLink.href = toCloudCommentUrl(state.consentRequirements.privacyPolicyUrl, options.apiBaseUrl);
       privacyLink.target = "_blank";
       privacyLink.rel = "noreferrer";
       privacyLink.textContent = "политика";
 
       const termsLink = document.createElement("a");
-      termsLink.href = state.consentRequirements.termsUrl;
+      termsLink.href = toCloudCommentUrl(state.consentRequirements.termsUrl, options.apiBaseUrl);
       termsLink.target = "_blank";
       termsLink.rel = "noreferrer";
       termsLink.textContent = "условия";
