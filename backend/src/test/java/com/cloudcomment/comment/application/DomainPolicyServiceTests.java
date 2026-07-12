@@ -5,6 +5,7 @@ import com.cloudcomment.comment.domain.CommentView;
 import com.cloudcomment.comment.persistence.PublicCommentRepository;
 import com.cloudcomment.shared.error.ApplicationException;
 import com.cloudcomment.site.domain.ModerationMode;
+import com.cloudcomment.site.application.SiteInstallationHealthService;
 import org.junit.jupiter.api.Test;
 
 import java.util.Optional;
@@ -12,13 +13,18 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 class DomainPolicyServiceTests {
 
     @Test
     void validateReturnsSiteAccessForActiveSiteAndAllowedOrigin() {
         CapturingRepository repository = new CapturingRepository();
-        DomainPolicyService service = new DomainPolicyService(repository);
+        SiteInstallationHealthService healthService = mock(SiteInstallationHealthService.class);
+        DomainPolicyService service = new DomainPolicyService(repository, healthService);
         UUID siteId = UUID.randomUUID();
 
         WidgetSiteAccess access = service.validate(siteId, "HTTPS://Example.com");
@@ -28,28 +34,64 @@ class DomainPolicyServiceTests {
         assertThat(access.siteId()).isEqualTo(siteId);
         assertThat(access.moderationMode()).isEqualTo(ModerationMode.PRE_MODERATION);
         assertThat(access.origin()).isEqualTo("https://example.com");
+        verifyNoInteractions(healthService);
     }
 
     @Test
     void validateMasksMissingSiteAndDisallowedOriginAsNotFound() {
         CapturingRepository repository = new CapturingRepository();
-        DomainPolicyService service = new DomainPolicyService(repository);
+        SiteInstallationHealthService healthService = mock(SiteInstallationHealthService.class);
+        DomainPolicyService service = new DomainPolicyService(repository, healthService);
 
+        UUID missingSiteId = UUID.randomUUID();
         repository.site = Optional.empty();
-        assertNotFound(() -> service.validate(UUID.randomUUID(), "https://example.com"));
+        assertNotFound(() -> service.validate(missingSiteId, "https://example.com"));
 
+        UUID disallowedSiteId = UUID.randomUUID();
         repository.site = Optional.of(new WidgetSite(UUID.randomUUID(), ModerationMode.PRE_MODERATION));
         repository.allowed = false;
-        assertNotFound(() -> service.validate(UUID.randomUUID(), "https://example.com"));
+        assertNotFound(() -> service.validate(disallowedSiteId, "https://example.com"));
 
         assertNotFound(() -> service.validate(UUID.randomUUID(), "not-an-origin"));
+        verifyNoInteractions(healthService);
     }
 
     @Test
     void isOriginAllowedReturnsFalseInsteadOfThrowing() {
-        DomainPolicyService service = new DomainPolicyService(new CapturingRepository(false));
+        DomainPolicyService service = new DomainPolicyService(
+            new CapturingRepository(false),
+            mock(SiteInstallationHealthService.class)
+        );
 
         assertThat(service.isOriginAllowed(UUID.randomUUID(), "https://example.com")).isFalse();
+    }
+
+    @Test
+    void regularPolicyChecksDoNotCreateFalseInstallationEvents() {
+        SiteInstallationHealthService healthService = mock(SiteInstallationHealthService.class);
+        DomainPolicyService service = new DomainPolicyService(new CapturingRepository(), healthService);
+
+        service.validate(UUID.randomUUID(), "https://example.com");
+
+        verifyNoInteractions(healthService);
+    }
+
+    @Test
+    void installationEventsAreNormalizedAndDiagnosticFailuresAreIgnored() {
+        SiteInstallationHealthService healthService = mock(SiteInstallationHealthService.class);
+        UUID siteId = UUID.randomUUID();
+        doThrow(new IllegalStateException("diagnostics unavailable"))
+            .when(healthService).recordSuccessfulOrigin(siteId, "https://example.com");
+        doThrow(new IllegalStateException("diagnostics unavailable"))
+            .when(healthService).recordRejectedOrigin(siteId, "https://blocked.example.com");
+        DomainPolicyService service = new DomainPolicyService(new CapturingRepository(), healthService);
+
+        service.recordSuccessfulInstallation(siteId, "HTTPS://Example.com");
+        service.recordRejectedInstallation(siteId, "https://BLOCKED.example.com");
+        service.recordRejectedInstallation(siteId, "not-an-origin");
+
+        verify(healthService).recordSuccessfulOrigin(siteId, "https://example.com");
+        verify(healthService).recordRejectedOrigin(siteId, "https://blocked.example.com");
     }
 
     private void assertNotFound(Runnable action) {

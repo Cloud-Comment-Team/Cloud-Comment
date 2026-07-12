@@ -30,6 +30,22 @@ class PublicCommentServiceTests {
     private static final Instant TIMESTAMP = Instant.parse("2026-06-28T12:00:00Z");
 
     @Test
+    void configUsesValidatedPolicyResult() {
+        UUID siteId = UUID.randomUUID();
+        DomainPolicyService domainPolicyService = org.mockito.Mockito.mock(DomainPolicyService.class);
+        PublicCommentRepository repository = org.mockito.Mockito.mock(PublicCommentRepository.class);
+        org.mockito.Mockito.when(domainPolicyService.validate(siteId, "HTTPS://Example.com"))
+            .thenReturn(new WidgetSiteAccess(siteId, ModerationMode.PRE_MODERATION, "https://example.com"));
+        PublicCommentService service = new PublicCommentService(domainPolicyService, repository);
+
+        PublicWidgetConfig config = service.getConfig(siteId, "HTTPS://Example.com");
+
+        assertThat(config.siteId()).isEqualTo(siteId);
+        org.mockito.Mockito.verify(domainPolicyService).validate(siteId, "HTTPS://Example.com");
+        org.mockito.Mockito.verifyNoMoreInteractions(domainPolicyService);
+    }
+
+    @Test
     void listCommentsReturnsEmptyPageWhenPageDoesNotExist() {
         CapturingRepository repository = new CapturingRepository();
         PublicCommentService service = service(repository, ModerationMode.POST_MODERATION);
@@ -389,7 +405,10 @@ class PublicCommentServiceTests {
     ) {
         repository.moderationMode = moderationMode;
         return new PublicCommentService(
-            new DomainPolicyService(repository),
+            new DomainPolicyService(
+                repository,
+                org.mockito.Mockito.mock(com.cloudcomment.site.application.SiteInstallationHealthService.class)
+            ),
             repository,
             new AutoModerationService(),
             eventPublisher

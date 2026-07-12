@@ -4,6 +4,7 @@ import com.cloudcomment.auth.application.AuthenticatedUser;
 import com.cloudcomment.shared.web.PaginatedResponse;
 import com.cloudcomment.shared.web.security.CurrentUser;
 import com.cloudcomment.site.application.SitePage;
+import com.cloudcomment.site.application.SiteInstallationHealthService;
 import com.cloudcomment.site.application.SiteService;
 import com.cloudcomment.site.domain.Site;
 import com.cloudcomment.site.domain.WidgetStyle;
@@ -34,6 +35,7 @@ import java.util.UUID;
 class SiteController {
 
     private final SiteService siteService;
+    private final SiteInstallationHealthService installationHealthService;
 
     @GetMapping
     PaginatedResponse<SiteResponse> listSites(
@@ -107,6 +109,14 @@ class SiteController {
     @GetMapping("/{siteId}/embed-code")
     EmbedCodeResponse getEmbedCode(@CurrentUser AuthenticatedUser currentUser, @PathVariable UUID siteId) {
         return EmbedCodeResponse.from(siteService.getEmbedCode(currentUser, siteId));
+    }
+
+    @GetMapping("/{siteId}/installation-status")
+    SiteInstallationStatusResponse getInstallationStatus(
+        @CurrentUser AuthenticatedUser currentUser,
+        @PathVariable UUID siteId
+    ) {
+        return SiteInstallationStatusResponse.from(installationHealthService.getStatus(currentUser, siteId));
     }
 
     @PostMapping("/{siteId}/automoderation/check")

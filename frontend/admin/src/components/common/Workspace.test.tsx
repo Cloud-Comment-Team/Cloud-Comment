@@ -21,4 +21,36 @@ describe('workspace components', () => {
     rerender(<Dialog title="Удаление" open onClose={() => undefined}>Текст</Dialog>)
     expect(screen.getByRole('dialog', { name: 'Удаление' })).toBeInTheDocument()
   })
+
+  it('удерживает фокус в диалоге, закрывается по Escape и возвращает фокус', () => {
+    const onClose = vi.fn()
+    const trigger = document.createElement('button')
+    trigger.textContent = 'Открыть'
+    document.body.append(trigger)
+    trigger.focus()
+
+    const { unmount } = render(
+      <Dialog
+        title="Несохранённые изменения"
+        open
+        onClose={onClose}
+        actions={<><button>Остаться</button><button>Уйти</button></>}
+      >
+        Текст
+      </Dialog>,
+    )
+
+    const stayButton = screen.getByRole('button', { name: 'Остаться' })
+    const leaveButton = screen.getByRole('button', { name: 'Уйти' })
+    expect(stayButton).toHaveFocus()
+    leaveButton.focus()
+    fireEvent.keyDown(document, { key: 'Tab' })
+    expect(stayButton).toHaveFocus()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledOnce()
+
+    unmount()
+    expect(trigger).toHaveFocus()
+    trigger.remove()
+  })
 })

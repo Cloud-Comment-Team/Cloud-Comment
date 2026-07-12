@@ -122,6 +122,28 @@ export interface EmbedCode {
   dataAttributes: Record<string, string>
 }
 
+export type InstallationStatus = 'NEVER_SEEN' | 'HEALTHY' | 'STALE' | 'REJECTED'
+export type InstallationStatusReason =
+  | 'WIDGET_NOT_SEEN'
+  | 'RECENT_SUCCESS'
+  | 'SUCCESS_STALE'
+  | 'ORIGIN_CONFIGURATION_CHANGED'
+  | 'ORIGIN_REJECTED'
+  | 'SITE_INACTIVE'
+
+export interface SiteInstallationStatus {
+  status: InstallationStatus
+  reason: InstallationStatusReason
+  siteCreated: boolean
+  originConfigured: boolean
+  widgetSeen: boolean
+  firstCommentReceived: boolean
+  lastSuccessfulOrigin: string | null
+  lastSuccessfulAt: string | null
+  lastRejectedOrigin: string | null
+  lastRejectedAt: string | null
+}
+
 export interface CommentAuthor {
   id: string | null
   email: string | null

@@ -9,11 +9,15 @@ import com.cloudcomment.shared.error.ApiErrorCode;
 import com.cloudcomment.shared.error.ApplicationException;
 import com.cloudcomment.site.application.EmbedCode;
 import com.cloudcomment.site.application.SitePage;
+import com.cloudcomment.site.application.SiteInstallationHealthService;
+import com.cloudcomment.site.application.SiteInstallationStatus;
 import com.cloudcomment.site.application.SiteService;
 import com.cloudcomment.site.domain.AutoModerationSettings;
 import com.cloudcomment.site.domain.AutoModerationStrictness;
 import com.cloudcomment.site.domain.ModerationMode;
 import com.cloudcomment.site.domain.Site;
+import com.cloudcomment.site.domain.InstallationStatus;
+import com.cloudcomment.site.domain.InstallationStatusReason;
 import com.cloudcomment.site.domain.WidgetCornerRadius;
 import com.cloudcomment.site.domain.WidgetStyle;
 import com.cloudcomment.site.domain.WidgetTheme;
@@ -66,6 +70,9 @@ class SiteControllerTests {
     @MockitoBean
     private SiteService siteService;
 
+    @MockitoBean
+    private SiteInstallationHealthService installationHealthService;
+
     @Test
     void sitesRequireBearerAuthentication() throws Exception {
         mockMvc.perform(get("/api/sites"))
@@ -110,6 +117,37 @@ class SiteControllerTests {
             .andExpect(jsonPath("$.pageSize", is(20)))
             .andExpect(jsonPath("$.totalItems", is(1)))
             .andExpect(jsonPath("$.totalPages", is(1)));
+    }
+
+    @Test
+    void installationStatusReturnsOwnerScopedHealthAndChecklist() throws Exception {
+        AuthenticatedUser currentUser = currentUser();
+        UUID siteId = UUID.randomUUID();
+        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(installationHealthService.getStatus(currentUser, siteId)).thenReturn(new SiteInstallationStatus(
+            InstallationStatus.REJECTED,
+            InstallationStatusReason.ORIGIN_REJECTED,
+            true,
+            true,
+            true,
+            false,
+            "https://example.com",
+            CREATED_AT,
+            "https://blocked.example.com",
+            UPDATED_AT
+        ));
+
+        mockMvc.perform(get("/api/sites/{siteId}/installation-status", siteId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.status", is("REJECTED")))
+            .andExpect(jsonPath("$.reason", is("ORIGIN_REJECTED")))
+            .andExpect(jsonPath("$.siteCreated", is(true)))
+            .andExpect(jsonPath("$.originConfigured", is(true)))
+            .andExpect(jsonPath("$.widgetSeen", is(true)))
+            .andExpect(jsonPath("$.firstCommentReceived", is(false)))
+            .andExpect(jsonPath("$.lastSuccessfulOrigin", is("https://example.com")))
+            .andExpect(jsonPath("$.lastRejectedOrigin", is("https://blocked.example.com")));
     }
 
     @Test

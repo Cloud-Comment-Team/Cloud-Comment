@@ -225,6 +225,8 @@ model {
 
       notificationModule = component 'Notification module' 'Постоянные owner-scoped уведомления, признак прочтения, дедупликация и 90-дневный retention'
 
+      installationHealthModule = component 'Installation health module' 'Owner-scoped состояние установки по безопасным успешным и отклонённым origin-событиям'
+
       realtimeGateway = component 'Realtime Gateway' 'Одноразовые owner-bound WebSocket ticket-ы и owner-scoped доставка typed realtime-событий'
 
       antiSpamModule = component 'Anti-spam / automoderation module' 'Правила автомодерации сайта, стоп-слова, ссылки, токсичные и спамные сигналы'
@@ -339,6 +341,8 @@ model {
 
   cloudComment.backendApi.adminApiController -[internal]-> cloudComment.backendApi.notificationModule 'Возвращает и отмечает owner-scoped уведомления'
 
+  cloudComment.backendApi.adminApiController -[internal]-> cloudComment.backendApi.installationHealthModule 'Возвращает статус установки и контрольный список владельца'
+
   cloudComment.backendApi.publicWidgetController -[internal]-> cloudComment.backendApi.domainPolicyModule 'Проверяет разрешенный домен'
 
   cloudComment.backendApi.publicWidgetController -[internal]-> cloudComment.backendApi.widgetConfigModule 'Отдает публичную конфигурацию виджета'
@@ -380,6 +384,10 @@ model {
   cloudComment.backendApi.analyticsModule -[reads]-> cloudComment.backendApi.persistenceModule 'Агрегирует owner-scoped метрики из sites, pages, comments и comment_reactions'
 
   cloudComment.backendApi.notificationModule -[stores]-> cloudComment.backendApi.persistenceModule 'Хранит ссылки на владельца и комментарий, read_at и ключ дедупликации'
+
+  cloudComment.backendApi.domainPolicyModule -[internal]-> cloudComment.backendApi.installationHealthModule 'После успешного /config или отклонённой config-попытки фиксирует нормализованный origin без URL страницы'
+
+  cloudComment.backendApi.installationHealthModule -[stores]-> cloudComment.backendApi.persistenceModule 'Хранит последнее успешное и отклонённое origin-событие с retention 30 дней для отклонений'
 
   cloudComment.backendApi.embedCodeModule -[reads]-> cloudComment.backendApi.siteModule 'Берет идентификатор сайта'
 
