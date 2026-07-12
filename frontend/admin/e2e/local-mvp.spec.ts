@@ -718,10 +718,56 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
     headers: {
       Authorization: `Bearer ${token}`,
     },
-    params: { range: '7d' },
+    params: { range: '7d', timeZone: 'Europe/Moscow' },
   })
   await expect(analyticsResponse).toBeOK()
-  expect((await analyticsResponse.json()).summary.comments).toBeGreaterThan(0)
+  const analytics = await analyticsResponse.json()
+  expect(analytics).toMatchObject({
+    range: '7d',
+    timeZone: 'Europe/Moscow',
+    bucketGranularity: 'DAY',
+  })
+  expect(analytics.summary.comments).toBeGreaterThan(0)
+  expect(analytics.comparison.comments.current).toBe(analytics.summary.comments)
+  expect(analytics.workload.requiringDecision).toBeGreaterThan(0)
+  expect(analytics.workload.automaticDecisions).toBeGreaterThan(0)
+  expect(analytics.workload.manualDecisions).toBeGreaterThan(0)
+  expect(analytics.workload.undoActions).toBeGreaterThan(0)
+  expect(analytics.moderationDistribution).toEqual(analytics.moderationFunnel)
+
+  for (const [range, bucketGranularity] of [['30d', 'DAY'], ['90d', 'WEEK']] as const) {
+    const rangedAnalyticsResponse = await request.get(`${API_BASE_URL}/analytics/owner`, {
+      headers: { Authorization: `Bearer ${token}` },
+      params: { range, timeZone: 'America/New_York' },
+    })
+    await expect(rangedAnalyticsResponse).toBeOK()
+    expect(await rangedAnalyticsResponse.json()).toMatchObject({
+      range,
+      timeZone: 'America/New_York',
+      bucketGranularity,
+      comparison: {
+        comments: { current: expect.any(Number), previous: expect.any(Number) },
+      },
+    })
+  }
+
+  const allTimeAnalyticsResponse = await request.get(`${API_BASE_URL}/analytics/owner`, {
+    headers: { Authorization: `Bearer ${token}` },
+    params: { range: 'all', timeZone: 'UTC' },
+  })
+  await expect(allTimeAnalyticsResponse).toBeOK()
+  expect(await allTimeAnalyticsResponse.json()).toMatchObject({
+    range: 'all',
+    timeZone: 'UTC',
+    bucketGranularity: 'MONTH',
+    comparison: null,
+  })
+
+  const invalidTimeZoneResponse = await request.get(`${API_BASE_URL}/analytics/owner`, {
+    headers: { Authorization: `Bearer ${token}` },
+    params: { range: '7d', timeZone: 'Mars/Olympus' },
+  })
+  expect(invalidTimeZoneResponse.status()).toBe(400)
 
   await page.goto(`/demo-page.html?siteId=${siteId}`)
 
