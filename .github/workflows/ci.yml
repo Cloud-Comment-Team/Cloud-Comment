@@ -13,6 +13,19 @@ permissions:
   pull-requests: write
 
 jobs:
+  artifacts:
+    name: Russian Artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+      - name: Validate Russian artifacts and UTF-8
+        run: node .github/scripts/validate-russian-artifacts.mjs
+
   backend:
     name: Backend Tests And Coverage
     runs-on: ubuntu-latest
@@ -181,3 +194,49 @@ jobs:
 
       - name: Validate compose config
         run: docker compose config --quiet
+
+  ux-e2e:
+    name: UX E2E
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: |
+            frontend/admin/package-lock.json
+            widget-frontend/package-lock.json
+      - name: Install admin dependencies
+        working-directory: frontend/admin
+        run: npm ci
+      - name: Install widget dependencies
+        working-directory: widget-frontend
+        run: npm ci
+      - name: Run admin unit tests
+        working-directory: frontend/admin
+        run: npm test
+      - name: Build Storybook
+        working-directory: frontend/admin
+        run: npm run build-storybook
+      - name: Build frontend packages
+        run: |
+          npm --prefix frontend/admin run build
+          npm --prefix widget-frontend run build
+      - name: Check bundle budgets
+        run: node .github/scripts/check-bundle-budgets.mjs
+      - name: Install pinned Chromium
+        working-directory: frontend/admin
+        run: npx playwright install --with-deps chromium
+      - name: Run responsive and accessibility tests
+        working-directory: frontend/admin
+        run: npm run e2e:ux
+      - name: Upload UX report
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: ux-e2e-report
+          path: frontend/admin/playwright-report
+          if-no-files-found: ignore

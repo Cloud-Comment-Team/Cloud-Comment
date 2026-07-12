@@ -30,6 +30,7 @@ jobs:
       DEPLOY_PATH: ${{ vars.CLOUD_COMMENT_DEPLOY_PATH }}
       PUBLIC_BASE_URL: ${{ vars.CLOUD_COMMENT_PUBLIC_BASE_URL }}
       DEPLOY_SSH_KEY: ${{ secrets.CLOUD_COMMENT_DEPLOY_SSH_KEY }}
+      RELEASE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
 
     steps:
       - name: Checkout
@@ -112,10 +113,15 @@ jobs:
       - name: Upload release
         run: |
           ssh -i ~/.ssh/cloud-comment-deploy -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
-            "if ! command -v rsync >/dev/null 2>&1; then sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y rsync; fi; mkdir -p '$DEPLOY_PATH/current'"
+            "if ! command -v rsync >/dev/null 2>&1; then sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y rsync; fi; mkdir -p '$DEPLOY_PATH/releases/$RELEASE_SHA' '$DEPLOY_PATH/shared'"
           rsync -az --delete \
             -e "ssh -i ~/.ssh/cloud-comment-deploy -p $DEPLOY_PORT" \
-            .deploy-package/ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/current/"
+            .deploy-package/ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/releases/$RELEASE_SHA/"
+
+      - name: Activate release atomically
+        run: |
+          ssh -i ~/.ssh/cloud-comment-deploy -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
+            "set -eu; previous=; if [ -L '$DEPLOY_PATH/current' ]; then previous=\$(readlink -f '$DEPLOY_PATH/current'); elif [ -d '$DEPLOY_PATH/current' ]; then previous='$DEPLOY_PATH/releases/legacy-'\$(date +%Y%m%d%H%M%S); mv '$DEPLOY_PATH/current' \"\$previous\"; fi; printf '%s\n' \"\$previous\" > '$DEPLOY_PATH/shared/previous-release'; ln -sfn '$DEPLOY_PATH/releases/$RELEASE_SHA' '$DEPLOY_PATH/current.next'; mv -Tf '$DEPLOY_PATH/current.next' '$DEPLOY_PATH/current'"
 
       - name: Apply server config and restart
         run: |
@@ -130,4 +136,15 @@ jobs:
             fi
             sleep 5
           done
+          previous="$(ssh -i ~/.ssh/cloud-comment-deploy -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" "cat '$DEPLOY_PATH/shared/previous-release' 2>/dev/null || true")"
+          if [ -n "$previous" ] && ssh -i ~/.ssh/cloud-comment-deploy -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" "test -d '$previous'"; then
+            ssh -i ~/.ssh/cloud-comment-deploy -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
+              "set -eu; ln -sfn '$previous' '$DEPLOY_PATH/current.next'; mv -Tf '$DEPLOY_PATH/current.next' '$DEPLOY_PATH/current'; sudo APP_DIR='$DEPLOY_PATH' APP_USER='$DEPLOY_USER' CLOUD_COMMENT_PUBLIC_BASE_URL='$PUBLIC_BASE_URL' bash '$DEPLOY_PATH/current/deploy/server/bootstrap.sh'"
+          fi
           exit 1
+
+      - name: Keep three latest releases
+        if: success()
+        run: |
+          ssh -i ~/.ssh/cloud-comment-deploy -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
+            "set -eu; cd '$DEPLOY_PATH/releases'; count=0; for release in \$(ls -1dt -- */ 2>/dev/null || true); do count=\$((count + 1)); if [ \$count -gt 3 ]; then candidate=\$(readlink -f \"\$release\"); current=\$(readlink -f '$DEPLOY_PATH/current'); if [ \"\$candidate\" != \"\$current\" ]; then rm -rf -- \"\$candidate\"; fi; fi; done"

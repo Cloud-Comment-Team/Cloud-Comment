@@ -63,7 +63,7 @@ export function RealtimeNotifications() {
   const connected = connectionStatus === 'connected'
 
   return (
-    <div className="fixed right-4 top-20 z-50 lg:right-6 lg:top-6">
+    <div className="fixed right-4 top-20 z-50 flex flex-col items-end lg:right-6 lg:top-6">
       <button
         type="button"
         className="relative inline-flex h-11 w-11 items-center justify-center rounded-xl border shadow-lg transition hover:-translate-y-0.5"

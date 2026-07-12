@@ -1,5 +1,8 @@
 .gradle/
 build/
+frontend/admin/storybook-static/
+frontend/admin/playwright-report/
+frontend/admin/test-results/
 widget-frontend/dist/
 widget-frontend/node_modules/
 
