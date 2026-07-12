@@ -72,7 +72,7 @@ class PostgresFlywayIntegrationTests {
             """, Integer.class);
 
         assertThat(databaseVersion).contains("PostgreSQL");
-        assertThat(schemaHistoryRows).isEqualTo(12);
+        assertThat(schemaHistoryRows).isEqualTo(13);
         assertThat(smokeTableRows).isZero();
         assertThat(coreTableRows).isEqualTo(12);
         assertThat(roleRows).isEqualTo(3);

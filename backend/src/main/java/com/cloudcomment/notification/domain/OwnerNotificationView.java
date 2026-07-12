@@ -5,8 +5,8 @@ import com.cloudcomment.comment.domain.CommentStatus;
 import java.time.Instant;
 import java.util.UUID;
 
-public record NewCommentNotification(
-    UUID notificationId,
+public record OwnerNotificationView(
+    UUID id,
     UUID commentId,
     UUID siteId,
     String siteName,
@@ -14,8 +14,9 @@ public record NewCommentNotification(
     String pageUrl,
     UUID parentId,
     String authorEmail,
-    String contentPreview,
+    String content,
     CommentStatus status,
+    Instant readAt,
     Instant createdAt
 ) {
 }

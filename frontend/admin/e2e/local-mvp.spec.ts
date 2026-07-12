@@ -405,8 +405,8 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   const moderationPage = await context.newPage()
   await moderationPage.goto('/moderation')
   await expect(moderationPage.getByRole('heading', { name: 'Модерация', exact: true })).toBeVisible()
-  await moderationPage.getByRole('button', { name: 'Уведомления' }).click()
-  await expect(moderationPage.getByText('Подключено', { exact: true })).toBeVisible({ timeout: 15_000 })
+  await moderationPage.getByRole('button', { name: 'Уведомления', exact: true }).click()
+  await expect(moderationPage.getByRole('dialog', { name: 'Центр уведомлений' })).toBeVisible()
 
   const realtimeCommentText = `E2E realtime comment ${suffix}`
   const realtimeCommentResponse = await request.post(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
@@ -423,6 +423,45 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   expect(realtimeCommentResponse.status()).toBe(201)
   const realtimeComment = await realtimeCommentResponse.json()
   await expect(moderationPage.getByText(realtimeCommentText)).toBeVisible({ timeout: 15_000 })
+
+  const storedNotificationsResponse = await request.get(`${API_BASE_URL}/notifications`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  await expect(storedNotificationsResponse).toBeOK()
+  const storedNotifications = await storedNotificationsResponse.json()
+  const realtimeNotification = storedNotifications.items.find(
+    (notification: { commentId: string }) => notification.commentId === realtimeComment.id,
+  )
+  expect(realtimeNotification).toMatchObject({
+    commentId: realtimeComment.id,
+    siteId,
+    contentPreview: realtimeCommentText,
+    readAt: null,
+  })
+
+  const unreadBeforeReloadResponse = await request.get(`${API_BASE_URL}/notifications/unread-count`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  await expect(unreadBeforeReloadResponse).toBeOK()
+  const unreadBeforeReload = (await unreadBeforeReloadResponse.json()).unreadCount
+  expect(unreadBeforeReload).toBeGreaterThan(0)
+
+  await moderationPage.keyboard.press('Escape')
+  await expect(moderationPage.getByRole('dialog', { name: 'Центр уведомлений' })).toBeHidden()
+  await moderationPage.reload()
+  await moderationPage.getByRole('button', { name: 'Уведомления', exact: true }).click()
+  const notificationPanel = moderationPage.getByRole('dialog', { name: 'Центр уведомлений' })
+  await expect(notificationPanel.getByText(realtimeCommentText)).toBeVisible()
+  const realtimeNotificationButton = notificationPanel.locator('button').filter({ hasText: realtimeCommentText })
+  await expect(realtimeNotificationButton).toHaveCount(1)
+  await realtimeNotificationButton.click()
+  await expect(moderationPage).toHaveURL(new RegExp(`/moderation\\?comment=${realtimeComment.id}&view=pending$`))
+
+  const unreadAfterOpenResponse = await request.get(`${API_BASE_URL}/notifications/unread-count`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  await expect(unreadAfterOpenResponse).toBeOK()
+  expect((await unreadAfterOpenResponse.json()).unreadCount).toBeLessThan(unreadBeforeReload)
 
   const moderationCountsResponse = await request.get(`${API_BASE_URL}/moderation/counts`, {
     headers: { Authorization: `Bearer ${token}` },
