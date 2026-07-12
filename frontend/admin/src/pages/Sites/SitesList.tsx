@@ -7,6 +7,7 @@ import { listSites } from '../../api/sites'
 import { AsyncState } from '../../components/common/AsyncState'
 import { Badge } from '../../components/common/Badge'
 import { PaginationControls } from '../../components/common/PaginationControls'
+import { PageHeader } from '../../components/common/Workspace'
 import type { Site } from '../../types/api'
 import { formatDateTime } from '../../utils/formatDate'
 import { moderationModeLabels } from '../../utils/moderationModeLabels'
@@ -54,19 +55,15 @@ const SitesList = () => {
 
   return (
     <div className="cc-page">
-      <div className="cc-page-heading">
-        <div>
-          <p className="cc-eyebrow">Проекты</p>
-          <h1 className="cc-title">Сайты</h1>
-          <p className="cc-subtitle">
-            Управляйте проектами, доменами и настройками виджета комментариев
-          </p>
-        </div>
-        <Link to="/sites/new" className="cc-button-primary">
+      <PageHeader
+        eyebrow="Проекты"
+        title="Сайты"
+        description="Управляйте проектами, доменами и настройками виджета комментариев"
+        actions={<Link to="/sites/new" className="cc-button-primary">
           <Plus className="h-4 w-4" aria-hidden="true" />
           Создать сайт
-        </Link>
-      </div>
+        </Link>}
+      />
 
       <AsyncState
         loading={loading}

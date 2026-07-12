@@ -31,6 +31,13 @@
   --muted-bg: rgba(91, 102, 120, 0.11);
   --shadow-sm: 0 8px 20px rgba(16, 32, 51, 0.06);
   --shadow-md: 0 18px 42px rgba(16, 32, 51, 0.1);
+  --focus-ring: 0 0 0 3px rgba(15, 118, 110, 0.2);
+  --motion-fast: 120ms;
+  --motion-base: 180ms;
+  --motion-slow: 240ms;
+  --density-compact: 0.625rem;
+  --density-default: 0.875rem;
+  --content-readable: 72ch;
   --status-pending-bg: #fffaf0;
   --status-pending-border: #f4c76b;
   --status-pending-accent: #d97706;
@@ -82,6 +89,7 @@
   --muted-bg: rgba(170, 183, 200, 0.12);
   --shadow-sm: 0 10px 24px rgba(0, 0, 0, 0.24);
   --shadow-md: 0 22px 52px rgba(0, 0, 0, 0.34);
+  --focus-ring: 0 0 0 3px rgba(94, 234, 212, 0.18);
   --status-pending-bg: #251d10;
   --status-pending-border: #9a6a17;
   --status-pending-accent: #fbbf24;
@@ -192,7 +200,7 @@ pre {
   }
 
   .cc-page-heading {
-    @apply mb-7 flex flex-col gap-5 rounded-lg border p-6 sm:flex-row sm:items-end sm:justify-between md:p-7;
+    @apply mb-6 flex flex-col gap-4 rounded-lg border p-5 sm:flex-row sm:items-end sm:justify-between md:p-6;
     background: var(--surface);
     border-color: var(--border);
     box-shadow: var(--shadow-sm);
@@ -236,13 +244,11 @@ pre {
     @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition disabled:opacity-60;
     background: var(--accent);
     color: var(--accent-contrast);
-    box-shadow: 0 10px 22px rgba(15, 118, 110, 0.22);
+    transition-duration: var(--motion-fast);
   }
 
   .cc-button-primary:hover {
     background: var(--accent-strong);
-    transform: translateY(-1px);
-    box-shadow: 0 14px 28px rgba(15, 118, 110, 0.28);
   }
 
   .cc-button-secondary {
@@ -254,8 +260,6 @@ pre {
 
   .cc-button-secondary:hover {
     border-color: var(--border-strong);
-    transform: translateY(-1px);
-    box-shadow: var(--shadow-sm);
   }
 
   .cc-button-danger {
@@ -274,7 +278,7 @@ pre {
 
   .cc-field:focus {
     border-color: var(--accent);
-    box-shadow: 0 0 0 3px var(--accent-bg);
+    box-shadow: var(--focus-ring);
   }
 
   .cc-table-shell {
@@ -285,16 +289,45 @@ pre {
   }
 
   .cc-route-flow {
-    overflow: hidden;
-    border: 1px solid var(--accent-border);
-    background:
-      radial-gradient(circle at 12% 50%, color-mix(in srgb, var(--accent) 48%, transparent), transparent 44%),
-      linear-gradient(90deg, var(--accent-bg), color-mix(in srgb, var(--surface) 78%, transparent));
-    box-shadow:
-      0 22px 64px color-mix(in srgb, var(--accent) 20%, transparent),
-      inset 0 1px 0 rgba(255, 255, 255, 0.16);
-    transform-origin: left center;
-    will-change: transform, opacity, width, height;
+    display: none;
+  }
+
+  .cc-action-bar {
+    @apply flex flex-wrap items-center justify-between gap-3 rounded-lg border px-4 py-3;
+    background: var(--surface);
+    border-color: var(--border);
+  }
+
+  .cc-filter-bar {
+    @apply flex flex-wrap items-end gap-3 rounded-lg border px-4 py-3;
+    background: var(--surface-muted);
+    border-color: var(--border);
+  }
+
+  .cc-data-row {
+    @apply grid items-center gap-3 border-b px-4 text-sm last:border-b-0;
+    min-height: 3rem;
+    border-color: var(--border);
+    transition: background-color var(--motion-fast) ease;
+  }
+
+  .cc-data-row[data-density='compact'] {
+    min-height: 2.5rem;
+  }
+
+  .cc-drawer {
+    @apply fixed inset-y-0 right-0 z-50 w-full max-w-lg border-l p-5;
+    background: var(--surface);
+    border-color: var(--border);
+    box-shadow: var(--shadow-md);
+  }
+
+  .cc-dialog {
+    @apply fixed left-1/2 top-1/2 z-50 w-[min(32rem,calc(100%-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg border p-5;
+    background: var(--surface);
+    border-color: var(--border);
+    color: var(--text);
+    box-shadow: var(--shadow-md);
   }
 }
 
