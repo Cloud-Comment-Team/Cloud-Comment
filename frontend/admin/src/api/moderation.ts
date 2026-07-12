@@ -1,4 +1,6 @@
 import type {
+  AutoModerationFeedback,
+  AutoModerationFeedbackType,
   Comment,
   BulkModerationRequest,
   BulkModerationResponse,
@@ -51,6 +53,21 @@ export async function applyModerationAction(
 export async function updateCommentFlags(commentId: string, request: UpdateCommentFlagsRequest): Promise<Comment> {
   const response = await apiClient.patch<Comment>(`/moderation/comments/${commentId}/flags`, request)
   return response.data
+}
+
+export async function setAutoModerationFeedback(
+  commentId: string,
+  type: AutoModerationFeedbackType,
+): Promise<AutoModerationFeedback> {
+  const response = await apiClient.put<AutoModerationFeedback>(
+    `/moderation/comments/${commentId}/automoderation-feedback`,
+    { type },
+  )
+  return response.data
+}
+
+export async function deleteAutoModerationFeedback(commentId: string): Promise<void> {
+  await apiClient.delete(`/moderation/comments/${commentId}/automoderation-feedback`)
 }
 
 function assertPaginatedCommentResponse(value: PaginatedResponse<Comment>): void {

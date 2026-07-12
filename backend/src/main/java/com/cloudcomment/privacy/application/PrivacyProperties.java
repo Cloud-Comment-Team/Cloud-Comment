@@ -17,7 +17,7 @@ public record PrivacyProperties(
 
     public PrivacyProperties {
         if (privacyPolicyVersion == null || privacyPolicyVersion.isBlank()) {
-            privacyPolicyVersion = "2026-07-01";
+            privacyPolicyVersion = "2026-07-12";
         }
         if (termsVersion == null || termsVersion.isBlank()) {
             termsVersion = "2026-07-01";

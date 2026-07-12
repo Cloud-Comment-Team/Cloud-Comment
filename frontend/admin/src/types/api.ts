@@ -63,6 +63,88 @@ export interface AutoModerationCheckResponse {
   signals: AutoModerationSignal[]
 }
 
+export type AutoModerationPolicyPreset = 'OPEN' | 'BALANCED' | 'STRICT' | 'CUSTOM'
+export type AutoModerationExecutionMode = 'SHADOW' | 'LIVE'
+export type AutoModerationPolicyDecision = 'APPROVE' | 'REVIEW' | 'SPAM'
+export type AutoModerationCleanAction = 'APPROVE' | 'FOLLOW_SITE_MODE'
+export type AutoModerationLinkAction = 'ALLOW' | 'REVIEW' | 'SPAM'
+export type AutoModerationPolicyState = 'DRAFT' | 'PUBLISHED'
+export type AutoModerationFeedbackType = 'FALSE_POSITIVE' | 'FALSE_NEGATIVE'
+
+export interface AutoModerationPolicySignal {
+  code: string
+  score: number
+  message?: string
+}
+
+export interface AutoModerationPolicy {
+  id: string
+  siteId: string
+  version: number | null
+  revision: number
+  state: AutoModerationPolicyState
+  enabled: boolean
+  preset: AutoModerationPolicyPreset
+  executionMode: AutoModerationExecutionMode
+  reviewThreshold: number
+  spamThreshold: number
+  cleanAction: AutoModerationCleanAction
+  linkAction: AutoModerationLinkAction
+  maxLinks: number
+  blockedWords: string[]
+  active: boolean
+  basedOnVersionId: string | null
+  createdAt: string
+  updatedAt: string
+  publishedAt: string | null
+}
+
+export interface AutoModerationPoliciesResponse {
+  activePolicy: AutoModerationPolicy | null
+  draft: AutoModerationPolicy | null
+  versions: AutoModerationPolicy[]
+}
+
+export interface AutoModerationPolicyUpdateRequest {
+  expectedRevision: number
+  enabled: boolean
+  preset: AutoModerationPolicyPreset
+  executionMode: AutoModerationExecutionMode
+  reviewThreshold: number
+  spamThreshold: number
+  cleanAction: AutoModerationCleanAction
+  linkAction: AutoModerationLinkAction
+  maxLinks: number
+  blockedWords: string[]
+}
+
+export interface AutoModerationSimulationResponse {
+  score: number
+  decision: AutoModerationPolicyDecision
+  baselineStatus: CommentStatus
+  effectiveStatus: CommentStatus
+  applied: boolean
+  reason: string | null
+  signals: AutoModerationPolicySignal[]
+}
+
+export interface AutoModerationFeedback {
+  type: AutoModerationFeedbackType
+  createdAt: string
+}
+
+export interface CommentAutoModeration {
+  policyVersionId: string
+  policyVersion: number
+  executionMode: AutoModerationExecutionMode
+  decision: AutoModerationPolicyDecision
+  score: number
+  reason: string | null
+  signals: AutoModerationPolicySignal[]
+  evaluatedAt: string
+  feedback: AutoModerationFeedback | null
+}
+
 export type CommentStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'HIDDEN' | 'SPAM'
 
 export type ModerationPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT'
@@ -169,6 +251,7 @@ export interface Comment {
   content: string
   status: CommentStatus
   moderationReason: string | null
+  autoModeration: CommentAutoModeration | null
   pinned: boolean
   favorite: boolean
   priority: ModerationPriority

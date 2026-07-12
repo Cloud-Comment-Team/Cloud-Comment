@@ -24,6 +24,7 @@ public record CommentResponse(
     ModerationPriority priority,
     int priorityScore,
     List<String> priorityReasons,
+    CommentAutoModerationResponse autoModeration,
     Instant createdAt,
     Instant updatedAt,
     List<CommentResponse> replies
@@ -51,6 +52,7 @@ public record CommentResponse(
             comment.priority(),
             comment.priorityScore(),
             comment.priorityReasons(),
+            CommentAutoModerationResponse.from(comment.autoModeration()),
             comment.createdAt(),
             comment.updatedAt(),
             List.of()

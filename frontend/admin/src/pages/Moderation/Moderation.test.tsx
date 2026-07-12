@@ -13,6 +13,8 @@ const moderationApi = vi.hoisted(() => ({
   applyModerationAction: vi.fn(),
   undoModerationAction: vi.fn(),
   updateCommentFlags: vi.fn(),
+  setAutoModerationFeedback: vi.fn(),
+  deleteAutoModerationFeedback: vi.fn(),
 }))
 
 vi.mock('../../api/moderation', () => moderationApi)
@@ -31,6 +33,7 @@ const comments: Comment[] = [
     content: 'Первый комментарий',
     status: 'PENDING',
     moderationReason: null,
+    autoModeration: null,
     pinned: false,
     favorite: false,
     priority: 'HIGH',
@@ -51,6 +54,17 @@ const comments: Comment[] = [
     content: 'Второй комментарий',
     status: 'SPAM',
     moderationReason: 'Найдена подозрительная ссылка',
+    autoModeration: {
+      policyVersionId: '00000000-0000-0000-0000-000000000137',
+      policyVersion: 3,
+      executionMode: 'LIVE',
+      decision: 'SPAM',
+      score: 130,
+      reason: 'Найдены признаки спама',
+      signals: [{ code: 'SPAM_PHRASE', score: 55 }],
+      evaluatedAt: '2026-07-12T12:01:00Z',
+      feedback: null,
+    },
     pinned: false,
     favorite: false,
     priority: 'URGENT',
@@ -87,6 +101,11 @@ describe('страница модерации', () => {
         message: null,
       })),
     })
+    moderationApi.setAutoModerationFeedback.mockResolvedValue({
+      type: 'FALSE_POSITIVE',
+      createdAt: '2026-07-12T12:02:00Z',
+    })
+    moderationApi.deleteAutoModerationFeedback.mockResolvedValue(undefined)
   })
 
   it('по умолчанию запрашивает комментарии на модерации и спам', async () => {
@@ -125,5 +144,21 @@ describe('страница модерации', () => {
     expect(await screen.findByRole('dialog', { name: 'Комментарий' })).toBeInTheDocument()
     expect(moderationApi.getComment).toHaveBeenCalledWith(comments[0].id)
     expect(screen.getByText('Первый комментарий')).toBeInTheDocument()
+  })
+
+  it('показывает решение политики и сохраняет обратную связь без текста комментария', async () => {
+    render(<MemoryRouter initialEntries={[`/moderation?comment=${comments[1].id}`]}><Moderation /></MemoryRouter>)
+
+    await screen.findByRole('dialog', { name: 'Комментарий' })
+    expect(screen.getByText('Решение автомодерации')).toBeInTheDocument()
+    expect(screen.getByText('Версия')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Это допустимый комментарий' }))
+
+    await waitFor(() => expect(moderationApi.setAutoModerationFeedback).toHaveBeenCalledWith(
+      comments[1].id,
+      'FALSE_POSITIVE',
+    ))
+    expect(moderationApi.setAutoModerationFeedback.mock.calls[0]).not.toContain(comments[1].content)
+    expect(await screen.findByText('Ложное срабатывание')).toBeInTheDocument()
   })
 })
