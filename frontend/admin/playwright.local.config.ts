@@ -4,6 +4,7 @@ const baseURL = process.env.E2E_BASE_URL ?? 'http://localhost'
 
 export default defineConfig({
   testDir: './e2e',
+  testMatch: 'local-mvp.spec.ts',
   fullyParallel: false,
   retries: 0,
   workers: 1,

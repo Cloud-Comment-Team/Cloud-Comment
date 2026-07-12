@@ -1,0 +1,26 @@
+name: Новая задача
+description: Предложить функцию или самостоятельное улучшение CloudComment
+title: "[Задача] "
+labels: ["задача"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Проблема
+      description: Какое наблюдаемое затруднение нужно устранить?
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: Целевой результат
+      description: Как изменится поведение пользователя или системы?
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Критерии приёмки
+      description: Перечислите проверяемые условия завершения.
+    validations:
+      required: true
