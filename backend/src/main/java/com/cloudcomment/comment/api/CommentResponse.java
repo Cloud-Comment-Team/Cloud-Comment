@@ -19,7 +19,6 @@ record CommentResponse(
     Instant updatedAt,
     Instant editedAt,
     boolean pinned,
-    boolean favorite,
     boolean ownedByCurrentUser,
     List<CommentReactionResponse> reactions,
     List<CommentResponse> replies
@@ -43,7 +42,6 @@ record CommentResponse(
             comment.updatedAt(),
             comment.editedAt(),
             comment.pinned(),
-            comment.favorite(),
             comment.ownedByCurrentUser(),
             comment.reactions().stream().map(CommentReactionResponse::from).toList(),
             comment.replies().stream().map(CommentResponse::from).toList()

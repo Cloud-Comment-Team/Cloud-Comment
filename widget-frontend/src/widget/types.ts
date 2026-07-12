@@ -33,6 +33,8 @@ export type CommentStatus = "PENDING" | "APPROVED" | "REJECTED" | "HIDDEN" | "SP
 
 export type CommentReactionType = "LIKE" | "LOVE" | "LAUGH" | "WOW";
 
+export type PublicCommentSort = "PINNED_FIRST" | "NEWEST" | "OLDEST" | "TOP_REACTIONS";
+
 export type CommentReaction = {
   type: CommentReactionType;
   emoji: string;
@@ -62,6 +64,7 @@ export type PublicComment = {
   createdAt: string;
   updatedAt: string;
   editedAt: string | null;
+  pinned: boolean;
   ownedByCurrentUser: boolean;
   reactions: CommentReaction[];
   replies: PublicComment[];

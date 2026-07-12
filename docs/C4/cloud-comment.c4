@@ -168,7 +168,7 @@ model {
 
       embedCodePage = component 'Страница embed-кода' 'Показывает JS-код для подключения виджета'
 
-      moderationPages = component 'Страницы модерации' 'Просмотр, скрытие и публикация комментариев'
+      moderationPages = component 'Страницы модерации' 'Просмотр, скрытие, публикация, закрепление и избранное комментариев'
 
       analyticsPages = component 'Страницы аналитики' 'Дашборд владельца и аналитика конкретного сайта по комментариям, реакциям и модерации'
 
@@ -185,7 +185,7 @@ model {
 
       widgetAuthClient = component 'Widget auth client' 'Работа с авторизацией пользователя внутри виджета'
 
-      commentList = component 'Comment list' 'Получение и отображение комментариев страницы'
+      commentList = component 'Comment list' 'Получение, сортировка и отображение комментариев страницы с pinned badge'
 
       commentForm = component 'Comment form' 'Форма создания, редактирования и удаления собственного комментария'
 
@@ -217,9 +217,9 @@ model {
 
       widgetConfigModule = component 'Widget config module' 'Публичная конфигурация виджета и настройка темы/акцента для конкретного сайта'
 
-      commentModule = component 'Comment module' 'Создание, получение, редактирование, soft-delete, реакции и хранение комментариев'
+      commentModule = component 'Comment module' 'Создание, получение, сортировка, pin, редактирование, soft-delete, реакции и хранение комментариев'
 
-      moderationModule = component 'Moderation module' 'Смена статусов комментариев и smart-ranked очередь модерации'
+      moderationModule = component 'Moderation module' 'Смена статусов, owner-scoped pin/favorite flags и smart-ranked очередь модерации'
 
       analyticsModule = component 'Analytics module' 'Owner-scoped read-model для метрик сайтов, страниц, комментариев, реакций и модерации'
 
@@ -311,7 +311,7 @@ model {
 
   cloudComment.widgetRuntime.widgetShell -[internal]-> cloudComment.widgetRuntime.commentForm 'Показывает форму комментария'
 
-  cloudComment.widgetRuntime.commentList -[internal]-> cloudComment.widgetRuntime.publicApiClient 'Запрашивает комментарии'
+  cloudComment.widgetRuntime.commentList -[internal]-> cloudComment.widgetRuntime.publicApiClient 'Запрашивает комментарии с выбранной сортировкой'
 
   cloudComment.widgetRuntime.commentForm -[internal]-> cloudComment.widgetRuntime.publicApiClient 'Отправляет создание, редактирование и удаление комментария'
 
@@ -367,7 +367,7 @@ model {
 
   cloudComment.backendApi.commentModule -[stores]-> cloudComment.backendApi.persistenceModule 'Сохраняет комментарии'
 
-  cloudComment.backendApi.moderationModule -[stores]-> cloudComment.backendApi.persistenceModule 'Обновляет статусы комментариев'
+  cloudComment.backendApi.moderationModule -[stores]-> cloudComment.backendApi.persistenceModule 'Обновляет статусы, pin и favorite flags комментариев'
 
   cloudComment.backendApi.analyticsModule -[reads]-> cloudComment.backendApi.persistenceModule 'Агрегирует owner-scoped метрики из sites, pages, comments и comment_reactions'
 

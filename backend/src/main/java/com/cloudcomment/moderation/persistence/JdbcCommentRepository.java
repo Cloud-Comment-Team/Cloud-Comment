@@ -141,6 +141,7 @@ class JdbcCommentRepository implements CommentRepository {
                 update comments
                 set status = ?,
                     moderation_reason = ?,
+                    is_pinned = case when ? = 'APPROVED' then is_pinned else false end,
                     moderated_at = now(),
                     updated_at = now()
                 where id = ?
@@ -148,6 +149,7 @@ class JdbcCommentRepository implements CommentRepository {
                 """,
             newStatus.name(),
             moderationReason,
+            newStatus.name(),
             commentId,
             expectedStatus.name()
         );

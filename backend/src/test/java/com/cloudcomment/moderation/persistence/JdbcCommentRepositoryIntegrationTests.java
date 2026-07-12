@@ -229,13 +229,23 @@ class JdbcCommentRepositoryIntegrationTests {
         ).orElseThrow();
         assertThat(updated.status()).isEqualTo(CommentStatus.APPROVED);
 
+        commentRepository.updateFlags(commentId, true, true).orElseThrow();
+        Comment rejected = commentRepository.updateStatus(
+            commentId,
+            CommentStatus.APPROVED,
+            CommentStatus.REJECTED,
+            "Rejected after pinning"
+        ).orElseThrow();
+        assertThat(rejected.pinned()).isFalse();
+        assertThat(rejected.favorite()).isTrue();
+
         assertThat(commentRepository.updateStatus(
             commentId,
-            CommentStatus.PENDING,
-            CommentStatus.REJECTED,
+            CommentStatus.APPROVED,
+            CommentStatus.HIDDEN,
             "Too late"
         )).isEmpty();
-        assertThat(commentRepository.findById(commentId).orElseThrow().status()).isEqualTo(CommentStatus.APPROVED);
+        assertThat(commentRepository.findById(commentId).orElseThrow().status()).isEqualTo(CommentStatus.REJECTED);
 
         var action = moderationActionRepository.create(
             commentId,
@@ -293,14 +303,14 @@ class JdbcCommentRepositoryIntegrationTests {
             null,
             "Suspicious comment",
             "SPAM",
-            "РђРІС‚РѕРјРѕРґРµСЂР°С†РёСЏ: РЎРїР°Рј-РјР°СЂРєРµСЂ: РєР°Р·РёРЅРѕ / Р°Р·Р°СЂС‚РЅС‹Рµ РёРіСЂС‹",
+            "Автомодерация: Спам-маркер: казино / азартные игры",
             Instant.parse("2026-06-28T11:00:00Z")
         );
 
         Comment comment = commentRepository.findById(commentId).orElseThrow();
 
         assertThat(comment.moderationReason())
-            .isEqualTo("РђРІС‚РѕРјРѕРґРµСЂР°С†РёСЏ: РЎРїР°Рј-РјР°СЂРєРµСЂ: РєР°Р·РёРЅРѕ / Р°Р·Р°СЂС‚РЅС‹Рµ РёРіСЂС‹");
+            .isEqualTo("Автомодерация: Спам-маркер: казино / азартные игры");
     }
 
     @Test
@@ -326,7 +336,7 @@ class JdbcCommentRepositoryIntegrationTests {
             null,
             "Suspicious telegram contact",
             "SPAM",
-            "РђРІС‚РѕРјРѕРґРµСЂР°С†РёСЏ: РєРѕРЅС‚Р°РєС‚ РёР»Рё СЃСЃС‹Р»РєР°",
+            "Автомодерация: контакт или ссылка",
             Instant.parse("2026-06-28T12:00:00Z")
         );
         UUID riskyPendingId = insertComment(
@@ -334,7 +344,7 @@ class JdbcCommentRepositoryIntegrationTests {
             null,
             "Go to https://casino.example and write @fast_money",
             "PENDING",
-            "РђРІС‚РѕРјРѕРґРµСЂР°С†РёСЏ: СЃРїР°Рј Рё СЃСЃС‹Р»РєРё",
+            "Автомодерация: спам и ссылки",
             Instant.parse("2026-06-28T13:00:00Z")
         );
 
@@ -360,7 +370,7 @@ class JdbcCommentRepositoryIntegrationTests {
             .containsExactly(riskyPendingId, spamId, pendingId, approvedId);
         assertThat(result.items().getFirst().priority()).isEqualTo(ModerationPriority.URGENT);
         assertThat(result.items().getFirst().priorityReasons())
-            .contains("РћР¶РёРґР°РµС‚ СЂРµС€РµРЅРёСЏ РјРѕРґРµСЂР°С‚РѕСЂР°", "Р•СЃС‚СЊ РѕР±СЉСЏСЃРЅРµРЅРёРµ Р°РІС‚РѕРјРѕРґРµСЂР°С†РёРё", "РЎРѕРґРµСЂР¶РёС‚ СЃСЃС‹Р»РєСѓ РёР»Рё РєРѕРЅС‚Р°РєС‚");
+            .contains("Ожидает решения модератора", "Есть объяснение автомодерации", "Содержит ссылку или контакт");
     }
 
     private UUID insertUser(String label) {

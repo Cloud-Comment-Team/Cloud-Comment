@@ -168,7 +168,6 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
                        c.body,
                        c.status,
                        c.is_pinned,
-                       c.is_favorite,
                        c.created_at,
                        c.updated_at,
                        c.edited_at
@@ -300,7 +299,6 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
                           body,
                           status,
                           is_pinned,
-                          is_favorite,
                           created_at,
                           updated_at,
                           edited_at
@@ -378,7 +376,6 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
                           c.body,
                           c.status,
                           c.is_pinned,
-                          c.is_favorite,
                           c.created_at,
                           c.updated_at,
                           c.edited_at
@@ -481,7 +478,6 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
                        c.body,
                        c.status,
                        c.is_pinned,
-                       c.is_favorite,
                        c.created_at,
                        c.updated_at,
                        c.edited_at
@@ -539,7 +535,6 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
             row.updatedAt(),
             row.editedAt(),
             row.pinned(),
-            row.favorite(),
             viewerUserId.filter(userId -> userId.equals(row.authorUserId())).isPresent(),
             reactions,
             replies
@@ -630,7 +625,6 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
             resultSet.getString("body"),
             CommentStatus.valueOf(resultSet.getString("status")),
             resultSet.getBoolean("is_pinned"),
-            resultSet.getBoolean("is_favorite"),
             toInstant(resultSet, "created_at"),
             toInstant(resultSet, "updated_at"),
             toNullableInstant(resultSet, "edited_at")
@@ -640,8 +634,8 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
     private String publicOrderBy(PublicCommentSort sort) {
         PublicCommentSort effectiveSort = sort != null ? sort : PublicCommentSort.PINNED_FIRST;
         return switch (effectiveSort) {
-            case PINNED_FIRST, OLDEST -> " order by c.is_pinned desc, c.created_at asc, c.id asc";
-            case NEWEST -> " order by c.is_pinned desc, c.created_at desc, c.id desc";
+            case PINNED_FIRST, OLDEST -> " order by c.is_pinned desc, c.created_at asc, c.id asc\n";
+            case NEWEST -> " order by c.is_pinned desc, c.created_at desc, c.id desc\n";
             case TOP_REACTIONS -> """
                  order by c.is_pinned desc,
                           coalesce(thread_reactions.reaction_count, 0) desc,
@@ -685,7 +679,6 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
         String body,
         CommentStatus status,
         boolean pinned,
-        boolean favorite,
         Instant createdAt,
         Instant updatedAt,
         Instant editedAt

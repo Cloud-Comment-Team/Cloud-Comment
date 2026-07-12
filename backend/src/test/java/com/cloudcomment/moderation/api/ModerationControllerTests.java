@@ -37,6 +37,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -102,7 +103,7 @@ class ModerationControllerTests {
             .andExpect(jsonPath("$.items[0].moderationReason", is(comment.moderationReason())))
             .andExpect(jsonPath("$.items[0].priority", is("HIGH")))
             .andExpect(jsonPath("$.items[0].priorityScore", is(680)))
-            .andExpect(jsonPath("$.items[0].priorityReasons[0]", is("РћР¶РёРґР°РµС‚ СЂРµС€РµРЅРёСЏ РјРѕРґРµСЂР°С‚РѕСЂР°")))
+            .andExpect(jsonPath("$.items[0].priorityReasons[0]", is("Ожидает решения модератора")))
             .andExpect(jsonPath("$.items[0].replies", empty()))
             .andExpect(jsonPath("$.page", is(1)))
             .andExpect(jsonPath("$.pageSize", is(20)))
@@ -245,7 +246,7 @@ class ModerationControllerTests {
             .andExpect(jsonPath("$.status", is("PENDING")))
             .andExpect(jsonPath("$.moderationReason", is(comment.moderationReason())))
             .andExpect(jsonPath("$.priority", is("HIGH")))
-            .andExpect(jsonPath("$.priorityReasons[0]", is("РћР¶РёРґР°РµС‚ СЂРµС€РµРЅРёСЏ РјРѕРґРµСЂР°С‚РѕСЂР°")));
+            .andExpect(jsonPath("$.priorityReasons[0]", is("Ожидает решения модератора")));
     }
 
     @Test
@@ -263,6 +264,29 @@ class ModerationControllerTests {
             .andExpect(jsonPath("$.parent.author.email", is("parent@example.com")))
             .andExpect(jsonPath("$.parent.content", is("Parent comment")))
             .andExpect(jsonPath("$.parent.status", is("APPROVED")));
+    }
+
+    @Test
+    void updateFlagsReturnsOwnerScopedCommentFlags() throws Exception {
+        AuthenticatedUser currentUser = currentUser();
+        Comment original = comment(currentUser.id());
+        Comment updated = new Comment(
+            original.id(), original.siteId(), original.pageId(), original.pageUrl(), original.parentId(), original.parent(),
+            original.author(), original.body(), CommentStatus.APPROVED, original.moderationReason(), true, true,
+            original.priority(), original.priorityScore(), original.priorityReasons(), original.createdAt(), original.updatedAt()
+        );
+        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(moderationService.updateFlags(currentUser, original.id(), true, true)).thenReturn(updated);
+
+        mockMvc.perform(patch("/api/moderation/comments/{commentId}/flags", original.id())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"pinned": true, "favorite": true}
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.pinned", is(true)))
+            .andExpect(jsonPath("$.favorite", is(true)));
     }
 
     @Test
@@ -336,12 +360,12 @@ class ModerationControllerTests {
             new CommentAuthor(ownerId, "author@example.com", "Author"),
             "Comment body",
             CommentStatus.PENDING,
-            "РђРІС‚РѕРјРѕРґРµСЂР°С†РёСЏ: РЎРїР°Рј-РјР°СЂРєРµСЂ: РєР°Р·РёРЅРѕ / Р°Р·Р°СЂС‚РЅС‹Рµ РёРіСЂС‹",
+            "Автомодерация: Спам-маркер: казино / азартные игры",
             false,
             false,
             ModerationPriority.HIGH,
             680,
-            List.of("РћР¶РёРґР°РµС‚ СЂРµС€РµРЅРёСЏ РјРѕРґРµСЂР°С‚РѕСЂР°", "Р•СЃС‚СЊ РѕР±СЉСЏСЃРЅРµРЅРёРµ Р°РІС‚РѕРјРѕРґРµСЂР°С†РёРё"),
+            List.of("Ожидает решения модератора", "Есть объяснение автомодерации"),
             TIMESTAMP,
             TIMESTAMP
         );
@@ -365,12 +389,12 @@ class ModerationControllerTests {
             new CommentAuthor(ownerId, "reply@example.com", "Reply Author"),
             "Reply body",
             CommentStatus.PENDING,
-            "РђРІС‚РѕРјРѕРґРµСЂР°С†РёСЏ: РўРѕРєСЃРёС‡РЅС‹Р№ РјР°СЂРєРµСЂ: РѕСЃРєРѕСЂР±Р»РµРЅРёРµ",
+            "Автомодерация: Токсичный маркер: оскорбление",
             false,
             false,
             ModerationPriority.HIGH,
             715,
-            List.of("РћР¶РёРґР°РµС‚ СЂРµС€РµРЅРёСЏ РјРѕРґРµСЂР°С‚РѕСЂР°", "Р•СЃС‚СЊ РѕР±СЉСЏСЃРЅРµРЅРёРµ Р°РІС‚РѕРјРѕРґРµСЂР°С†РёРё", "РћС‚РІРµС‚ РІРЅСѓС‚СЂРё РѕР±СЃСѓР¶РґРµРЅРёСЏ"),
+            List.of("Ожидает решения модератора", "Есть объяснение автомодерации", "Ответ внутри обсуждения"),
             TIMESTAMP,
             TIMESTAMP
         );

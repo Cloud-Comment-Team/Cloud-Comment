@@ -5,7 +5,7 @@ const API_BASE_URL = `${ADMIN_ORIGIN}/api`
 const PASSWORD = 'Password123!'
 const WIDGET_ACCENT_COLOR = '#7c3aed'
 
-test('local MVP flow: auth, site admin, public comments API and widget script', async ({ page, request }) => {
+test('local MVP flow: auth, site admin, public comments API and widget script', async ({ page, request, context }) => {
   const suffix = Date.now().toString(36)
   const email = `e2e-${suffix}@example.com`
   const siteName = `E2E Site ${suffix}`
@@ -179,6 +179,13 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
       pageSize: '20',
     },
   })
+
+  const rejectedOriginResponse = await request.get(`${API_BASE_URL}/public/sites/${siteId}/config`, {
+    headers: {
+      Origin: `${ADMIN_ORIGIN}.evil.example`,
+    },
+  })
+  expect(rejectedOriginResponse.status()).toBe(404)
   await expect(viewerCommentsResponse).toBeOK()
   const viewerComments = await viewerCommentsResponse.json()
   expect(viewerComments.items[0]).toMatchObject({
@@ -211,6 +218,49 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
     ownedByCurrentUser: true,
   })
   expect(editedComment.editedAt).toEqual(expect.any(String))
+
+  const updateFlagsResponse = await request.patch(`${API_BASE_URL}/moderation/comments/${createdComment.id}/flags`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    data: {
+      pinned: true,
+      favorite: true,
+    },
+  })
+  await expect(updateFlagsResponse).toBeOK()
+  expect(await updateFlagsResponse.json()).toMatchObject({ pinned: true, favorite: true })
+
+  const favoriteQueueResponse = await request.get(`${API_BASE_URL}/moderation/comments`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    params: {
+      favorite: 'true',
+      page: '1',
+      pageSize: '20',
+    },
+  })
+  await expect(favoriteQueueResponse).toBeOK()
+  expect((await favoriteQueueResponse.json()).items).toEqual(expect.arrayContaining([
+    expect.objectContaining({ id: createdComment.id, pinned: true, favorite: true }),
+  ]))
+
+  const pinnedPublicResponse = await request.get(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
+    headers: {
+      Origin: ADMIN_ORIGIN,
+    },
+    params: {
+      pageUrl,
+      sort: 'TOP_REACTIONS',
+      page: '1',
+      pageSize: '20',
+    },
+  })
+  await expect(pinnedPublicResponse).toBeOK()
+  const pinnedPublicComments = await pinnedPublicResponse.json()
+  expect(pinnedPublicComments.items[0]).toMatchObject({ id: createdComment.id, pinned: true })
+  expect(pinnedPublicComments.items[0]).not.toHaveProperty('favorite')
 
   const commentsAfterEditResponse = await request.get(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
     headers: {
@@ -324,12 +374,45 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   })
   await expect(enablePreModerationResponse).toBeOK()
 
+  const moderationPage = await context.newPage()
+  await moderationPage.goto('/moderation')
+  await expect(moderationPage.getByRole('heading', { name: 'Модерация комментариев' })).toBeVisible()
+
+  const realtimeCommentText = `E2E realtime comment ${suffix}`
+  const realtimeCommentResponse = await request.post(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Origin: ADMIN_ORIGIN,
+    },
+    data: {
+      pageUrl,
+      parentId: null,
+      content: realtimeCommentText,
+    },
+  })
+  expect(realtimeCommentResponse.status()).toBe(201)
+  await expect(moderationPage.getByText(realtimeCommentText)).toBeVisible({ timeout: 15_000 })
+
+  const analyticsResponse = await request.get(`${API_BASE_URL}/analytics/owner`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    params: { range: '7d' },
+  })
+  await expect(analyticsResponse).toBeOK()
+  expect((await analyticsResponse.json()).summary.comments).toBeGreaterThan(0)
+
   await page.goto(`/demo-page.html?siteId=${siteId}`)
 
   const widget = page.locator('#comments')
   const widgetShell = widget.locator('.cloud-comment')
   await expect(widget.locator('.cloud-comment__title')).toHaveText('Комментарии')
   await expect(widget.locator('.cloud-comment__comment-content')).toContainText([editedCommentText, apiReplyText])
+  await expect(widget.locator('.cloud-comment__pinned')).toHaveText('Закреплён')
+  const sortSelector = widget.locator('select[data-comment-sort="true"]')
+  await expect(sortSelector).toHaveValue('PINNED_FIRST')
+  await sortSelector.selectOption('TOP_REACTIONS')
+  await expect(sortSelector).toHaveValue('TOP_REACTIONS')
   await expect(widgetShell).toHaveAttribute('data-theme', 'dark')
   await expect(widgetShell).toHaveAttribute('data-radius', 'large')
   await expect
@@ -367,4 +450,7 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   await expect(publicCommentsAfterPendingReply).toBeOK()
   const commentsAfterPendingReply = await publicCommentsAfterPendingReply.json()
   expect(JSON.stringify(commentsAfterPendingReply)).not.toContain(pendingWidgetReplyText)
+
+  await moderationPage.getByRole('button', { name: 'Выйти' }).click()
+  await expect(moderationPage).toHaveURL(/\/login$/)
 })

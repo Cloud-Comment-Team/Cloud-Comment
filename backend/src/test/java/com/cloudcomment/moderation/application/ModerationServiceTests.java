@@ -271,6 +271,25 @@ class ModerationServiceTests {
     }
 
     @Test
+    void updateFlagsMasksForeignCommentAndRejectsEmptyPatch() {
+        CapturingCommentRepository commentRepository = new CapturingCommentRepository();
+        ModerationService foreignService = service(commentRepository, false);
+
+        assertThatThrownBy(() -> foreignService.updateFlags(currentUser(), commentRepository.comment.id(), null, true))
+            .isInstanceOf(ApplicationException.class)
+            .hasMessage("Resource not found")
+            .extracting("code")
+            .hasToString("NOT_FOUND");
+
+        ModerationService ownerService = service(commentRepository, true);
+        assertThatThrownBy(() -> ownerService.updateFlags(currentUser(), commentRepository.comment.id(), null, null))
+            .isInstanceOf(ApplicationException.class)
+            .hasMessage("At least one flag must be provided")
+            .extracting("code")
+            .hasToString("BAD_REQUEST");
+    }
+
+    @Test
     void updateFlagsRejectsPinnedReply() {
         CapturingCommentRepository commentRepository = new CapturingCommentRepository();
         commentRepository.comment = new Comment(
@@ -369,7 +388,7 @@ class ModerationServiceTests {
             false,
             ModerationPriority.MEDIUM,
             500,
-            List.of("РћР¶РёРґР°РµС‚ СЂРµС€РµРЅРёСЏ РјРѕРґРµСЂР°С‚РѕСЂР°"),
+            List.of("Ожидает решения модератора"),
             TIMESTAMP,
             TIMESTAMP
         );

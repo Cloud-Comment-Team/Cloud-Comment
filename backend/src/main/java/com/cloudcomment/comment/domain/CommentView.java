@@ -16,7 +16,6 @@ public record CommentView(
     Instant updatedAt,
     Instant editedAt,
     boolean pinned,
-    boolean favorite,
     boolean ownedByCurrentUser,
     List<CommentReactionSummary> reactions,
     List<CommentView> replies
@@ -50,7 +49,6 @@ public record CommentView(
             createdAt,
             updatedAt,
             null,
-            false,
             false,
             false,
             List.of(),
