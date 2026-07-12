@@ -3,12 +3,15 @@ package com.cloudcomment.notification.application;
 import com.cloudcomment.comment.domain.CommentCreatedEvent;
 import com.cloudcomment.notification.domain.NewCommentNotification;
 import com.cloudcomment.notification.domain.NotificationTarget;
+import com.cloudcomment.notification.domain.OwnerNotification;
 import com.cloudcomment.notification.persistence.NotificationTargetRepository;
 import com.cloudcomment.realtime.application.RealtimeMessagingService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
+
+import java.util.UUID;
 
 @Component
 @RequiredArgsConstructor
@@ -18,20 +21,26 @@ class CommentNotificationListener {
     private static final int PREVIEW_LIMIT = 180;
 
     private final NotificationTargetRepository notificationTargetRepository;
+    private final OwnerNotificationService ownerNotificationService;
     private final RealtimeMessagingService realtimeMessagingService;
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     void onCommentCreated(CommentCreatedEvent event) {
-        notificationTargetRepository.findCommentTarget(event.siteId(), event.pageId())
-            .ifPresent(target -> realtimeMessagingService.sendToUser(
+        notificationTargetRepository.findCommentTarget(event.siteId(), event.pageId()).ifPresent(target -> {
+            OwnerNotification stored = ownerNotificationService.createForComment(
+                target.ownerId(), event.commentId(), event.createdAt()
+            );
+            realtimeMessagingService.sendToUser(
                 target.ownerId(),
                 COMMENT_CREATED_TYPE,
-                notification(event, target)
-            ));
+                notification(stored.id(), event, target)
+            );
+        });
     }
 
-    private NewCommentNotification notification(CommentCreatedEvent event, NotificationTarget target) {
+    private NewCommentNotification notification(UUID notificationId, CommentCreatedEvent event, NotificationTarget target) {
         return new NewCommentNotification(
+            notificationId,
             event.commentId(),
             event.siteId(),
             target.siteName(),

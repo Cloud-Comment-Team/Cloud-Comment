@@ -173,7 +173,7 @@ model {
       analyticsPages = component 'Страницы аналитики' 'Дашборд владельца и аналитика конкретного сайта по комментариям, реакциям и модерации'
 
       adminApiClient = component 'Admin API Client' 'Единый клиент для запросов в backend API'
-      realtimeClient = component 'Realtime Client' 'Единое WebSocket-подключение для уведомлений, live-модерации и обновления аналитики'
+      realtimeClient = component 'Notification and Realtime Client' 'Постоянный owner-scoped центр уведомлений и единое WebSocket-подключение для live-обновлений'
     }
 
     widgetRuntime = widgetApp 'JS-виджет комментариев' 'Встраиваемый виджет, который запускается на внешнем сайте клиента' {
@@ -222,6 +222,8 @@ model {
       moderationModule = component 'Moderation module' 'Smart-ranked очередь, owner-scoped флаги, идемпотентные массовые действия и ограниченная отмена'
 
       analyticsModule = component 'Analytics module' 'Owner-scoped read-model для метрик сайтов, страниц, комментариев, реакций и модерации'
+
+      notificationModule = component 'Notification module' 'Постоянные owner-scoped уведомления, признак прочтения, дедупликация и 90-дневный retention'
 
       realtimeGateway = component 'Realtime Gateway' 'Одноразовые owner-bound WebSocket ticket-ы и owner-scoped доставка typed realtime-событий'
 
@@ -301,6 +303,8 @@ model {
 
   cloudComment.adminWebApp.adminApiClient -[http]-> cloudComment.backendApi.adminApiController 'Выполняет admin API запросы'
 
+  cloudComment.adminWebApp.realtimeClient -[http]-> cloudComment.backendApi.adminApiController 'Читает и отмечает постоянные уведомления владельца'
+
   cloudComment.adminWebApp.realtimeClient -[websocket]-> cloudComment.backendApi.realtimeGateway 'Получает owner-scoped события comment.created и comment.moderation_action_applied'
 
   cloudComment.widgetRuntime.embedLoader -[internal]-> cloudComment.widgetRuntime.widgetShell 'Инициализирует виджет на странице'
@@ -333,6 +337,8 @@ model {
 
   cloudComment.backendApi.adminApiController -[internal]-> cloudComment.backendApi.analyticsModule 'Возвращает аналитику владельца сайта'
 
+  cloudComment.backendApi.adminApiController -[internal]-> cloudComment.backendApi.notificationModule 'Возвращает и отмечает owner-scoped уведомления'
+
   cloudComment.backendApi.publicWidgetController -[internal]-> cloudComment.backendApi.domainPolicyModule 'Проверяет разрешенный домен'
 
   cloudComment.backendApi.publicWidgetController -[internal]-> cloudComment.backendApi.widgetConfigModule 'Отдает публичную конфигурацию виджета'
@@ -341,7 +347,9 @@ model {
 
   cloudComment.backendApi.publicWidgetController -[internal]-> cloudComment.backendApi.commentModule 'Создает, получает, редактирует и soft-delete комментарии'
 
-  cloudComment.backendApi.commentModule -[internal]-> cloudComment.backendApi.realtimeGateway 'Публикует события comment.created после сохранения комментария'
+  cloudComment.backendApi.commentModule -[internal]-> cloudComment.backendApi.notificationModule 'Создаёт идемпотентное постоянное уведомление после сохранения комментария'
+
+  cloudComment.backendApi.notificationModule -[internal]-> cloudComment.backendApi.realtimeGateway 'Публикует comment.created с идентификатором постоянного уведомления'
 
   cloudComment.backendApi.moderationModule -[internal]-> cloudComment.backendApi.realtimeGateway 'Публикует события comment.moderation_action_applied после действий модерации'
 
@@ -370,6 +378,8 @@ model {
   cloudComment.backendApi.moderationModule -[stores]-> cloudComment.backendApi.persistenceModule 'Обновляет статусы, pin и favorite flags комментариев'
 
   cloudComment.backendApi.analyticsModule -[reads]-> cloudComment.backendApi.persistenceModule 'Агрегирует owner-scoped метрики из sites, pages, comments и comment_reactions'
+
+  cloudComment.backendApi.notificationModule -[stores]-> cloudComment.backendApi.persistenceModule 'Хранит ссылки на владельца и комментарий, read_at и ключ дедупликации'
 
   cloudComment.backendApi.embedCodeModule -[reads]-> cloudComment.backendApi.siteModule 'Берет идентификатор сайта'
 

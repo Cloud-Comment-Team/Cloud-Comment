@@ -4,6 +4,7 @@ import com.cloudcomment.comment.domain.CommentStatus;
 import com.cloudcomment.comment.domain.CommentCreatedEvent;
 import com.cloudcomment.notification.domain.NewCommentNotification;
 import com.cloudcomment.notification.domain.NotificationTarget;
+import com.cloudcomment.notification.domain.OwnerNotification;
 import com.cloudcomment.notification.persistence.NotificationTargetRepository;
 import com.cloudcomment.realtime.application.RealtimeMessagingService;
 import org.junit.jupiter.api.Test;
@@ -29,11 +30,17 @@ class CommentNotificationListenerTests {
         UUID siteId = UUID.randomUUID();
         UUID pageId = UUID.randomUUID();
         UUID commentId = UUID.randomUUID();
+        UUID notificationId = UUID.randomUUID();
         NotificationTargetRepository repository = mock(NotificationTargetRepository.class);
+        OwnerNotificationService notificationService = mock(OwnerNotificationService.class);
         RealtimeMessagingService realtimeMessagingService = mock(RealtimeMessagingService.class);
         when(repository.findCommentTarget(siteId, pageId))
             .thenReturn(Optional.of(new NotificationTarget(ownerId, "Demo site", "https://example.com/page")));
-        CommentNotificationListener listener = new CommentNotificationListener(repository, realtimeMessagingService);
+        when(notificationService.createForComment(ownerId, commentId, CREATED_AT))
+            .thenReturn(new OwnerNotification(notificationId, ownerId, commentId, null, CREATED_AT));
+        CommentNotificationListener listener = new CommentNotificationListener(
+            repository, notificationService, realtimeMessagingService
+        );
 
         listener.onCommentCreated(new CommentCreatedEvent(
             siteId,
@@ -53,6 +60,7 @@ class CommentNotificationListenerTests {
             payloadCaptor.capture()
         );
         NewCommentNotification payload = (NewCommentNotification) payloadCaptor.getValue();
+        assertThat(payload.notificationId()).isEqualTo(notificationId);
         assertThat(payload.commentId()).isEqualTo(commentId);
         assertThat(payload.siteId()).isEqualTo(siteId);
         assertThat(payload.siteName()).isEqualTo("Demo site");
@@ -67,9 +75,12 @@ class CommentNotificationListenerTests {
         UUID siteId = UUID.randomUUID();
         UUID pageId = UUID.randomUUID();
         NotificationTargetRepository repository = mock(NotificationTargetRepository.class);
+        OwnerNotificationService notificationService = mock(OwnerNotificationService.class);
         RealtimeMessagingService realtimeMessagingService = mock(RealtimeMessagingService.class);
         when(repository.findCommentTarget(siteId, pageId)).thenReturn(Optional.empty());
-        CommentNotificationListener listener = new CommentNotificationListener(repository, realtimeMessagingService);
+        CommentNotificationListener listener = new CommentNotificationListener(
+            repository, notificationService, realtimeMessagingService
+        );
 
         listener.onCommentCreated(new CommentCreatedEvent(
             siteId,
@@ -83,6 +94,11 @@ class CommentNotificationListenerTests {
         ));
 
         verify(realtimeMessagingService, never()).sendToUser(
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any()
+        );
+        verify(notificationService, never()).createForComment(
             org.mockito.ArgumentMatchers.any(),
             org.mockito.ArgumentMatchers.any(),
             org.mockito.ArgumentMatchers.any()

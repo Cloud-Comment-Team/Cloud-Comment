@@ -38,6 +38,8 @@ cloud-comment:
     session-retention-days: ${CLOUD_COMMENT_SESSION_RETENTION_DAYS:30}
     deletion-request-retention-days: ${CLOUD_COMMENT_DELETION_REQUEST_RETENTION_DAYS:30}
     retention-cleanup-cron: ${CLOUD_COMMENT_RETENTION_CLEANUP_CRON:0 0 3 * * *}
+  notifications:
+    retention-cleanup-cron: ${CLOUD_COMMENT_NOTIFICATION_RETENTION_CLEANUP_CRON:0 30 3 * * *}
   demo:
     seed:
       enabled: ${CLOUD_COMMENT_DEMO_SEED_ENABLED:false}

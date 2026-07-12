@@ -299,6 +299,7 @@ export interface RealtimeEnvelope<TPayload> {
 }
 
 export interface NewCommentNotification {
+  notificationId: string
   commentId: string
   siteId: string
   siteName: string
@@ -308,6 +309,21 @@ export interface NewCommentNotification {
   authorEmail: string | null
   contentPreview: string
   status: CommentStatus
+  createdAt: string
+}
+
+export interface OwnerNotification {
+  id: string
+  commentId: string
+  siteId: string
+  siteName: string
+  pageId: string
+  pageUrl: string
+  parentId: string | null
+  authorEmail: string | null
+  contentPreview: string
+  status: CommentStatus
+  readAt: string | null
   createdAt: string
 }
 
