@@ -261,5 +261,5 @@ export interface ModerationActionNotification {
 }
 
 export type RealtimeEvent =
-  | RealtimeEnvelope<NewCommentNotification>
-  | RealtimeEnvelope<ModerationActionNotification>
+  | (RealtimeEnvelope<NewCommentNotification> & { type: 'comment.created' })
+  | (RealtimeEnvelope<ModerationActionNotification> & { type: 'comment.moderation_action_applied' })

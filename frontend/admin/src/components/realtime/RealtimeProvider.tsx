@@ -13,6 +13,51 @@ import { useAuthStore } from '../../store'
 import type { RealtimeEvent } from '../../types/api'
 import { RealtimeContext, type RealtimeConnectionStatus, type RealtimeListener } from './realtimeContext'
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function hasStringFields(value: Record<string, unknown>, fields: string[]): boolean {
+  return fields.every((field) => typeof value[field] === 'string')
+}
+
+function isRealtimeEvent(value: unknown): value is RealtimeEvent {
+  if (!isRecord(value) || !isRecord(value.payload)) {
+    return false
+  }
+  if (value.sentAt !== undefined && typeof value.sentAt !== 'string') {
+    return false
+  }
+
+  if (value.type === 'comment.created') {
+    return hasStringFields(value.payload, [
+      'commentId',
+      'siteId',
+      'siteName',
+      'pageId',
+      'pageUrl',
+      'contentPreview',
+      'status',
+      'createdAt',
+    ])
+  }
+
+  if (value.type === 'comment.moderation_action_applied') {
+    return hasStringFields(value.payload, [
+      'siteId',
+      'pageId',
+      'commentId',
+      'action',
+      'fromStatus',
+      'toStatus',
+      'moderatorId',
+      'createdAt',
+    ])
+  }
+
+  return false
+}
+
 export function RealtimeProvider({ children }: { children: ReactNode }) {
   const token = useAuthStore((state) => state.token)
   const authStatus = useAuthStore((state) => state.status)
@@ -44,14 +89,14 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
     }
 
     const dispatchEvent = (rawMessage: string) => {
-      let event: RealtimeEvent
+      let event: unknown
       try {
-        event = JSON.parse(rawMessage) as RealtimeEvent
+        event = JSON.parse(rawMessage)
       } catch {
         return
       }
 
-      if (!event || typeof event.type !== 'string') {
+      if (!isRealtimeEvent(event)) {
         return
       }
 
