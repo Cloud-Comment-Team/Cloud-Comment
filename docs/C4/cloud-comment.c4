@@ -223,7 +223,7 @@ model {
 
       analyticsModule = component 'Analytics module' 'Owner-scoped read-model для метрик сайтов, страниц, комментариев, реакций и модерации'
 
-      realtimeGateway = component 'Realtime Gateway' 'Bearer-auth WebSocket endpoint и owner-scoped доставка typed realtime-событий'
+      realtimeGateway = component 'Realtime Gateway' 'Одноразовые owner-bound WebSocket ticket-ы и owner-scoped доставка typed realtime-событий'
 
       antiSpamModule = component 'Anti-spam / automoderation module' 'Правила автомодерации сайта, стоп-слова, ссылки, токсичные и спамные сигналы'
 
@@ -345,7 +345,7 @@ model {
 
   cloudComment.backendApi.moderationModule -[internal]-> cloudComment.backendApi.realtimeGateway 'Публикует события comment.moderation_action_applied после действий модерации'
 
-  cloudComment.backendApi.realtimeGateway -[internal]-> cloudComment.backendApi.authModule 'Проверяет bearer token при WebSocket handshake'
+  cloudComment.backendApi.realtimeGateway -[internal]-> cloudComment.backendApi.authModule 'Выдаёт по bearer-аутентификации короткоживущий ticket и атомарно поглощает его при WebSocket handshake'
 
   cloudComment.backendApi.publicWidgetController -[internal]-> cloudComment.backendApi.accountPrivacyModule 'Обслуживает самообслуживание аккаунта в виджете: профиль, logout, экспорт данных и запрос удаления'
 

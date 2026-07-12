@@ -72,7 +72,7 @@ export function OwnerAnalyticsPanel({ siteId, compact = false }: OwnerAnalyticsP
 
   useRealtimeEvent((event) => {
     if (event.type === 'comment.created') {
-      const payload = event.payload as NewCommentNotification
+      const payload: NewCommentNotification = event.payload
       if (!siteId || payload.siteId === siteId) {
         setReloadKey((current) => current + 1)
       }
@@ -80,7 +80,7 @@ export function OwnerAnalyticsPanel({ siteId, compact = false }: OwnerAnalyticsP
     }
 
     if (event.type === 'comment.moderation_action_applied') {
-      const payload = event.payload as ModerationActionNotification
+      const payload: ModerationActionNotification = event.payload
       if (!siteId || payload.siteId === siteId) {
         setReloadKey((current) => current + 1)
       }

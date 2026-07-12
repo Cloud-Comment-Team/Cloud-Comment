@@ -7,10 +7,56 @@ import {
   type ReactNode,
 } from 'react'
 
+import { createRealtimeTicket } from '../../api/realtime'
 import { getRealtimeWebSocketUrl } from '../../config/env'
 import { useAuthStore } from '../../store'
 import type { RealtimeEvent } from '../../types/api'
 import { RealtimeContext, type RealtimeConnectionStatus, type RealtimeListener } from './realtimeContext'
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function hasStringFields(value: Record<string, unknown>, fields: string[]): boolean {
+  return fields.every((field) => typeof value[field] === 'string')
+}
+
+function isRealtimeEvent(value: unknown): value is RealtimeEvent {
+  if (!isRecord(value) || !isRecord(value.payload)) {
+    return false
+  }
+  if (value.sentAt !== undefined && typeof value.sentAt !== 'string') {
+    return false
+  }
+
+  if (value.type === 'comment.created') {
+    return hasStringFields(value.payload, [
+      'commentId',
+      'siteId',
+      'siteName',
+      'pageId',
+      'pageUrl',
+      'contentPreview',
+      'status',
+      'createdAt',
+    ])
+  }
+
+  if (value.type === 'comment.moderation_action_applied') {
+    return hasStringFields(value.payload, [
+      'siteId',
+      'pageId',
+      'commentId',
+      'action',
+      'fromStatus',
+      'toStatus',
+      'moderatorId',
+      'createdAt',
+    ])
+  }
+
+  return false
+}
 
 export function RealtimeProvider({ children }: { children: ReactNode }) {
   const token = useAuthStore((state) => state.token)
@@ -18,7 +64,6 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
   const [connectionStatus, setConnectionStatus] = useState<RealtimeConnectionStatus>('disconnected')
   const listenersRef = useRef(new Set<RealtimeListener>())
   const reconnectTimerRef = useRef<number | null>(null)
-  const shouldReconnectRef = useRef(true)
 
   const subscribe = useCallback((listener: RealtimeListener) => {
     listenersRef.current.add(listener)
@@ -34,7 +79,7 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
 
     let websocket: WebSocket | null = null
     let reconnectAttempt = 0
-    shouldReconnectRef.current = true
+    let disposed = false
 
     const clearReconnectTimer = () => {
       if (reconnectTimerRef.current) {
@@ -44,24 +89,44 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
     }
 
     const dispatchEvent = (rawMessage: string) => {
-      let event: RealtimeEvent
+      let event: unknown
       try {
-        event = JSON.parse(rawMessage) as RealtimeEvent
+        event = JSON.parse(rawMessage)
       } catch {
         return
       }
 
-      if (!event || typeof event.type !== 'string') {
+      if (!isRealtimeEvent(event)) {
         return
       }
 
       listenersRef.current.forEach((listener) => listener(event))
     }
 
-    const connect = () => {
+    const scheduleReconnect = () => {
+      if (disposed) {
+        return
+      }
+
+      reconnectAttempt += 1
+      const delay = Math.min(1000 * 2 ** reconnectAttempt, 10000)
+      reconnectTimerRef.current = window.setTimeout(() => void connect(), delay)
+    }
+
+    const connect = async () => {
       clearReconnectTimer()
       setConnectionStatus('connecting')
-      websocket = new WebSocket(getRealtimeWebSocketUrl(token))
+      try {
+        const { ticket } = await createRealtimeTicket()
+        if (disposed) {
+          return
+        }
+        websocket = new WebSocket(getRealtimeWebSocketUrl(ticket))
+      } catch {
+        setConnectionStatus('disconnected')
+        scheduleReconnect()
+        return
+      }
 
       websocket.addEventListener('open', () => {
         reconnectAttempt = 0
@@ -74,13 +139,7 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
 
       websocket.addEventListener('close', () => {
         setConnectionStatus('disconnected')
-        if (!shouldReconnectRef.current) {
-          return
-        }
-
-        reconnectAttempt += 1
-        const delay = Math.min(1000 * 2 ** reconnectAttempt, 10000)
-        reconnectTimerRef.current = window.setTimeout(connect, delay)
+        scheduleReconnect()
       })
 
       websocket.addEventListener('error', () => {
@@ -88,10 +147,10 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
       })
     }
 
-    connect()
+    void connect()
 
     return () => {
-      shouldReconnectRef.current = false
+      disposed = true
       clearReconnectTimer()
       websocket?.close()
     }

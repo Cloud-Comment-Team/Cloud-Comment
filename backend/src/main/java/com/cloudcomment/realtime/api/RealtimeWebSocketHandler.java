@@ -8,25 +8,34 @@ import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 @Component
 @RequiredArgsConstructor
 class RealtimeWebSocketHandler extends TextWebSocketHandler {
 
     private final RealtimeMessagingService messagingService;
+    private final ObjectMapper objectMapper;
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
         AuthenticatedUser user = currentUser(session);
-        messagingService.register(user.id(), session);
         session.sendMessage(new TextMessage("""
             {"type":"realtime.connected","payload":{"status":"connected"}}
             """));
+        messagingService.register(user.id(), session);
     }
 
     @Override
     protected void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
-        if (message.getPayload().contains("\"ping\"")) {
+        JsonNode payload;
+        try {
+            payload = objectMapper.readTree(message.getPayload());
+        } catch (RuntimeException exception) {
+            return;
+        }
+        if (payload != null && "realtime.ping".equals(payload.path("type").asText())) {
             session.sendMessage(new TextMessage("""
                 {"type":"realtime.pong","payload":{"status":"ok"}}
                 """));

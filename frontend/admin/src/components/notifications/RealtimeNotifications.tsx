@@ -36,7 +36,7 @@ export function RealtimeNotifications() {
     }
 
     const notification: CommentNotification = {
-      ...(event.payload as NewCommentNotification),
+      ...event.payload,
       receivedAt: event.sentAt ?? new Date().toISOString(),
     }
     setNotifications((current) => [notification, ...current].slice(0, 20))
