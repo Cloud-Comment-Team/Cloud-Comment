@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest
 @Testcontainers(disabledWithoutDocker = true)
@@ -268,6 +269,70 @@ class JdbcCommentRepositoryIntegrationTests {
             commentId
         );
         assertThat(actionCount).isEqualTo(1);
+    }
+
+    @Test
+    void repeatedStatusesCountsIdempotencyAndUndoArePersisted() {
+        UUID ownerId = insertUser("bulk-owner");
+        UUID siteId = insertSite(ownerId, "bulk-site");
+        UUID pageId = insertPage(siteId, "https://example.com/moderation", "Moderation");
+        UUID pendingId = insertComment(pageId, "Pending", "PENDING", Instant.parse("2026-07-12T10:00:00Z"));
+        UUID spamId = insertComment(pageId, "Spam", "SPAM", Instant.parse("2026-07-12T11:00:00Z"));
+        insertComment(pageId, "Approved", "APPROVED", Instant.parse("2026-07-12T12:00:00Z"));
+
+        ModerationCommentPage queue = commentRepository.findByOwnerId(
+            ownerId,
+            new ModerationCommentFilters(
+                null, null, null, null, List.of(CommentStatus.PENDING, CommentStatus.SPAM),
+                null, null, null, null, CommentSortField.CREATED_AT, SortOrder.ASC
+            ),
+            1,
+            20
+        );
+        assertThat(queue.items()).extracting(Comment::id).containsExactly(pendingId, spamId);
+        assertThat(commentRepository.countByOwnerId(ownerId))
+            .containsEntry(CommentStatus.PENDING, 1L)
+            .containsEntry(CommentStatus.SPAM, 1L)
+            .containsEntry(CommentStatus.APPROVED, 1L)
+            .containsEntry(CommentStatus.REJECTED, 0L);
+
+        UUID deletedModeratorId = insertUser("deleted-moderator");
+        var anonymizedAction = moderationActionRepository.create(
+            spamId, deletedModeratorId, ModerationActionType.REJECT,
+            CommentStatus.SPAM, CommentStatus.REJECTED, "Проверка истории"
+        );
+        jdbcTemplate.update("delete from app_users where id = ?", deletedModeratorId);
+        assertThat(moderationActionRepository.findById(anonymizedAction.id()))
+            .get()
+            .satisfies(stored -> {
+                assertThat(stored.moderatorId()).isNull();
+                assertThat(stored.moderatorEmail()).isNull();
+            });
+
+        UUID operationId = UUID.randomUUID();
+        var original = moderationActionRepository.create(
+            pendingId, ownerId, ModerationActionType.APPROVE,
+            CommentStatus.PENDING, CommentStatus.APPROVED, null, operationId, null
+        );
+        assertThat(moderationActionRepository.findByCommentIdAndOperationId(pendingId, operationId))
+            .contains(original);
+        assertThat(moderationActionRepository.findLatestNotReverted(pendingId)).contains(original);
+
+        assertThatThrownBy(() -> moderationActionRepository.create(
+            pendingId, ownerId, ModerationActionType.APPROVE,
+            CommentStatus.PENDING, CommentStatus.APPROVED, null, operationId, null
+        )).isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+
+        var undo = moderationActionRepository.create(
+            pendingId, ownerId, ModerationActionType.UNDO,
+            CommentStatus.APPROVED, CommentStatus.PENDING, "Отмена действия", UUID.randomUUID(), original.id()
+        );
+        assertThat(undo.revertsActionId()).isEqualTo(original.id());
+        assertThat(moderationActionRepository.findLatestNotReverted(pendingId)).isEmpty();
+        assertThatThrownBy(() -> moderationActionRepository.create(
+            pendingId, ownerId, ModerationActionType.UNDO,
+            CommentStatus.APPROVED, CommentStatus.PENDING, "Повторная отмена", UUID.randomUUID(), original.id()
+        )).isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
     }
 
     @Test

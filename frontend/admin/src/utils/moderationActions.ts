@@ -1,6 +1,6 @@
-import type { CommentStatus, ModerationActionType } from '../types/api'
+import type { CommentStatus, ModerationCommand } from '../types/api'
 
-const actionTargetStatus: Record<ModerationActionType, CommentStatus> = {
+const actionTargetStatus: Record<ModerationCommand, CommentStatus> = {
   APPROVE: 'APPROVED',
   REJECT: 'REJECTED',
   HIDE: 'HIDDEN',
@@ -10,8 +10,8 @@ const actionTargetStatus: Record<ModerationActionType, CommentStatus> = {
 
 const restoreSourceStatuses = new Set<CommentStatus>(['REJECTED', 'HIDDEN', 'SPAM'])
 
-export function getAvailableModerationActions(status: CommentStatus): ModerationActionType[] {
-  return (Object.entries(actionTargetStatus) as Array<[ModerationActionType, CommentStatus]>)
+export function getAvailableModerationActions(status: CommentStatus): ModerationCommand[] {
+  return (Object.entries(actionTargetStatus) as Array<[ModerationCommand, CommentStatus]>)
     .filter(([action, targetStatus]) => {
       if (targetStatus === status) {
         return false

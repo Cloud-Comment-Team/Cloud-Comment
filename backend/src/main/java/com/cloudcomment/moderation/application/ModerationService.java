@@ -16,6 +16,10 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -72,7 +76,20 @@ public class ModerationService {
         ModerationActionType action,
         String reason
     ) {
+        return applyAction(currentUser, commentId, action, reason, null);
+    }
+
+    @Transactional
+    public ModerationAction applyAction(
+        AuthenticatedUser currentUser, UUID commentId, ModerationActionType action, String reason, UUID operationId
+    ) {
         resourceOwnershipService.assertCommentOwnedBy(currentUser, commentId);
+        if (operationId != null) {
+            var existing = moderationActionRepository.findByCommentIdAndOperationId(commentId, operationId);
+            if (existing.isPresent()) {
+                return existing.orElseThrow();
+            }
+        }
         Comment comment = commentRepository.findById(commentId).orElseThrow(this::notFound);
 
         String normalizedReason = normalizeReason(reason);
@@ -90,7 +107,9 @@ public class ModerationService {
             action,
             comment.status(),
             targetStatus,
-            normalizedReason
+            normalizedReason,
+            operationId,
+            null
         );
         eventPublisher.publishEvent(new ModerationActionAppliedEvent(
             updatedComment.siteId(),
@@ -106,7 +125,62 @@ public class ModerationService {
         return moderationAction;
     }
 
+    @Transactional(readOnly = true)
+    public Map<CommentStatus, Long> counts(AuthenticatedUser currentUser) {
+        return commentRepository.countByOwnerId(currentUser.id());
+    }
+
+    @Transactional
+    public List<BulkModerationResult> applyBulk(
+        AuthenticatedUser currentUser, UUID operationId, List<UUID> commentIds,
+        ModerationActionType action, String reason
+    ) {
+        if (action == ModerationActionType.UNDO) {
+            throw new ApplicationException(ApiErrorCode.BAD_REQUEST, "UNDO uses a dedicated endpoint");
+        }
+        if (commentIds.stream().distinct().count() != commentIds.size()) {
+            throw new ApplicationException(ApiErrorCode.BAD_REQUEST, "commentIds must be unique");
+        }
+        return commentIds.stream().map(commentId -> {
+            try {
+                return BulkModerationResult.success(commentId, applyAction(currentUser, commentId, action, reason, operationId));
+            } catch (ApplicationException exception) {
+                return BulkModerationResult.failure(commentId, "ACTION_FAILED", "Не удалось применить действие");
+            }
+        }).toList();
+    }
+
+    @Transactional
+    public ModerationAction undo(AuthenticatedUser currentUser, UUID actionId) {
+        ModerationAction action = moderationActionRepository.findById(actionId).orElseThrow(this::notFound);
+        resourceOwnershipService.assertCommentOwnedBy(currentUser, action.commentId());
+        ModerationAction latest = moderationActionRepository.findLatestNotReverted(action.commentId())
+            .orElseThrow(() -> new ApplicationException(ApiErrorCode.BUSINESS_ERROR, "Action cannot be undone"));
+        if (!latest.id().equals(action.id()) || action.action() == ModerationActionType.UNDO
+            || action.createdAt().isBefore(Instant.now().minus(Duration.ofMinutes(15)))) {
+            throw new ApplicationException(ApiErrorCode.BUSINESS_ERROR, "Action cannot be undone");
+        }
+        Comment comment = commentRepository.findById(action.commentId()).orElseThrow(this::notFound);
+        if (comment.status() != action.toStatus()) {
+            throw new ApplicationException(ApiErrorCode.BUSINESS_ERROR, "Comment status changed after action");
+        }
+        Comment updated = commentRepository.updateStatus(comment.id(), comment.status(), action.fromStatus(), "Отмена действия")
+            .orElseThrow(() -> concurrentStatusChange(comment.id(), action.fromStatus()));
+        ModerationAction undo = moderationActionRepository.create(
+            comment.id(), currentUser.id(), ModerationActionType.UNDO, comment.status(), action.fromStatus(),
+            "Отмена действия", UUID.randomUUID(), action.id()
+        );
+        eventPublisher.publishEvent(new ModerationActionAppliedEvent(
+            updated.siteId(), updated.pageId(), updated.id(), ModerationActionType.UNDO,
+            comment.status(), action.fromStatus(), undo.reason(), currentUser.id(), undo.createdAt()
+        ));
+        return undo;
+    }
+
     private ModerationCommentFilters normalizeFilters(ModerationCommentFilters filters) {
+        if (filters.status() != null && filters.statuses() != null && !filters.statuses().isEmpty()) {
+            throw new ApplicationException(ApiErrorCode.BAD_REQUEST, "status and statuses cannot be combined");
+        }
         if (filters.createdFrom() != null
             && filters.createdTo() != null
             && filters.createdFrom().isAfter(filters.createdTo())) {
@@ -120,6 +194,7 @@ public class ModerationService {
             filters.pageId(),
             normalizeNullable(filters.pageUrl()),
             filters.status(),
+            filters.statuses() == null ? null : List.copyOf(filters.statuses()),
             filters.createdFrom(),
             filters.createdTo(),
             normalizeNullable(filters.search()),
@@ -145,6 +220,7 @@ public class ModerationService {
             case HIDE -> CommentStatus.HIDDEN;
             case MARK_SPAM -> CommentStatus.SPAM;
             case RESTORE -> CommentStatus.APPROVED;
+            case UNDO -> throw new ApplicationException(ApiErrorCode.BAD_REQUEST, "UNDO uses a dedicated endpoint");
         };
     }
 

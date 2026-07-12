@@ -9,6 +9,8 @@ import com.cloudcomment.moderation.domain.CommentSortField;
 import com.cloudcomment.moderation.domain.CommentStatus;
 import com.cloudcomment.moderation.domain.ModerationAction;
 import com.cloudcomment.moderation.domain.SortOrder;
+import com.cloudcomment.shared.error.ApiErrorCode;
+import com.cloudcomment.shared.error.ApplicationException;
 import com.cloudcomment.shared.web.PaginatedResponse;
 import com.cloudcomment.shared.web.security.CurrentUser;
 import jakarta.validation.Valid;
@@ -29,6 +31,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 @Validated
@@ -46,6 +49,7 @@ class ModerationController {
         @RequestParam(required = false) UUID pageId,
         @RequestParam(required = false) String pageUrl,
         @RequestParam(required = false) CommentStatus status,
+        @RequestParam(required = false) List<CommentStatus> statuses,
         @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant createdFrom,
         @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant createdTo,
         @RequestParam(required = false) String search,
@@ -55,11 +59,15 @@ class ModerationController {
         @RequestParam(defaultValue = "1") @Min(1) @Max(100_000) int page,
         @RequestParam(defaultValue = "20") @Min(1) @Max(100) int pageSize
     ) {
+        if (status != null && statuses != null && !statuses.isEmpty()) {
+            throw new ApplicationException(ApiErrorCode.BAD_REQUEST, "status and statuses cannot be combined");
+        }
         ModerationCommentFilters filters = new ModerationCommentFilters(
             siteId,
             pageId,
             pageUrl,
             status,
+            statuses,
             createdFrom,
             createdTo,
             search,
@@ -73,6 +81,31 @@ class ModerationController {
             comments.page(),
             comments.pageSize(),
             comments.totalItems()
+        );
+    }
+
+    @GetMapping("/counts")
+    ModerationCountsResponse counts(@CurrentUser AuthenticatedUser currentUser) {
+        return ModerationCountsResponse.from(moderationService.counts(currentUser));
+    }
+
+    @PostMapping("/comments/bulk-actions")
+    BulkModerationResponse bulkAction(
+        @CurrentUser AuthenticatedUser currentUser,
+        @Valid @RequestBody BulkModerationRequest request
+    ) {
+        return BulkModerationResponse.from(moderationService.applyBulk(
+            currentUser, request.operationId(), request.commentIds(), request.action(), request.reason()
+        ));
+    }
+
+    @PostMapping("/actions/{actionId}/undo")
+    ResponseEntity<ModerationActionResponse> undo(
+        @CurrentUser AuthenticatedUser currentUser,
+        @PathVariable UUID actionId
+    ) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(
+            ModerationActionResponse.from(moderationService.undo(currentUser, actionId))
         );
     }
 

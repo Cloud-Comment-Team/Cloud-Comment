@@ -32,6 +32,15 @@ class JdbcModerationActionRepository implements ModerationActionRepository {
         CommentStatus toStatus,
         String reason
     ) {
+        return create(commentId, moderatorId, action, fromStatus, toStatus, reason, null, null);
+    }
+
+    @Override
+    @Transactional
+    public ModerationAction create(
+        UUID commentId, UUID moderatorId, ModerationActionType action, CommentStatus fromStatus,
+        CommentStatus toStatus, String reason, UUID operationId, UUID revertsActionId
+    ) {
         ModerationActionRow row = Objects.requireNonNull(
             jdbcTemplate.queryForObject(
                 """
@@ -41,10 +50,13 @@ class JdbcModerationActionRepository implements ModerationActionRepository {
                         action,
                         from_status,
                         to_status,
-                        reason
+                        reason,
+                        operation_id,
+                        reverts_action_id
                     )
-                    values (?, ?, ?, ?, ?, ?)
-                    returning id, comment_id, action, from_status, to_status, reason, moderator_id, created_at
+                    values (?, ?, ?, ?, ?, ?, ?, ?)
+                    returning id, comment_id, action, from_status, to_status, reason, moderator_id,
+                              operation_id, reverts_action_id, created_at
                     """,
                 this::mapActionRow,
                 commentId,
@@ -52,7 +64,9 @@ class JdbcModerationActionRepository implements ModerationActionRepository {
                 action.name(),
                 fromStatus.name(),
                 toStatus.name(),
-                reason
+                reason,
+                operationId,
+                revertsActionId
             ),
             "created moderation action must not be null"
         );
@@ -66,6 +80,34 @@ class JdbcModerationActionRepository implements ModerationActionRepository {
         return toModerationAction(row, moderatorEmail);
     }
 
+    @Override
+    public java.util.Optional<ModerationAction> findById(UUID actionId) {
+        return findOne("where ma.id = ?", actionId);
+    }
+
+    @Override
+    public java.util.Optional<ModerationAction> findByCommentIdAndOperationId(UUID commentId, UUID operationId) {
+        return findOne("where ma.comment_id = ? and ma.operation_id = ?", commentId, operationId);
+    }
+
+    @Override
+    public java.util.Optional<ModerationAction> findLatestNotReverted(UUID commentId) {
+        return findOne("""
+            where ma.comment_id = ? and ma.action <> 'UNDO'
+              and not exists (select 1 from moderation_actions undo where undo.reverts_action_id = ma.id)
+            order by ma.created_at desc, ma.id desc limit 1
+            """, commentId);
+    }
+
+    private java.util.Optional<ModerationAction> findOne(String clause, Object... params) {
+        return jdbcTemplate.query("""
+            select ma.id, ma.comment_id, ma.action, ma.from_status, ma.to_status, ma.reason,
+                   ma.moderator_id, ma.operation_id, ma.reverts_action_id, ma.created_at, u.email
+            from moderation_actions ma left join app_users u on u.id = ma.moderator_id
+            """ + clause, (resultSet, rowNumber) -> toModerationAction(mapActionRow(resultSet, rowNumber), resultSet.getString("email")), params)
+            .stream().findFirst();
+    }
+
     private ModerationAction toModerationAction(ModerationActionRow row, String moderatorEmail) {
         return new ModerationAction(
             row.id(),
@@ -76,6 +118,8 @@ class JdbcModerationActionRepository implements ModerationActionRepository {
             row.reason(),
             row.moderatorId(),
             moderatorEmail,
+            row.operationId(),
+            row.revertsActionId(),
             row.createdAt()
         );
     }
@@ -89,6 +133,8 @@ class JdbcModerationActionRepository implements ModerationActionRepository {
             resultSet.getString("to_status"),
             resultSet.getString("reason"),
             resultSet.getObject("moderator_id", UUID.class),
+            resultSet.getObject("operation_id", UUID.class),
+            resultSet.getObject("reverts_action_id", UUID.class),
             toInstant(resultSet, "created_at")
         );
     }
@@ -105,6 +151,8 @@ class JdbcModerationActionRepository implements ModerationActionRepository {
         String toStatus,
         String reason,
         UUID moderatorId,
+        UUID operationId,
+        UUID revertsActionId,
         Instant createdAt
     ) {
     }

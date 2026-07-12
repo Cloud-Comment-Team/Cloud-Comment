@@ -404,7 +404,7 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
 
   const moderationPage = await context.newPage()
   await moderationPage.goto('/moderation')
-  await expect(moderationPage.getByRole('heading', { name: 'Модерация комментариев' })).toBeVisible()
+  await expect(moderationPage.getByRole('heading', { name: 'Модерация', exact: true })).toBeVisible()
   await moderationPage.getByRole('button', { name: 'Уведомления' }).click()
   await expect(moderationPage.getByText('Подключено', { exact: true })).toBeVisible({ timeout: 15_000 })
 
@@ -421,7 +421,68 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
     },
   })
   expect(realtimeCommentResponse.status()).toBe(201)
+  const realtimeComment = await realtimeCommentResponse.json()
   await expect(moderationPage.getByText(realtimeCommentText)).toBeVisible({ timeout: 15_000 })
+
+  const moderationCountsResponse = await request.get(`${API_BASE_URL}/moderation/counts`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  await expect(moderationCountsResponse).toBeOK()
+  const moderationCounts = await moderationCountsResponse.json()
+  expect(moderationCounts.statuses.SPAM).toBeGreaterThanOrEqual(1)
+  expect(moderationCounts.statuses.PENDING).toBeGreaterThanOrEqual(1)
+  expect(moderationCounts.requiringDecision).toBeGreaterThanOrEqual(2)
+
+  const repeatedStatusesResponse = await request.get(
+    `${API_BASE_URL}/moderation/comments?statuses=PENDING&statuses=SPAM&page=1&pageSize=30`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  )
+  await expect(repeatedStatusesResponse).toBeOK()
+  const repeatedStatuses = await repeatedStatusesResponse.json()
+  expect(repeatedStatuses.items.map((item: { id: string }) => item.id)).toEqual(
+    expect.arrayContaining([spamComment.id, realtimeComment.id]),
+  )
+
+  const conflictingStatusesResponse = await request.get(
+    `${API_BASE_URL}/moderation/comments?status=PENDING&statuses=SPAM`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  )
+  expect(conflictingStatusesResponse.status()).toBe(400)
+
+  const operationId = crypto.randomUUID()
+  const bulkModerationResponse = await request.post(`${API_BASE_URL}/moderation/comments/bulk-actions`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: {
+      operationId,
+      commentIds: [spamComment.id, realtimeComment.id],
+      action: 'APPROVE',
+      reason: 'Проверено в E2E',
+    },
+  })
+  await expect(bulkModerationResponse).toBeOK()
+  const bulkModeration = await bulkModerationResponse.json()
+  expect(bulkModeration.items).toHaveLength(2)
+  expect(bulkModeration.items.every((item: { success: boolean }) => item.success)).toBe(true)
+  expect(bulkModeration.items.every((item: { action: { operationId: string } }) => item.action.operationId === operationId)).toBe(true)
+
+  const realtimeModerationAction = bulkModeration.items.find(
+    (item: { commentId: string }) => item.commentId === realtimeComment.id,
+  ).action
+  const undoModerationResponse = await request.post(
+    `${API_BASE_URL}/moderation/actions/${realtimeModerationAction.id}/undo`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  )
+  expect(undoModerationResponse.status()).toBe(201)
+  expect(await undoModerationResponse.json()).toMatchObject({
+    action: 'UNDO',
+    revertsActionId: realtimeModerationAction.id,
+  })
+
+  const restoredCommentResponse = await request.get(`${API_BASE_URL}/moderation/comments/${realtimeComment.id}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  await expect(restoredCommentResponse).toBeOK()
+  expect(await restoredCommentResponse.json()).toMatchObject({ status: 'PENDING' })
 
   const analyticsResponse = await request.get(`${API_BASE_URL}/analytics/owner`, {
     headers: {
