@@ -19,4 +19,7 @@ test('кнопка уведомлений не меняет положение �
   expect(after).not.toBeNull()
   expect(Math.abs((before?.x ?? 0) - (after?.x ?? 0))).toBeLessThanOrEqual(1)
   expect(Math.abs((before?.y ?? 0) - (after?.y ?? 0))).toBeLessThanOrEqual(1)
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog', { name: 'Центр уведомлений' })).toBeHidden()
+  expect(await button.evaluate((element) => element === document.activeElement)).toBe(true)
 })

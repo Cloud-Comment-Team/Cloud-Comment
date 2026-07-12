@@ -17,7 +17,7 @@ const ProtectedRoute = () => {
   if (status === 'checking') {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: 'var(--bg)' }}>
-        <p style={{ color: 'var(--text)' }}>Checking access...</p>
+        <p role="status" aria-live="polite" style={{ color: 'var(--text)' }}>Проверяем доступ…</p>
       </div>
     )
   }
