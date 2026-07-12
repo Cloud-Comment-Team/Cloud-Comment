@@ -95,6 +95,7 @@ export type PublicComment = {
   pinned: boolean;
   ownedByCurrentUser: boolean;
   reactions: CommentReaction[];
+  replyCount: number;
   replies: PublicComment[];
 };
 

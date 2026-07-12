@@ -21,6 +21,7 @@ record CommentResponse(
     boolean pinned,
     boolean ownedByCurrentUser,
     List<CommentReactionResponse> reactions,
+    long replyCount,
     List<CommentResponse> replies
 ) {
 
@@ -44,6 +45,7 @@ record CommentResponse(
             comment.pinned(),
             comment.ownedByCurrentUser(),
             comment.reactions().stream().map(CommentReactionResponse::from).toList(),
+            comment.replyCount(),
             comment.replies().stream().map(CommentResponse::from).toList()
         );
     }

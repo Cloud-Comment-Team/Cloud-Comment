@@ -64,6 +64,8 @@ export const widgetStyles = `
 
 .cloud-comment {
   box-sizing: border-box;
+  container-name: cloud-comment;
+  container-type: inline-size;
   width: 100%;
   overflow: hidden;
   border: 1px solid var(--cc-border);
@@ -457,6 +459,26 @@ export const widgetStyles = `
   background: var(--cc-surface-muted);
 }
 
+.cloud-comment__load-replies,
+.cloud-comment__auth-expand {
+  justify-self: start;
+  border: 1px solid var(--cc-border);
+  border-radius: 999px;
+  background: var(--cc-surface-muted);
+  color: var(--cc-accent);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  padding: 8px 12px;
+}
+
+.cloud-comment__load-replies:focus-visible,
+.cloud-comment__auth-expand:focus-visible {
+  outline: 2px solid var(--cc-accent);
+  outline-offset: 2px;
+}
+
 .cloud-comment__form {
   display: grid;
   gap: 12px;
@@ -523,6 +545,11 @@ export const widgetStyles = `
   background: var(--cc-surface-muted);
   color: var(--cc-placeholder);
   cursor: not-allowed;
+}
+
+.cloud-comment__textarea[readonly] {
+  background: var(--cc-surface-muted);
+  cursor: pointer;
 }
 
 .cloud-comment__textarea:focus,
@@ -613,6 +640,19 @@ export const widgetStyles = `
   min-width: 0;
   align-items: center;
   gap: 10px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+}
+
+.cloud-comment__account-summary:focus-visible {
+  border-radius: var(--cc-radius);
+  outline: 2px solid var(--cc-accent);
+  outline-offset: 3px;
 }
 
 .cloud-comment__avatar--account {
@@ -831,6 +871,55 @@ export const widgetStyles = `
 
   .cloud-comment__button {
     width: 100%;
+  }
+}
+
+@container cloud-comment (max-width: 640px) {
+  .cloud-comment__header,
+  .cloud-comment__body {
+    padding-inline: 14px;
+  }
+
+  .cloud-comment__auth-form {
+    grid-template-columns: 1fr;
+  }
+
+  .cloud-comment__replies {
+    margin-left: 6px;
+    padding-left: 8px;
+  }
+}
+
+@container cloud-comment (max-width: 420px) {
+  .cloud-comment__header {
+    align-items: center;
+  }
+
+  .cloud-comment__badge {
+    display: none;
+  }
+
+  .cloud-comment__sort {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .cloud-comment__sort select {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .cloud-comment__actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .cloud-comment__button {
+    width: 100%;
+  }
+
+  .cloud-comment__comment {
+    padding: 11px;
   }
 }
 `;

@@ -201,6 +201,35 @@ class JdbcPublicCommentRepositoryIntegrationTests {
     }
 
     @Test
+    void limitsInlineRepliesAndPagesTheCompleteBranch() {
+        UUID ownerId = insertUser("reply-owner", "Reply Owner");
+        UUID visitorId = insertUser("reply-visitor", "Reply Visitor");
+        UUID siteId = insertSite(ownerId, "replies.example.com", "https://replies.example.com", ModerationMode.POST_MODERATION, true);
+        UUID pageId = repository.findOrCreatePage(siteId, "https://replies.example.com/article");
+        CommentView root = repository.createComment(
+            siteId, pageId, null, visitorId, "Reply Visitor", "reply-visitor@example.com", "Root", CommentStatus.APPROVED
+        );
+        repository.createComment(
+            siteId, pageId, root.id(), visitorId, "Reply Visitor", "reply-visitor@example.com", "First", CommentStatus.APPROVED
+        );
+        repository.createComment(
+            siteId, pageId, root.id(), visitorId, "Reply Visitor", "reply-visitor@example.com", "Second", CommentStatus.APPROVED
+        );
+
+        CommentPage limited = repository.findApprovedComments(
+            siteId, pageId, 1, 20, PublicCommentSort.PINNED_FIRST, Optional.of(visitorId), 1
+        );
+        assertThat(limited.items()).singleElement().satisfies(comment -> {
+            assertThat(comment.replyCount()).isEqualTo(2);
+            assertThat(comment.replies()).singleElement().extracting(CommentView::content).isEqualTo("First");
+        });
+
+        CommentPage secondPage = repository.findApprovedReplies(siteId, root.id(), 2, 1, Optional.of(visitorId));
+        assertThat(secondPage.totalItems()).isEqualTo(2);
+        assertThat(secondPage.items()).singleElement().extracting(CommentView::content).isEqualTo("Second");
+    }
+
+    @Test
     void sortsPinnedRootsFirstAndCountsReactionsAcrossApprovedThread() {
         UUID ownerId = insertUser("sorting-owner", "Sorting Owner");
         UUID visitorId = insertUser("sorting-visitor", "Sorting Visitor");
