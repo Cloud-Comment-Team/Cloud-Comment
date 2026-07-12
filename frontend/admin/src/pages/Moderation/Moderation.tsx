@@ -1,7 +1,23 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import toast from 'react-hot-toast'
-import { CalendarClock, Check, CornerDownRight, EyeOff, Filter, Globe, Hash, Link2, RotateCcw, Search, ShieldAlert, X } from 'lucide-react'
+import {
+  AlertTriangle,
+  CalendarClock,
+  Check,
+  CornerDownRight,
+  EyeOff,
+  Filter,
+  Flame,
+  Globe,
+  Hash,
+  Link2,
+  RotateCcw,
+  Search,
+  ShieldAlert,
+  Sparkles,
+  X,
+} from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
 import { getApiErrorMessage } from '../../api/auth'
@@ -10,14 +26,20 @@ import { listAllSites } from '../../api/sites'
 import { AsyncState } from '../../components/common/AsyncState'
 import { Badge } from '../../components/common/Badge'
 import { PaginationControls } from '../../components/common/PaginationControls'
-import type { Comment, CommentStatus, ModerationActionType, Site } from '../../types/api'
+import type {
+  Comment,
+  CommentStatus,
+  ModerationActionType,
+  ModerationPriority,
+  Site,
+} from '../../types/api'
 import { formatDateTime } from '../../utils/formatDate'
 import { getAvailableModerationActions } from '../../utils/moderationActions'
 
 const statusLabels: Record<CommentStatus, string> = {
   PENDING: 'На модерации',
   APPROVED: 'Одобрен',
-  REJECTED: 'Отклонён',
+  REJECTED: 'Отклонен',
   HIDDEN: 'Скрыт',
   SPAM: 'Спам',
 }
@@ -28,6 +50,43 @@ const statusTones: Record<CommentStatus, 'success' | 'warning' | 'danger' | 'mut
   REJECTED: 'danger',
   HIDDEN: 'muted',
   SPAM: 'danger',
+}
+
+const priorityLabels: Record<ModerationPriority, string> = {
+  LOW: 'Низкий приоритет',
+  MEDIUM: 'Средний приоритет',
+  HIGH: 'Высокий приоритет',
+  URGENT: 'Срочно',
+}
+
+const priorityStyles: Record<ModerationPriority, { background: string; color: string; border: string }> = {
+  LOW: {
+    background: 'color-mix(in srgb, var(--surface-2) 82%, var(--accent) 18%)',
+    color: 'var(--text)',
+    border: 'var(--border)',
+  },
+  MEDIUM: {
+    background: 'color-mix(in srgb, var(--status-pending-bg) 86%, var(--status-pending-accent) 14%)',
+    color: 'var(--status-pending-accent)',
+    border: 'var(--status-pending-border)',
+  },
+  HIGH: {
+    background: 'color-mix(in srgb, var(--status-spam-bg) 88%, var(--status-spam-accent) 12%)',
+    color: 'var(--status-spam-accent)',
+    border: 'var(--status-spam-border)',
+  },
+  URGENT: {
+    background: 'color-mix(in srgb, var(--status-rejected-bg) 84%, var(--status-rejected-accent) 16%)',
+    color: 'var(--status-rejected-accent)',
+    border: 'var(--status-rejected-border)',
+  },
+}
+
+const priorityIcons: Record<ModerationPriority, LucideIcon> = {
+  LOW: Sparkles,
+  MEDIUM: AlertTriangle,
+  HIGH: ShieldAlert,
+  URGENT: Flame,
 }
 
 const statusCardStyles: Record<
@@ -104,6 +163,22 @@ function shortenId(value: string): string {
 
 function parentAuthorLabel(comment: Comment): string {
   return comment.parent?.author?.displayName || comment.parent?.author?.email || 'Автор комментария'
+}
+
+function PriorityBadge({ priority, score }: { priority: ModerationPriority; score: number }) {
+  const style = priorityStyles[priority]
+  const Icon = priorityIcons[priority]
+
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold"
+      style={{ backgroundColor: style.background, borderColor: style.border, color: style.color }}
+      title={`Оценка очереди: ${score}`}
+    >
+      <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+      {priorityLabels[priority]}
+    </span>
+  )
 }
 
 function MetadataItem({
@@ -201,7 +276,7 @@ const Moderation = () => {
           status: appliedFilters.status || undefined,
           pageUrl: appliedFilters.pageUrl.trim() || undefined,
           search: appliedFilters.search.trim() || undefined,
-          sortBy: 'CREATED_AT',
+          sortBy: 'SMART',
           sortOrder: 'DESC',
           page,
           pageSize: 20,
@@ -236,7 +311,7 @@ const Moderation = () => {
         action,
         reason: reasons[commentId]?.trim() || null,
       })
-      toast.success('Статус комментария обновлён')
+      toast.success('Статус комментария обновлен')
       setReasons((current) => {
         const next = { ...current }
         delete next[commentId]
@@ -273,9 +348,35 @@ const Moderation = () => {
           <p className="cc-eyebrow">Очередь</p>
           <h1 className="cc-title">Модерация комментариев</h1>
           <p className="cc-subtitle">
-          Просматривайте очередь комментариев, фильтруйте по сайтам и страницам, меняйте статус
+            Сначала показываем комментарии с самым высоким риском: ожидание решения, спам-сигналы, ссылки,
+            длинный текст и ответы внутри обсуждений.
           </p>
         </div>
+      </div>
+
+      <div
+        className="mb-6 flex flex-col gap-3 rounded-lg border p-4 md:flex-row md:items-center md:justify-between"
+        style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}
+      >
+        <div className="flex items-start gap-3">
+          <span
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg"
+            style={{ backgroundColor: 'var(--accent-bg)', color: 'var(--accent)' }}
+          >
+            <Sparkles className="h-5 w-5" aria-hidden="true" />
+          </span>
+          <div>
+            <p className="text-sm font-semibold" style={{ color: 'var(--text-h)' }}>
+              Умная очередь включена
+            </p>
+            <p className="text-sm leading-6" style={{ color: 'var(--text)' }}>
+              Сортировка учитывает статус, причину автомодерации, ссылки, возраст комментария и контекст ответа.
+            </p>
+          </div>
+        </div>
+        <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--accent)' }}>
+          SMART DESC
+        </span>
       </div>
 
       <form
@@ -364,19 +465,12 @@ const Moderation = () => {
         </label>
 
         <div className="flex flex-wrap gap-2 md:col-span-2 xl:col-span-3">
-          <button
-            type="submit"
-            className="cc-button-primary"
-          >
+          <button type="submit" className="cc-button-primary">
             <Search className="h-4 w-4" aria-hidden="true" />
             Применить фильтры
           </button>
           {filtersApplied && (
-            <button
-              type="button"
-              className="cc-button-secondary"
-              onClick={handleResetFilters}
-            >
+            <button type="button" className="cc-button-secondary" onClick={handleResetFilters}>
               Сбросить
             </button>
           )}
@@ -391,11 +485,11 @@ const Moderation = () => {
       >
         <div className="space-y-4">
           {comments.map((comment) => {
-            const authorLabel =
-              comment.author?.displayName || comment.author?.email || 'Гость'
+            const authorLabel = comment.author?.displayName || comment.author?.email || 'Гость'
             const siteName = siteNamesById.get(comment.siteId) ?? comment.siteId
             const availableActions = getAvailableModerationActions(comment.status)
             const statusStyle = statusCardStyles[comment.status]
+            const priorityReasons = comment.priorityReasons ?? []
 
             return (
               <article
@@ -428,7 +522,10 @@ const Moderation = () => {
                       </p>
                     </div>
                   </div>
-                  <Badge tone={statusTones[comment.status]}>{statusLabels[comment.status]}</Badge>
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <PriorityBadge priority={comment.priority} score={comment.priorityScore} />
+                    <Badge tone={statusTones[comment.status]}>{statusLabels[comment.status]}</Badge>
+                  </div>
                 </div>
 
                 <div
@@ -456,10 +553,7 @@ const Moderation = () => {
                         <Badge tone={statusTones[comment.parent.status]}>{statusLabels[comment.parent.status]}</Badge>
                         <span>{formatDateTime(comment.parent.createdAt)}</span>
                       </div>
-                      <p
-                        className="line-clamp-3 whitespace-pre-wrap text-sm leading-6"
-                        style={{ color: 'var(--text-h)' }}
-                      >
+                      <p className="line-clamp-3 whitespace-pre-wrap text-sm leading-6" style={{ color: 'var(--text-h)' }}>
                         {comment.parent.content}
                       </p>
                     </div>
@@ -477,6 +571,40 @@ const Moderation = () => {
                     {comment.content}
                   </p>
                 </div>
+
+                {priorityReasons.length > 0 && (
+                  <div className="border-t px-4 py-4" style={{ borderColor: statusStyle.border }}>
+                    <div
+                      className="rounded-lg border p-3"
+                      style={{ backgroundColor: statusStyle.metaBackground, borderColor: statusStyle.border }}
+                    >
+                      <div className="mb-2 flex items-center gap-2">
+                        <Sparkles className="h-4 w-4" style={{ color: statusStyle.accent }} aria-hidden="true" />
+                        <span className="text-xs font-semibold uppercase" style={{ color: 'var(--text-h)' }}>
+                          Почему выше в очереди
+                        </span>
+                        <span className="text-xs" style={{ color: 'var(--text)' }}>
+                          score {comment.priorityScore}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {priorityReasons.map((reason) => (
+                          <span
+                            key={reason}
+                            className="rounded-full border px-2.5 py-1 text-xs font-medium"
+                            style={{
+                              backgroundColor: 'var(--surface)',
+                              borderColor: statusStyle.border,
+                              color: 'var(--text-h)',
+                            }}
+                          >
+                            {reason}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {comment.moderationReason && (
                   <div className="border-t px-4 py-4" style={{ borderColor: statusStyle.border }}>

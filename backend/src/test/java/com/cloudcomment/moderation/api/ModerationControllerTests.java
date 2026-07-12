@@ -11,6 +11,7 @@ import com.cloudcomment.moderation.domain.CommentSortField;
 import com.cloudcomment.moderation.domain.CommentStatus;
 import com.cloudcomment.moderation.domain.ModerationAction;
 import com.cloudcomment.moderation.domain.ModerationActionType;
+import com.cloudcomment.moderation.domain.ModerationPriority;
 import com.cloudcomment.moderation.domain.ParentComment;
 import com.cloudcomment.moderation.domain.SortOrder;
 import com.cloudcomment.shared.error.ApiErrorCode;
@@ -80,7 +81,7 @@ class ModerationControllerTests {
                 null,
                 null,
                 null,
-                CommentSortField.CREATED_AT,
+                CommentSortField.SMART,
                 SortOrder.DESC
             )),
             eq(1),
@@ -98,6 +99,9 @@ class ModerationControllerTests {
             .andExpect(jsonPath("$.items[0].content", is("Comment body")))
             .andExpect(jsonPath("$.items[0].status", is("PENDING")))
             .andExpect(jsonPath("$.items[0].moderationReason", is(comment.moderationReason())))
+            .andExpect(jsonPath("$.items[0].priority", is("HIGH")))
+            .andExpect(jsonPath("$.items[0].priorityScore", is(680)))
+            .andExpect(jsonPath("$.items[0].priorityReasons[0]", is("Ожидает решения модератора")))
             .andExpect(jsonPath("$.items[0].replies", empty()))
             .andExpect(jsonPath("$.page", is(1)))
             .andExpect(jsonPath("$.pageSize", is(20)))
@@ -120,7 +124,7 @@ class ModerationControllerTests {
                 null,
                 null,
                 null,
-                CommentSortField.CREATED_AT,
+                CommentSortField.SMART,
                 SortOrder.DESC
             )),
             eq(1),
@@ -152,7 +156,7 @@ class ModerationControllerTests {
                 Instant.parse("2026-06-28T00:00:00Z"),
                 Instant.parse("2026-06-28T23:59:59Z"),
                 "widget",
-                CommentSortField.CREATED_AT,
+                CommentSortField.SMART,
                 SortOrder.DESC
             )),
             eq(2),
@@ -181,7 +185,7 @@ class ModerationControllerTests {
                 Instant.parse("2026-06-28T00:00:00Z"),
                 Instant.parse("2026-06-28T23:59:59Z"),
                 "widget",
-                CommentSortField.CREATED_AT,
+                CommentSortField.SMART,
                 SortOrder.DESC
             )),
             eq(2),
@@ -235,7 +239,9 @@ class ModerationControllerTests {
             .andExpect(jsonPath("$.pageUrl", is("https://example.com/page")))
             .andExpect(jsonPath("$.content", is("Comment body")))
             .andExpect(jsonPath("$.status", is("PENDING")))
-            .andExpect(jsonPath("$.moderationReason", is(comment.moderationReason())));
+            .andExpect(jsonPath("$.moderationReason", is(comment.moderationReason())))
+            .andExpect(jsonPath("$.priority", is("HIGH")))
+            .andExpect(jsonPath("$.priorityReasons[0]", is("Ожидает решения модератора")));
     }
 
     @Test
@@ -327,6 +333,9 @@ class ModerationControllerTests {
             "Comment body",
             CommentStatus.PENDING,
             "Автомодерация: Спам-маркер: казино / азартные игры",
+            ModerationPriority.HIGH,
+            680,
+            List.of("Ожидает решения модератора", "Есть объяснение автомодерации"),
             TIMESTAMP,
             TIMESTAMP
         );
@@ -351,6 +360,9 @@ class ModerationControllerTests {
             "Reply body",
             CommentStatus.PENDING,
             "Автомодерация: Токсичный маркер: оскорбление",
+            ModerationPriority.HIGH,
+            715,
+            List.of("Ожидает решения модератора", "Есть объяснение автомодерации", "Ответ внутри обсуждения"),
             TIMESTAMP,
             TIMESTAMP
         );
