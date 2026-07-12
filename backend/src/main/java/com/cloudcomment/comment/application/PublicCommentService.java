@@ -89,6 +89,20 @@ public class PublicCommentService {
         PublicCommentSort sort,
         Optional<UUID> viewerUserId
     ) {
+        return listComments(siteId, origin, pageUrl, page, pageSize, sort, viewerUserId, null);
+    }
+
+    @Transactional(readOnly = true)
+    public CommentPage listComments(
+        UUID siteId,
+        String origin,
+        String pageUrl,
+        int page,
+        int pageSize,
+        PublicCommentSort sort,
+        Optional<UUID> viewerUserId,
+        Integer replyLimit
+    ) {
         WidgetSiteAccess access = domainPolicyService.validate(siteId, origin);
         String normalizedPageUrl = normalizePageUrl(pageUrl);
         assertSameOrigin(normalizedPageUrl, access.origin());
@@ -103,7 +117,23 @@ public class PublicCommentService {
             page,
             pageSize,
             sort,
-            viewerUserId
+            viewerUserId,
+            replyLimit
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public CommentPage listReplies(
+        UUID siteId,
+        String origin,
+        UUID rootCommentId,
+        int page,
+        int pageSize,
+        Optional<UUID> viewerUserId
+    ) {
+        WidgetSiteAccess access = domainPolicyService.validate(siteId, origin);
+        return publicCommentRepository.findApprovedReplies(
+            access.siteId(), rootCommentId, page, pageSize, viewerUserId
         );
     }
 

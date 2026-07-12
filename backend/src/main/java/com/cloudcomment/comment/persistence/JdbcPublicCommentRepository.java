@@ -170,6 +170,19 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
         PublicCommentSort sort,
         Optional<UUID> viewerUserId
     ) {
+        return findApprovedComments(siteId, pageId, page, pageSize, sort, viewerUserId, null);
+    }
+
+    @Override
+    public CommentPage findApprovedComments(
+        UUID siteId,
+        UUID pageId,
+        int page,
+        int pageSize,
+        PublicCommentSort sort,
+        Optional<UUID> viewerUserId,
+        Integer replyLimit
+    ) {
         long offset = ((long) page - 1) * pageSize;
         List<CommentRow> rootRows = jdbcTemplate.query(
             """
@@ -228,14 +241,74 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
             pageId
         );
 
-        List<CommentRow> replyRows = findApprovedReplies(rootRows);
+        List<CommentRow> replyRows = findApprovedReplyRows(rootRows, replyLimit);
+        Map<UUID, Long> replyCounts = findReplyCounts(rootRows);
         Map<UUID, List<CommentReactionSummary>> reactionsByComment = findReactionSummaries(
             visibleCommentIds(rootRows, replyRows),
             viewerUserId
         );
 
         return new CommentPage(
-            buildThreads(rootRows, replyRows, reactionsByComment, viewerUserId),
+            buildThreads(rootRows, replyRows, replyCounts, reactionsByComment, viewerUserId),
+            page,
+            pageSize,
+            totalItemsOrZero(totalItems)
+        );
+    }
+
+    @Override
+    public CommentPage findApprovedReplies(
+        UUID siteId,
+        UUID rootCommentId,
+        int page,
+        int pageSize,
+        Optional<UUID> viewerUserId
+    ) {
+        long offset = ((long) page - 1) * pageSize;
+        List<CommentRow> rows = jdbcTemplate.query(
+            """
+                select c.id, p.site_id, c.page_id, c.parent_id, c.author_user_id,
+                       coalesce(c.author_email, u.email) as author_email,
+                       coalesce(c.author_name, nullif(u.display_name, ''), c.author_email, u.email) as author_name,
+                       c.body, c.status, c.is_pinned, c.created_at, c.updated_at, c.edited_at
+                from comments c
+                join pages p on p.id = c.page_id
+                join comments root on root.id = c.parent_id and root.page_id = c.page_id
+                left join app_users u on u.id = c.author_user_id
+                where p.site_id = ?
+                  and root.id = ?
+                  and root.parent_id is null
+                  and root.status = 'APPROVED'
+                  and root.deleted_at is null
+                  and c.status = 'APPROVED'
+                  and c.deleted_at is null
+                order by c.created_at asc, c.id asc
+                limit ? offset ?
+                """,
+            this::mapCommentRow,
+            siteId, rootCommentId, pageSize, offset
+        );
+        Long totalItems = jdbcTemplate.queryForObject(
+            """
+                select count(*)
+                from comments c
+                join pages p on p.id = c.page_id
+                join comments root on root.id = c.parent_id and root.page_id = c.page_id
+                where p.site_id = ? and root.id = ? and root.parent_id is null
+                  and root.status = 'APPROVED' and root.deleted_at is null
+                  and c.status = 'APPROVED' and c.deleted_at is null
+                """,
+            Long.class,
+            siteId,
+            rootCommentId
+        );
+        Map<UUID, List<CommentReactionSummary>> reactions = findReactionSummaries(
+            rows.stream().map(CommentRow::id).toList(), viewerUserId
+        );
+        return new CommentPage(
+            rows.stream().map(row -> toCommentView(
+                row, reactions.getOrDefault(row.id(), List.of()), List.of(), 0, viewerUserId
+            )).toList(),
             page,
             pageSize,
             totalItemsOrZero(totalItems)
@@ -475,7 +548,7 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
             .getOrDefault(commentId, emptyReactionSummaries(Optional.of(userId), Map.of()));
     }
 
-    private List<CommentRow> findApprovedReplies(List<CommentRow> rootRows) {
+    private List<CommentRow> findApprovedReplyRows(List<CommentRow> rootRows, Integer replyLimit) {
         List<UUID> rootIds = rootRows.stream().map(CommentRow::id).toList();
         if (rootIds.isEmpty()) {
             return List.of();
@@ -483,35 +556,56 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
 
         return namedParameterJdbcTemplate.query(
             """
-                select c.id,
-                       p.site_id,
-                       c.page_id,
-                       c.parent_id,
-                       c.author_user_id,
-                       coalesce(c.author_email, u.email) as author_email,
-                       coalesce(c.author_name, nullif(u.display_name, ''), c.author_email, u.email) as author_name,
-                       c.body,
-                       c.status,
-                       c.is_pinned,
-                       c.created_at,
-                       c.updated_at,
-                       c.edited_at
-                from comments c
-                join pages p on p.id = c.page_id
-                left join app_users u on u.id = c.author_user_id
-                where c.parent_id in (:rootIds)
-                  and c.status = 'APPROVED'
-                  and c.deleted_at is null
-                order by c.created_at asc, c.id asc
+                select id, site_id, page_id, parent_id, author_user_id, author_email, author_name,
+                       body, status, is_pinned, created_at, updated_at, edited_at
+                from (
+                    select c.id, p.site_id, c.page_id, c.parent_id, c.author_user_id,
+                           coalesce(c.author_email, u.email) as author_email,
+                           coalesce(c.author_name, nullif(u.display_name, ''), c.author_email, u.email) as author_name,
+                           c.body, c.status, c.is_pinned, c.created_at, c.updated_at, c.edited_at,
+                           row_number() over (partition by c.parent_id order by c.created_at asc, c.id asc) as reply_rank
+                    from comments c
+                    join pages p on p.id = c.page_id
+                    left join app_users u on u.id = c.author_user_id
+                    where c.parent_id in (:rootIds)
+                      and c.status = 'APPROVED'
+                      and c.deleted_at is null
+                ) ranked_replies
+                where :replyLimit is null or reply_rank <= :replyLimit
+                order by parent_id, created_at asc, id asc
                 """,
-            new MapSqlParameterSource("rootIds", rootIds),
+            new MapSqlParameterSource("rootIds", rootIds)
+                .addValue("replyLimit", replyLimit, Types.INTEGER),
             this::mapCommentRow
         );
+    }
+
+    private Map<UUID, Long> findReplyCounts(List<CommentRow> rootRows) {
+        List<UUID> rootIds = rootRows.stream().map(CommentRow::id).toList();
+        if (rootIds.isEmpty()) {
+            return Map.of();
+        }
+        List<Map.Entry<UUID, Long>> rows = namedParameterJdbcTemplate.query(
+            """
+                select parent_id, count(*) as reply_count
+                from comments
+                where parent_id in (:rootIds) and status = 'APPROVED' and deleted_at is null
+                group by parent_id
+                """,
+            new MapSqlParameterSource("rootIds", rootIds),
+            (resultSet, rowNumber) -> Map.entry(
+                resultSet.getObject("parent_id", UUID.class), resultSet.getLong("reply_count")
+            )
+        );
+        Map<UUID, Long> counts = new HashMap<>();
+        rows.forEach(entry -> counts.put(entry.getKey(), entry.getValue()));
+        return counts;
     }
 
     private List<CommentView> buildThreads(
         List<CommentRow> rootRows,
         List<CommentRow> replyRows,
+        Map<UUID, Long> replyCounts,
         Map<UUID, List<CommentReactionSummary>> reactionsByComment,
         Optional<UUID> viewerUserId
     ) {
@@ -528,7 +622,7 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
             }
         }
         return rootRows.stream()
-            .map(row -> comments.get(row.id()).toView())
+            .map(row -> comments.get(row.id()).toView(replyCounts.getOrDefault(row.id(), 0L)))
             .toList();
     }
 
@@ -536,6 +630,7 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
         CommentRow row,
         List<CommentReactionSummary> reactions,
         List<CommentView> replies,
+        long replyCount,
         Optional<UUID> viewerUserId
     ) {
         return new CommentView(
@@ -552,12 +647,13 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
             row.pinned(),
             viewerUserId.filter(userId -> userId.equals(row.authorUserId())).isPresent(),
             reactions,
+            replyCount,
             replies
         );
     }
 
     private CommentView toCommentView(CommentRow row, List<CommentView> replies, Optional<UUID> viewerUserId) {
-        return toCommentView(row, List.of(), replies, viewerUserId);
+        return toCommentView(row, List.of(), replies, replies.size(), viewerUserId);
     }
 
     private List<UUID> visibleCommentIds(List<CommentRow> rootRows, List<CommentRow> replyRows) {
@@ -729,11 +825,12 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
             return replies;
         }
 
-        private CommentView toView() {
+        private CommentView toView(long replyCount) {
             return toCommentView(
                 row,
                 reactionsByComment.getOrDefault(row.id(), List.of()),
-                replies.stream().map(MutableComment::toView).toList(),
+                replies.stream().map(reply -> reply.toView(0)).toList(),
+                replyCount,
                 viewerUserId
             );
         }

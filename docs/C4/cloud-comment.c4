@@ -181,7 +181,7 @@ model {
 
       embedLoader = component 'Embed loader' 'Минимальный JS-скрипт, который загружает виджет на страницу'
 
-      widgetShell = component 'Widget shell' 'Корневой компонент виджета'
+      widgetShell = component 'Widget shell' 'Адаптивный container-query интерфейс: постепенная авторизация, профильное меню, страницы ответов и оптимистичные действия'
 
       widgetAuthClient = component 'Widget auth client' 'Работа с авторизацией пользователя внутри виджета'
 

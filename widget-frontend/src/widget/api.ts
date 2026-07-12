@@ -48,6 +48,7 @@ export type WidgetApiClient = {
   getConfig: () => Promise<PublicWidgetConfig>;
   getConsentRequirements: () => Promise<ConsentRequirements>;
   listComments: (sort: PublicCommentSort, token?: string | null) => Promise<PaginatedResponse<PublicComment>>;
+  listReplies: (commentId: string, page: number, pageSize: number, token?: string | null) => Promise<PaginatedResponse<PublicComment>>;
   createComment: (content: string, parentId: string | null, token: string) => Promise<PublicComment>;
   updateComment: (commentId: string, content: string, token: string) => Promise<PublicComment>;
   deleteComment: (commentId: string, token: string) => Promise<void>;
@@ -105,11 +106,19 @@ export function createWidgetApiClient(
         pageUrl,
         sort,
         page: "1",
-        pageSize: "20"
+        pageSize: "20",
+        replyLimit: "3"
       });
       return request<PaginatedResponse<PublicComment>>(`${siteBasePath}/pages/comments?${params}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined
       });
+    },
+    listReplies: (commentId, page, pageSize, token) => {
+      const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+      return request<PaginatedResponse<PublicComment>>(
+        `${siteBasePath}/comments/${encodeURIComponent(commentId)}/replies?${params}`,
+        { headers: token ? { Authorization: `Bearer ${token}` } : undefined }
+      );
     },
     createComment: (content, parentId, token) =>
       request<PublicComment>(`${siteBasePath}/pages/comments`, {

@@ -151,6 +151,32 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
     status: 'APPROVED',
   })
 
+  for (const index of [2, 3, 4]) {
+    const response = await request.post(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
+      headers: { Authorization: `Bearer ${token}`, Origin: ADMIN_ORIGIN },
+      data: { pageUrl, parentId: createdComment.id, content: `${apiReplyText} ${index}` },
+    })
+    await expect(response).toBeOK()
+  }
+
+  const limitedRepliesResponse = await request.get(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
+    headers: { Origin: ADMIN_ORIGIN },
+    params: { pageUrl, page: '1', pageSize: '20', replyLimit: '1' },
+  })
+  await expect(limitedRepliesResponse).toBeOK()
+  const limitedRepliesPage = await limitedRepliesResponse.json()
+  expect(limitedRepliesPage.items[0].replyCount).toBe(4)
+  expect(limitedRepliesPage.items[0].replies).toHaveLength(1)
+
+  const repliesPageResponse = await request.get(
+    `${API_BASE_URL}/public/sites/${siteId}/comments/${createdComment.id}/replies`,
+    { headers: { Origin: ADMIN_ORIGIN }, params: { page: '2', pageSize: '2' } },
+  )
+  await expect(repliesPageResponse).toBeOK()
+  const repliesPage = await repliesPageResponse.json()
+  expect(repliesPage.totalItems).toBe(4)
+  expect(repliesPage.items).toHaveLength(2)
+
   const reactionResponse = await request.put(`${API_BASE_URL}/public/sites/${siteId}/comments/${createdComment.id}/reaction`, {
     headers: {
       Authorization: `Bearer ${token}`,
@@ -412,6 +438,13 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   const widgetShell = widget.locator('.cloud-comment')
   await expect(widget.locator('.cloud-comment__title')).toHaveText('Комментарии')
   await expect(widget.locator('.cloud-comment__comment-content')).toContainText([editedCommentText, apiReplyText])
+  await expect(widget.getByRole('button', { name: 'Показать ещё ответы (1)' })).toBeVisible()
+  await widget.getByRole('button', { name: 'Показать ещё ответы (1)' }).click()
+  await expect(widget.locator('.cloud-comment__replies .cloud-comment__comment')).toHaveCount(4)
+  await widget.getByRole('button', { name: 'Скрыть ответы' }).click()
+  await expect(widget.locator('.cloud-comment__replies')).toHaveCount(0)
+  await widget.getByRole('button', { name: 'Показать ответы (4)' }).click()
+  await expect(widget.locator('.cloud-comment__replies .cloud-comment__comment')).toHaveCount(4)
   await expect(widget.locator('.cloud-comment__pinned')).toHaveText('Закреплён')
   const sortSelector = widget.locator('select[data-comment-sort="true"]')
   await expect(sortSelector).toHaveValue('PINNED_FIRST')
@@ -470,6 +503,7 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   )
   const externalWidget = externalPage.locator('#comments')
   await expect(externalWidget.locator('.cloud-comment__title')).toHaveText('Комментарии')
+  await externalWidget.getByRole('button', { name: 'Войти, чтобы участвовать' }).click()
   await externalWidget.getByRole('button', { name: 'Регистрация' }).click()
   await expect(externalWidget.getByRole('link', { name: 'политика' })).toHaveAttribute(
     'href',

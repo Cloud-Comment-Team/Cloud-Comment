@@ -45,6 +45,28 @@ public interface PublicCommentRepository {
         return findApprovedComments(siteId, pageId, page, pageSize);
     }
 
+    default CommentPage findApprovedComments(
+        UUID siteId,
+        UUID pageId,
+        int page,
+        int pageSize,
+        PublicCommentSort sort,
+        Optional<UUID> viewerUserId,
+        Integer replyLimit
+    ) {
+        return findApprovedComments(siteId, pageId, page, pageSize, sort, viewerUserId);
+    }
+
+    default CommentPage findApprovedReplies(
+        UUID siteId,
+        UUID rootCommentId,
+        int page,
+        int pageSize,
+        Optional<UUID> viewerUserId
+    ) {
+        return new CommentPage(List.of(), page, pageSize, 0);
+    }
+
     boolean existsApprovedRootCommentOnPage(UUID pageId, UUID commentId);
 
     default CommentView createComment(
