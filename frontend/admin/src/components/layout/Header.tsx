@@ -26,14 +26,16 @@ const Header = ({ onMenuClick, actions }: HeaderProps) => {
           <Menu className="h-5 w-5" aria-hidden="true" />
         </button>
 
-        <div className="flex min-w-0 flex-1 items-center gap-2 text-left lg:pl-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2 text-left lg:hidden">
           <BrandMark className="h-8 w-8 rounded-md shadow-sm lg:hidden" />
           <p className="text-sm font-semibold" style={{ color: 'var(--text-h)' }}>
-            <span className="lg:hidden">CloudComment</span><span className="hidden lg:inline">Панель владельца</span>
+            CloudComment
           </p>
         </div>
-        {actions}
-        <ThemeToggle compact />
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          {actions}
+          <ThemeToggle compact className="lg:hidden" />
+        </div>
       </div>
     </header>
   )
