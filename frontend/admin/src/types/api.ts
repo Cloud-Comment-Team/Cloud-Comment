@@ -228,3 +228,22 @@ export interface OwnerAnalytics {
   topPages: TopPageAnalytics[]
   activeCommenters: ActiveCommenter[]
 }
+
+export interface RealtimeEnvelope<TPayload> {
+  type: string
+  sentAt?: string
+  payload: TPayload
+}
+
+export interface NewCommentNotification {
+  commentId: string
+  siteId: string
+  siteName: string
+  pageId: string
+  pageUrl: string
+  parentId: string | null
+  authorEmail: string | null
+  contentPreview: string
+  status: CommentStatus
+  createdAt: string
+}

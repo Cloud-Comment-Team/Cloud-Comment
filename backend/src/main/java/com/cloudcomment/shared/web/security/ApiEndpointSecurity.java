@@ -26,6 +26,9 @@ public class ApiEndpointSecurity {
         if (!isApiRequest(request)) {
             return false;
         }
+        if (isRealtimeHandshakeRequest(request)) {
+            return false;
+        }
 
         HandlerResolution resolution = resolveHandler(request);
         return switch (resolution.status()) {
@@ -36,12 +39,20 @@ public class ApiEndpointSecurity {
     }
 
     private boolean isApiRequest(HttpServletRequest request) {
+        String path = normalizedPath(request);
+        return path.equals("/api") || path.startsWith("/api/");
+    }
+
+    private boolean isRealtimeHandshakeRequest(HttpServletRequest request) {
+        return normalizedPath(request).equals("/api/realtime/ws");
+    }
+
+    private String normalizedPath(HttpServletRequest request) {
         String contextPath = request.getContextPath();
         String requestUri = request.getRequestURI();
-        String path = requestUri.startsWith(contextPath)
+        return requestUri.startsWith(contextPath)
             ? requestUri.substring(contextPath.length())
             : requestUri;
-        return path.equals("/api") || path.startsWith("/api/");
     }
 
     private HandlerResolution resolveHandler(HttpServletRequest request) {

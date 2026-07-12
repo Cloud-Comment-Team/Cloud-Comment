@@ -8,3 +8,10 @@ export function getApiBaseUrl(
 }
 
 export const API_BASE_URL = getApiBaseUrl()
+
+export function getRealtimeWebSocketUrl(ticket: string): string {
+  const url = new URL(`${API_BASE_URL.replace(/\/$/, '')}/realtime/ws`, window.location.origin)
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+  url.searchParams.set('ticket', ticket)
+  return url.toString()
+}

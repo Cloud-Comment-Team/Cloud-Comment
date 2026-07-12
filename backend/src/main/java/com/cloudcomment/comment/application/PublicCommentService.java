@@ -1,6 +1,7 @@
 package com.cloudcomment.comment.application;
 
 import com.cloudcomment.auth.application.AuthenticatedUser;
+import com.cloudcomment.comment.domain.CommentCreatedEvent;
 import com.cloudcomment.comment.domain.CommentReactionSummary;
 import com.cloudcomment.comment.domain.CommentReactionType;
 import com.cloudcomment.comment.domain.CommentStatus;
@@ -11,6 +12,7 @@ import com.cloudcomment.shared.error.ApiErrorCode;
 import com.cloudcomment.shared.error.ApplicationException;
 import com.cloudcomment.site.domain.ModerationMode;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,23 +26,27 @@ public class PublicCommentService {
     private final DomainPolicyService domainPolicyService;
     private final PublicCommentRepository publicCommentRepository;
     private final AutoModerationService autoModerationService;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Autowired
     public PublicCommentService(
         DomainPolicyService domainPolicyService,
         PublicCommentRepository publicCommentRepository,
-        AutoModerationService autoModerationService
+        AutoModerationService autoModerationService,
+        ApplicationEventPublisher eventPublisher
     ) {
         this.domainPolicyService = domainPolicyService;
         this.publicCommentRepository = publicCommentRepository;
         this.autoModerationService = autoModerationService;
+        this.eventPublisher = eventPublisher;
     }
 
     PublicCommentService(
         DomainPolicyService domainPolicyService,
         PublicCommentRepository publicCommentRepository
     ) {
-        this(domainPolicyService, publicCommentRepository, new AutoModerationService());
+        this(domainPolicyService, publicCommentRepository, new AutoModerationService(), ignored -> {
+        });
     }
 
     @Transactional(readOnly = true)
@@ -109,7 +115,7 @@ public class PublicCommentService {
             access.autoModeration(),
             initialStatus(access.moderationMode())
         );
-        return publicCommentRepository.createComment(
+        CommentView comment = publicCommentRepository.createComment(
             access.siteId(),
             pageId,
             parentId,
@@ -120,6 +126,17 @@ public class PublicCommentService {
             decision.status(),
             decision.reason()
         );
+        eventPublisher.publishEvent(new CommentCreatedEvent(
+            comment.siteId(),
+            comment.pageId(),
+            comment.id(),
+            comment.parentId(),
+            currentUser.email(),
+            comment.content(),
+            comment.status(),
+            comment.createdAt()
+        ));
+        return comment;
     }
 
     @Transactional
