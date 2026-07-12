@@ -287,8 +287,9 @@ Response `204`, body отсутствует.
 
 Query:
 
-- `range`: `7d`, `30d`, `90d` or `all`; default `30d`.
-- `siteId`: optional UUID. If present, analytics is scoped to one owned site; foreign or missing site returns unified `404 NOT_FOUND` with `Resource not found`.
+- `range`: `7d`, `30d`, `90d` или `all`; по умолчанию `30d`.
+- `siteId`: необязательный UUID. При наличии аналитика ограничивается одним сайтом владельца; чужой или отсутствующий сайт возвращает единый `404 NOT_FOUND` с `Resource not found`.
+- `timeZone`: IANA-идентификатор часового пояса, например `Europe/Moscow`; по умолчанию `UTC`. Неизвестное значение возвращает `400 BAD_REQUEST`.
 
 Response `200`:
 
@@ -296,7 +297,9 @@ Response `200`:
 {
   "range": "30d",
   "siteId": null,
-  "from": "2026-06-06T00:00:00Z",
+  "timeZone": "Europe/Moscow",
+  "bucketGranularity": "DAY",
+  "from": "2026-06-05T21:00:00Z",
   "to": "2026-07-05T15:30:00Z",
   "summary": {
     "sites": 2,
@@ -318,6 +321,34 @@ Response `200`:
       "pending": 1,
       "spam": 0
     }
+  ],
+  "comparison": {
+    "previousFrom": "2026-05-06T21:00:00Z",
+    "previousTo": "2026-06-05T15:30:00Z",
+    "comments": {
+      "current": 42,
+      "previous": 35,
+      "absoluteChange": 7,
+      "percentageChange": 20.0
+    },
+    "reactions": { "current": 18, "previous": 20, "absoluteChange": -2, "percentageChange": -10.0 },
+    "automaticDecisions": { "current": 31, "previous": 0, "absoluteChange": 31, "percentageChange": null },
+    "manualDecisions": { "current": 7, "previous": 9, "absoluteChange": -2, "percentageChange": -22.2 },
+    "undoActions": { "current": 1, "previous": 0, "absoluteChange": 1, "percentageChange": null }
+  },
+  "workload": {
+    "requiringDecision": 8,
+    "oldestPendingAt": "2026-07-01T08:00:00Z",
+    "automaticDecisions": 31,
+    "manualDecisions": 7,
+    "undoActions": 1
+  },
+  "moderationDistribution": [
+    { "status": "APPROVED", "count": 31 },
+    { "status": "PENDING", "count": 4 },
+    { "status": "SPAM", "count": 4 },
+    { "status": "REJECTED", "count": 2 },
+    { "status": "HIDDEN", "count": 1 }
   ],
   "moderationFunnel": [
     { "status": "APPROVED", "count": 31 },
@@ -361,9 +392,13 @@ Response `200`:
 
 Rules:
 
-- `comments`, `replies`, statuses and top pages use `comments.created_at` and exclude soft-deleted comments (`deleted_at is null`).
-- `reactions` and reaction distribution use `comment_reactions.created_at` and exclude reactions attached to soft-deleted comments.
-- `7d`, `30d` and `90d` return daily buckets; `all` returns monthly buckets.
+- Все временные интервалы полуоткрытые: `[from, to)`. Начало вычисляется как локальная полночь первого дня в `timeZone`; границы предыдущего периода сохраняют то же локальное время суток и корректны на переходах DST.
+- `7d` и `30d` возвращают дневные интервалы, `90d` — ISO-недели с понедельника, `all` — месяцы. Пропущенные интервалы заполняются нулями; `bucketGranularity` явно содержит `DAY`, `WEEK` или `MONTH`.
+- `comparison` равно `null` только для `all`. Если предыдущее значение равно нулю, `percentageChange` также равно `null`, а не бесконечности. Для остальных диапазонов сравниваются комментарии, реакции, автоматические и ручные решения, а также отмены.
+- `workload.requiringDecision` и `oldestPendingAt` описывают текущую очередь `PENDING + SPAM` без ограничения выбранным периодом. Остальные workload-счётчики относятся к выбранному периоду. `automaticDecisions` учитывает только применённые оценки `LIVE`, но не наблюдения `SHADOW`.
+- История автоматических решений заполняется PostgreSQL-trigger при полном изменившемся automod-snapshot. Поэтому совместимый предыдущий backend после rollback продолжает создавать события, а новый backend не пишет вторую дублирующую строку.
+- Комментарии, ответы, статусы и популярные страницы используют `comments.created_at` и исключают мягко удалённые комментарии (`deleted_at is null`). Реакции используют `comment_reactions.created_at` с тем же правилом видимости.
+- `moderationDistribution` — каноническое название распределения статусов. Устаревший `moderationFunnel` в течение одного совместимого релиза возвращает тот же список.
 
 ### Account privacy API
 

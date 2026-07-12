@@ -755,7 +755,7 @@ const SiteDetail = () => {
               </button>}
             </section>}
 
-            {activeSection === 'overview' && <OwnerAnalyticsPanel siteId={site.id} compact />}
+            {activeSection === 'overview' && <OwnerAnalyticsPanel siteId={site.id} variant="site-summary" />}
 
             {activeSection === 'installation' && <section
               className="cc-card p-5 md:p-6"

@@ -228,7 +228,7 @@ model {
 
       moderationModule = component 'Moderation module' 'Smart-ranked очередь, owner-scoped флаги, идемпотентные массовые действия и ограниченная отмена'
 
-      analyticsModule = component 'Analytics module' 'Owner-scoped read-model для метрик сайтов, страниц, комментариев, реакций и модерации'
+      analyticsModule = component 'Analytics module' 'Ограниченная владельцем модель чтения с календарными интервалами в часовом поясе IANA, сравнением периодов, нагрузкой модерации и распределением статусов'
 
       notificationModule = component 'Notification module' 'Постоянные owner-scoped уведомления, признак прочтения, дедупликация и 90-дневный retention'
 
@@ -388,13 +388,13 @@ model {
 
   cloudComment.backendApi.pageModule -[stores]-> cloudComment.backendApi.persistenceModule 'Сохраняет страницы сайта'
 
-  cloudComment.backendApi.commentModule -[stores]-> cloudComment.backendApi.persistenceModule 'Сохраняет комментарии'
+  cloudComment.backendApi.commentModule -[stores]-> cloudComment.backendApi.persistenceModule 'Сохраняет комментарии; триггер полей снимка в базе данных добавляет совместимые с откатом события решений без копии текста'
 
   cloudComment.backendApi.moderationModule -[stores]-> cloudComment.backendApi.persistenceModule 'Обновляет статусы, pin и favorite flags комментариев'
 
   cloudComment.backendApi.moderationModule -[internal]-> cloudComment.backendApi.automodPolicyModule 'Записывает owner-scoped FALSE_POSITIVE/FALSE_NEGATIVE без копии текста'
 
-  cloudComment.backendApi.analyticsModule -[reads]-> cloudComment.backendApi.persistenceModule 'Агрегирует owner-scoped метрики из sites, pages, comments и comment_reactions'
+  cloudComment.backendApi.analyticsModule -[reads]-> cloudComment.backendApi.persistenceModule 'Агрегирует ограниченные владельцем метрики из комментариев, реакций, действий модерации и событий автомодерации'
 
   cloudComment.backendApi.notificationModule -[stores]-> cloudComment.backendApi.persistenceModule 'Хранит ссылки на владельца и комментарий, read_at и ключ дедупликации'
 

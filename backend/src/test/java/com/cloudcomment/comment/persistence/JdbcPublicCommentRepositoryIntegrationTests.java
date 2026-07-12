@@ -1,5 +1,9 @@
 package com.cloudcomment.comment.persistence;
 
+import com.cloudcomment.automoderation.domain.AutoModerationDecisionType;
+import com.cloudcomment.automoderation.domain.AutoModerationExecutionMode;
+import com.cloudcomment.automoderation.domain.AutoModerationSnapshot;
+import com.cloudcomment.automoderation.persistence.AutoModerationPolicyRepository;
 import com.cloudcomment.comment.application.CommentPage;
 import com.cloudcomment.comment.domain.CommentReactionType;
 import com.cloudcomment.comment.domain.CommentStatus;
@@ -16,9 +20,12 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import java.time.OffsetDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -35,6 +42,9 @@ class JdbcPublicCommentRepositoryIntegrationTests {
 
     @Autowired
     private PublicCommentRepository repository;
+
+    @Autowired
+    private AutoModerationPolicyRepository autoModerationPolicyRepository;
 
     @Test
     void resolvesActiveSiteAllowedOriginsAndCreatesPageCommentsTransactionally() {
@@ -230,6 +240,162 @@ class JdbcPublicCommentRepositoryIntegrationTests {
     }
 
     @Test
+    void appendsImmutableAutomodDecisionEventsForCreateAndEdit() {
+        UUID ownerId = insertUser("event-owner", "Event Owner");
+        UUID visitorId = insertUser("event-visitor", "Event Visitor");
+        UUID siteId = insertSite(
+            ownerId,
+            "events.example.com",
+            "https://events.example.com",
+            ModerationMode.POST_MODERATION,
+            true
+        );
+        autoModerationPolicyRepository.initializeFromLegacy(siteId);
+        UUID policyId = jdbcTemplate.queryForObject(
+            "select active_policy_version_id from site_automod_policy_state where site_id = ?",
+            UUID.class,
+            siteId
+        );
+        UUID pageId = repository.findOrCreatePage(siteId, "https://events.example.com/article");
+        Instant createdEvaluationAt = Instant.parse("2026-07-01T10:00:00Z");
+        Instant editedEvaluationAt = Instant.parse("2026-07-02T11:00:00Z");
+
+        CommentView comment = repository.createComment(
+            siteId,
+            pageId,
+            null,
+            visitorId,
+            "Visitor",
+            "visitor@example.com",
+            "Created with automoderation",
+            CommentStatus.APPROVED,
+            null,
+            snapshot(policyId, AutoModerationExecutionMode.LIVE, createdEvaluationAt)
+        );
+        repository.updateOwnComment(
+            siteId,
+            comment.id(),
+            visitorId,
+            "Edited with automoderation",
+            CommentStatus.PENDING,
+            null,
+            snapshot(policyId, AutoModerationExecutionMode.SHADOW, editedEvaluationAt)
+        ).orElseThrow();
+        repository.updateOwnComment(
+            siteId,
+            comment.id(),
+            visitorId,
+            "Edited without automoderation",
+            CommentStatus.APPROVED,
+            null
+        ).orElseThrow();
+
+        assertThat(jdbcTemplate.queryForList(
+            """
+                select execution_mode, decision, applied_status, evaluated_at
+                from automod_decision_events
+                where comment_id = ?
+                order by evaluated_at
+                """,
+            comment.id()
+        )).hasSize(2)
+            .satisfiesExactly(
+                event -> {
+                    assertThat(event.get("execution_mode")).isEqualTo("LIVE");
+                    assertThat(event.get("decision")).isEqualTo("APPROVE");
+                    assertThat(((java.sql.Timestamp) event.get("evaluated_at")).toInstant())
+                        .isEqualTo(createdEvaluationAt);
+                },
+                event -> {
+                    assertThat(event.get("execution_mode")).isEqualTo("SHADOW");
+                    assertThat(event.get("applied_status")).isEqualTo("APPROVED");
+                    assertThat(((java.sql.Timestamp) event.get("evaluated_at")).toInstant())
+                        .isEqualTo(editedEvaluationAt);
+                }
+            );
+    }
+
+    @Test
+    void databaseTriggerCapturesRollbackStyleWritesOnlyForCompleteChangedSnapshots() {
+        UUID ownerId = insertUser("trigger-owner", "Trigger Owner");
+        UUID visitorId = insertUser("trigger-visitor", "Trigger Visitor");
+        UUID siteId = insertSite(
+            ownerId,
+            "trigger.example.com",
+            "https://trigger.example.com",
+            ModerationMode.POST_MODERATION,
+            true
+        );
+        autoModerationPolicyRepository.initializeFromLegacy(siteId);
+        UUID policyId = jdbcTemplate.queryForObject(
+            "select active_policy_version_id from site_automod_policy_state where site_id = ?",
+            UUID.class,
+            siteId
+        );
+        UUID pageId = repository.findOrCreatePage(siteId, "https://trigger.example.com/article");
+        Instant firstEvaluationAt = Instant.parse("2026-07-03T10:00:00Z");
+        Instant secondEvaluationAt = Instant.parse("2026-07-04T11:00:00Z");
+
+        UUID commentId = jdbcTemplate.queryForObject(
+            """
+                insert into comments (
+                    page_id, author_user_id, body, status,
+                    automod_policy_version_id, automod_execution_mode, automod_score,
+                    automod_decision, automod_signals, automod_reason,
+                    automod_applied_status, automod_evaluated_at
+                )
+                values (?, ?, 'Rollback create', 'APPROVED', ?, 'LIVE', 10,
+                        'APPROVE', '[]'::jsonb, null, 'APPROVED', ?)
+                returning id
+                """,
+            UUID.class,
+            pageId,
+            visitorId,
+            policyId,
+            firstEvaluationAt.atOffset(ZoneOffset.UTC)
+        );
+        assertThat(decisionEventCount(commentId)).isOne();
+
+        jdbcTemplate.update(
+            """
+                update comments
+                set body = 'Rollback edit',
+                    status = 'SPAM',
+                    automod_score = 150,
+                    automod_decision = 'SPAM',
+                    automod_signals = '[{"category":"LINK","score":150}]'::jsonb,
+                    automod_reason = 'Automoderation: LINK',
+                    automod_applied_status = 'SPAM',
+                    automod_evaluated_at = ?
+                where id = ?
+                """,
+            secondEvaluationAt.atOffset(ZoneOffset.UTC),
+            commentId
+        );
+        assertThat(decisionEventCount(commentId)).isEqualTo(2);
+
+        jdbcTemplate.update("update comments set body = 'Unrelated edit' where id = ?", commentId);
+        assertThat(decisionEventCount(commentId)).isEqualTo(2);
+
+        jdbcTemplate.update(
+            """
+                update comments
+                set automod_policy_version_id = null,
+                    automod_execution_mode = null,
+                    automod_score = null,
+                    automod_decision = null,
+                    automod_signals = null,
+                    automod_reason = null,
+                    automod_applied_status = null,
+                    automod_evaluated_at = null
+                where id = ?
+                """,
+            commentId
+        );
+        assertThat(decisionEventCount(commentId)).isEqualTo(2);
+    }
+
+    @Test
     void sortsPinnedRootsFirstAndCountsReactionsAcrossApprovedThread() {
         UUID ownerId = insertUser("sorting-owner", "Sorting Owner");
         UUID visitorId = insertUser("sorting-visitor", "Sorting Visitor");
@@ -274,6 +440,31 @@ class JdbcPublicCommentRepositoryIntegrationTests {
             label + "-" + UUID.randomUUID() + "@example.com",
             "hashed-password",
             displayName
+        );
+    }
+
+    private AutoModerationSnapshot snapshot(
+        UUID policyId,
+        AutoModerationExecutionMode executionMode,
+        Instant evaluatedAt
+    ) {
+        return new AutoModerationSnapshot(
+            policyId,
+            executionMode,
+            10,
+            AutoModerationDecisionType.APPROVE,
+            List.of(),
+            null,
+            CommentStatus.APPROVED,
+            evaluatedAt
+        );
+    }
+
+    private Integer decisionEventCount(UUID commentId) {
+        return jdbcTemplate.queryForObject(
+            "select count(*) from automod_decision_events where comment_id = ?",
+            Integer.class,
+            commentId
         );
     }
 
