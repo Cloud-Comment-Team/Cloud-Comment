@@ -153,6 +153,10 @@ jobs:
         working-directory: frontend/admin
         run: npm run lint
 
+      - name: Test admin
+        working-directory: frontend/admin
+        run: npm test
+
       - name: Build admin
         working-directory: frontend/admin
         run: npm run build
