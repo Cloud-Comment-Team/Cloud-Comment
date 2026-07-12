@@ -12,16 +12,18 @@ import {
   Globe,
   Hash,
   Link2,
+  Pin,
   RotateCcw,
   Search,
   ShieldAlert,
   Sparkles,
+  Star,
   X,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
 import { getApiErrorMessage } from '../../api/auth'
-import { applyModerationAction, listComments } from '../../api/moderation'
+import { applyModerationAction, listComments, updateCommentFlags } from '../../api/moderation'
 import { listAllSites } from '../../api/sites'
 import { AsyncState } from '../../components/common/AsyncState'
 import { Badge } from '../../components/common/Badge'
@@ -153,6 +155,7 @@ const emptyFilters = {
   status: '' as CommentStatus | '',
   pageUrl: '',
   search: '',
+  favorite: false,
 }
 
 function matchesCommentNotificationFilters(
@@ -174,6 +177,9 @@ function matchesCommentNotificationFilters(
   if (filters.search.trim() && !payload.contentPreview.toLowerCase().includes(filters.search.trim().toLowerCase())) {
     return false
   }
+  if (filters.favorite) {
+    return false
+  }
   return true
 }
 
@@ -189,6 +195,9 @@ function matchesModerationActionFilters(
   }
   if (filters.status && payload.fromStatus !== filters.status && payload.toStatus !== filters.status) {
     return false
+  }
+  if (filters.favorite) {
+    return true
   }
   return true
 }
@@ -263,12 +272,14 @@ const Moderation = () => {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [actionCommentId, setActionCommentId] = useState<string | null>(null)
+  const [flagCommentId, setFlagCommentId] = useState<string | null>(null)
   const [appliedFilters, setAppliedFilters] = useState(emptyFilters)
   const [siteId, setSiteId] = useState('')
   const [pageId, setPageId] = useState('')
   const [status, setStatus] = useState<CommentStatus | ''>('')
   const [pageUrl, setPageUrl] = useState('')
   const [search, setSearch] = useState('')
+  const [favoriteOnly, setFavoriteOnly] = useState(false)
   const [reasons, setReasons] = useState<Record<string, string>>({})
   const [reloadKey, setReloadKey] = useState(0)
 
@@ -334,6 +345,7 @@ const Moderation = () => {
           status: appliedFilters.status || undefined,
           pageUrl: appliedFilters.pageUrl.trim() || undefined,
           search: appliedFilters.search.trim() || undefined,
+          favorite: appliedFilters.favorite || undefined,
           sortBy: 'SMART',
           sortOrder: 'DESC',
           page,
@@ -383,9 +395,35 @@ const Moderation = () => {
     }
   }
 
+  async function handleTogglePin(comment: Comment) {
+    setFlagCommentId(comment.id)
+    try {
+      await updateCommentFlags(comment.id, { pinned: !comment.pinned })
+      toast.success(comment.pinned ? 'Комментарий откреплен' : 'Комментарий закреплен')
+      setReloadKey((current) => current + 1)
+    } catch (flagError) {
+      toast.error(getApiErrorMessage(flagError, 'Не удалось обновить закрепление.'))
+    } finally {
+      setFlagCommentId(null)
+    }
+  }
+
+  async function handleToggleFavorite(comment: Comment) {
+    setFlagCommentId(comment.id)
+    try {
+      await updateCommentFlags(comment.id, { favorite: !comment.favorite })
+      toast.success(comment.favorite ? 'Комментарий убран из избранного' : 'Комментарий добавлен в избранное')
+      setReloadKey((current) => current + 1)
+    } catch (flagError) {
+      toast.error(getApiErrorMessage(flagError, 'Не удалось обновить избранное.'))
+    } finally {
+      setFlagCommentId(null)
+    }
+  }
+
   function handleApplyFilters(event: FormEvent) {
     event.preventDefault()
-    setAppliedFilters({ siteId, pageId, status, pageUrl, search })
+    setAppliedFilters({ siteId, pageId, status, pageUrl, search, favorite: favoriteOnly })
     setPage(1)
   }
 
@@ -395,6 +433,7 @@ const Moderation = () => {
     setStatus('')
     setPageUrl('')
     setSearch('')
+    setFavoriteOnly(false)
     setAppliedFilters(emptyFilters)
     setPage(1)
   }
@@ -522,6 +561,19 @@ const Moderation = () => {
           />
         </label>
 
+        <label
+          className="flex items-center gap-3 rounded-lg border px-3 py-2 text-sm font-medium"
+          style={{ borderColor: 'var(--border)', color: 'var(--text-h)' }}
+        >
+          <input
+            type="checkbox"
+            checked={favoriteOnly}
+            onChange={(event) => setFavoriteOnly(event.target.checked)}
+          />
+          <Star className="h-4 w-4" aria-hidden="true" style={{ color: 'var(--accent)' }} />
+          Только избранные
+        </label>
+
         <div className="flex flex-wrap gap-2 md:col-span-2 xl:col-span-3">
           <button type="submit" className="cc-button-primary">
             <Search className="h-4 w-4" aria-hidden="true" />
@@ -583,7 +635,37 @@ const Moderation = () => {
                   <div className="flex flex-wrap justify-end gap-2">
                     <PriorityBadge priority={comment.priority} score={comment.priorityScore} />
                     <Badge tone={statusTones[comment.status]}>{statusLabels[comment.status]}</Badge>
+                    {comment.pinned && <Badge tone="success">Закреплен</Badge>}
+                    {comment.favorite && <Badge tone="warning">Избранное</Badge>}
                   </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2 border-b px-4 py-3" style={{ borderColor: statusStyle.border }}>
+                  <button
+                    type="button"
+                    disabled={flagCommentId === comment.id || comment.parentId !== null || comment.status !== 'APPROVED'}
+                    onClick={() => void handleTogglePin(comment)}
+                    className="inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs font-semibold transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50"
+                    style={{ borderColor: 'var(--border)', color: comment.pinned ? 'var(--accent)' : 'var(--text-h)' }}
+                    title={
+                      comment.parentId !== null || comment.status !== 'APPROVED'
+                        ? 'Закреплять можно только одобренные корневые комментарии'
+                        : undefined
+                    }
+                  >
+                    <Pin className="h-3.5 w-3.5" aria-hidden="true" />
+                    {comment.pinned ? 'Открепить' : 'Закрепить'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={flagCommentId === comment.id}
+                    onClick={() => void handleToggleFavorite(comment)}
+                    className="inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs font-semibold transition hover:-translate-y-0.5 disabled:opacity-50"
+                    style={{ borderColor: 'var(--border)', color: comment.favorite ? 'var(--accent)' : 'var(--text-h)' }}
+                  >
+                    <Star className="h-3.5 w-3.5" aria-hidden="true" />
+                    {comment.favorite ? 'Убрать из избранного' : 'В избранное'}
+                  </button>
                 </div>
 
                 <div

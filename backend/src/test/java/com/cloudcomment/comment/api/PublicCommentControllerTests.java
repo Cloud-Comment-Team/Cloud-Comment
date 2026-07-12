@@ -11,6 +11,7 @@ import com.cloudcomment.comment.domain.CommentReactionSummary;
 import com.cloudcomment.comment.domain.CommentReactionType;
 import com.cloudcomment.comment.domain.CommentStatus;
 import com.cloudcomment.comment.domain.CommentView;
+import com.cloudcomment.comment.domain.PublicCommentSort;
 import com.cloudcomment.shared.error.ApiErrorCode;
 import com.cloudcomment.shared.error.ApplicationException;
 import com.cloudcomment.site.domain.ModerationMode;
@@ -105,12 +106,13 @@ class PublicCommentControllerTests {
         UUID pageId = UUID.randomUUID();
         CommentView comment = comment(siteId, pageId, null, CommentStatus.APPROVED);
         when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
-        when(publicCommentService.listComments(siteId, ORIGIN, PAGE_URL, 1, 20, Optional.empty()))
+        when(publicCommentService.listComments(siteId, ORIGIN, PAGE_URL, 1, 20, PublicCommentSort.NEWEST, Optional.empty()))
             .thenReturn(new CommentPage(List.of(comment), 1, 20, 1));
 
         mockMvc.perform(get("/api/public/sites/{siteId}/pages/comments", siteId)
                 .header(HttpHeaders.ORIGIN, ORIGIN)
-                .param("pageUrl", PAGE_URL))
+                .param("pageUrl", PAGE_URL)
+                .param("sort", "NEWEST"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.items[0].id", is(comment.id().toString())))
             .andExpect(jsonPath("$.items[0].siteId", is(siteId.toString())))
@@ -118,6 +120,8 @@ class PublicCommentControllerTests {
             .andExpect(jsonPath("$.items[0].author.email", is("visitor@example.com")))
             .andExpect(jsonPath("$.items[0].content", is("Hello world")))
             .andExpect(jsonPath("$.items[0].status", is("APPROVED")))
+            .andExpect(jsonPath("$.items[0].pinned", is(false)))
+            .andExpect(jsonPath("$.items[0].favorite").doesNotExist())
             .andExpect(jsonPath("$.items[0].replies", empty()))
             .andExpect(jsonPath("$.page", is(1)))
             .andExpect(jsonPath("$.pageSize", is(20)))
@@ -133,7 +137,7 @@ class PublicCommentControllerTests {
         when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
         when(currentUserService.getCurrentUser(eq("expired-session-token")))
             .thenThrow(new ApplicationException(ApiErrorCode.INVALID_SESSION, "Invalid or expired session"));
-        when(publicCommentService.listComments(siteId, ORIGIN, PAGE_URL, 1, 20, Optional.empty()))
+        when(publicCommentService.listComments(siteId, ORIGIN, PAGE_URL, 1, 20, PublicCommentSort.PINNED_FIRST, Optional.empty()))
             .thenReturn(new CommentPage(List.of(), 1, 20, 0));
 
         mockMvc.perform(get("/api/public/sites/{siteId}/pages/comments", siteId)

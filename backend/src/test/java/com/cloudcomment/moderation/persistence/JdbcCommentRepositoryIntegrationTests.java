@@ -67,6 +67,7 @@ class JdbcCommentRepositoryIntegrationTests {
                 null,
                 null,
                 null,
+                null,
                 CommentSortField.CREATED_AT,
                 SortOrder.ASC
             ),
@@ -83,6 +84,7 @@ class JdbcCommentRepositoryIntegrationTests {
                 null,
                 null,
                 CommentStatus.APPROVED,
+                null,
                 null,
                 null,
                 null,
@@ -104,6 +106,7 @@ class JdbcCommentRepositoryIntegrationTests {
                 null,
                 null,
                 null,
+                null,
                 CommentSortField.CREATED_AT,
                 SortOrder.ASC
             ),
@@ -117,6 +120,7 @@ class JdbcCommentRepositoryIntegrationTests {
             new ModerationCommentFilters(
                 null,
                 ownerPageId,
+                null,
                 null,
                 null,
                 null,
@@ -140,6 +144,7 @@ class JdbcCommentRepositoryIntegrationTests {
                 Instant.parse("2026-06-28T10:30:00Z"),
                 Instant.parse("2026-06-28T11:30:00Z"),
                 null,
+                null,
                 CommentSortField.CREATED_AT,
                 SortOrder.ASC
             ),
@@ -158,6 +163,7 @@ class JdbcCommentRepositoryIntegrationTests {
                 null,
                 null,
                 "widget",
+                null,
                 CommentSortField.CREATED_AT,
                 SortOrder.ASC
             ),
@@ -170,6 +176,7 @@ class JdbcCommentRepositoryIntegrationTests {
             ownerId,
             new ModerationCommentFilters(
                 ownerSiteId,
+                null,
                 null,
                 null,
                 null,
@@ -191,6 +198,7 @@ class JdbcCommentRepositoryIntegrationTests {
             ownerId,
             new ModerationCommentFilters(
                 ownerSiteId,
+                null,
                 null,
                 null,
                 null,
@@ -221,13 +229,23 @@ class JdbcCommentRepositoryIntegrationTests {
         ).orElseThrow();
         assertThat(updated.status()).isEqualTo(CommentStatus.APPROVED);
 
+        commentRepository.updateFlags(commentId, true, true).orElseThrow();
+        Comment rejected = commentRepository.updateStatus(
+            commentId,
+            CommentStatus.APPROVED,
+            CommentStatus.REJECTED,
+            "Rejected after pinning"
+        ).orElseThrow();
+        assertThat(rejected.pinned()).isFalse();
+        assertThat(rejected.favorite()).isTrue();
+
         assertThat(commentRepository.updateStatus(
             commentId,
-            CommentStatus.PENDING,
-            CommentStatus.REJECTED,
+            CommentStatus.APPROVED,
+            CommentStatus.HIDDEN,
             "Too late"
         )).isEmpty();
-        assertThat(commentRepository.findById(commentId).orElseThrow().status()).isEqualTo(CommentStatus.APPROVED);
+        assertThat(commentRepository.findById(commentId).orElseThrow().status()).isEqualTo(CommentStatus.REJECTED);
 
         var action = moderationActionRepository.create(
             commentId,
@@ -334,6 +352,7 @@ class JdbcCommentRepositoryIntegrationTests {
             ownerId,
             new ModerationCommentFilters(
                 siteId,
+                null,
                 null,
                 null,
                 null,

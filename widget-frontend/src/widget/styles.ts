@@ -144,6 +144,31 @@ export const widgetStyles = `
   gap: 12px;
 }
 
+.cloud-comment__sort {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  color: var(--cc-text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.cloud-comment__sort select {
+  min-width: 190px;
+  border: 1px solid var(--cc-border);
+  border-radius: calc(var(--cc-radius) * 0.75);
+  background: var(--cc-surface);
+  color: var(--cc-text-heading);
+  padding: 7px 30px 7px 10px;
+  font: inherit;
+}
+
+.cloud-comment__sort select:focus-visible {
+  outline: 2px solid var(--cc-accent);
+  outline-offset: 2px;
+}
+
 .cloud-comment__empty {
   display: grid;
   gap: 6px;
@@ -221,6 +246,17 @@ export const widgetStyles = `
   overflow-wrap: anywhere;
   color: var(--cc-text-heading);
   font-size: 14px;
+}
+
+.cloud-comment__pinned {
+  margin-left: auto;
+  border: 1px solid var(--cc-accent-border);
+  border-radius: 999px;
+  background: var(--cc-accent-soft);
+  color: var(--cc-accent);
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 800;
 }
 
 .cloud-comment__status {

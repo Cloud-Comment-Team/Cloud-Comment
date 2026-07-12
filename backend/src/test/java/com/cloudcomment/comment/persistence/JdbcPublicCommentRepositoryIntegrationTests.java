@@ -4,6 +4,7 @@ import com.cloudcomment.comment.application.CommentPage;
 import com.cloudcomment.comment.domain.CommentReactionType;
 import com.cloudcomment.comment.domain.CommentStatus;
 import com.cloudcomment.comment.domain.CommentView;
+import com.cloudcomment.comment.domain.PublicCommentSort;
 import com.cloudcomment.site.domain.ModerationMode;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -16,6 +17,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.Optional;
 import java.util.UUID;
+import java.time.OffsetDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -193,6 +195,40 @@ class JdbcPublicCommentRepositoryIntegrationTests {
         assertThat(repository.existsApprovedCommentInSite(siteId, approvedReply.id())).isFalse();
     }
 
+    @Test
+    void sortsPinnedRootsFirstAndCountsReactionsAcrossApprovedThread() {
+        UUID ownerId = insertUser("sorting-owner", "Sorting Owner");
+        UUID visitorId = insertUser("sorting-visitor", "Sorting Visitor");
+        UUID siteId = insertSite(ownerId, "sorting.example.com", "https://sorting.example.com", ModerationMode.POST_MODERATION, true);
+        UUID pageId = repository.findOrCreatePage(siteId, "https://sorting.example.com/article");
+
+        CommentView older = repository.createComment(siteId, pageId, null, visitorId, "Visitor", "visitor@example.com", "Older", CommentStatus.APPROVED);
+        CommentView newer = repository.createComment(siteId, pageId, null, visitorId, "Visitor", "visitor@example.com", "Newer", CommentStatus.APPROVED);
+        CommentView pinned = repository.createComment(siteId, pageId, null, visitorId, "Visitor", "visitor@example.com", "Pinned", CommentStatus.APPROVED);
+        CommentView reply = repository.createComment(siteId, pageId, older.id(), ownerId, "Owner", "owner@example.com", "Popular reply", CommentStatus.APPROVED);
+
+        jdbcTemplate.update("update comments set created_at = ? where id = ?", OffsetDateTime.parse("2026-01-01T00:00:00Z"), older.id());
+        jdbcTemplate.update("update comments set created_at = ? where id = ?", OffsetDateTime.parse("2026-01-02T00:00:00Z"), newer.id());
+        jdbcTemplate.update("update comments set created_at = ?, is_pinned = true where id = ?", OffsetDateTime.parse("2026-01-03T00:00:00Z"), pinned.id());
+        repository.setReaction(older.id(), ownerId, CommentReactionType.LIKE);
+        repository.setReaction(reply.id(), visitorId, CommentReactionType.LOVE);
+
+        assertThat(repository.findApprovedComments(siteId, pageId, 1, 20, PublicCommentSort.PINNED_FIRST, Optional.empty()).items())
+            .extracting(CommentView::id)
+            .containsExactly(pinned.id(), older.id(), newer.id());
+        assertThat(repository.findApprovedComments(siteId, pageId, 1, 20, PublicCommentSort.NEWEST, Optional.empty()).items())
+            .extracting(CommentView::id)
+            .containsExactly(pinned.id(), newer.id(), older.id());
+        assertThat(repository.findApprovedComments(siteId, pageId, 1, 20, PublicCommentSort.OLDEST, Optional.empty()).items())
+            .extracting(CommentView::id)
+            .containsExactly(pinned.id(), older.id(), newer.id());
+        assertThat(repository.findApprovedComments(siteId, pageId, 1, 20, PublicCommentSort.TOP_REACTIONS, Optional.empty()).items())
+            .extracting(CommentView::id)
+            .containsExactly(pinned.id(), older.id(), newer.id());
+        assertThat(repository.findApprovedComments(siteId, pageId, 1, 20, PublicCommentSort.NEWEST, Optional.empty()).items().getFirst().pinned())
+            .isTrue();
+    }
+
     private UUID insertUser(String label, String displayName) {
         return jdbcTemplate.queryForObject(
             """
@@ -224,7 +260,7 @@ class JdbcPublicCommentRepositoryIntegrationTests {
             ownerId,
             domain,
             domain,
-            "a".repeat(63) + (active ? "1" : "2"),
+            UUID.randomUUID().toString().replace("-", "").repeat(2),
             moderationMode.name(),
             active
         );
