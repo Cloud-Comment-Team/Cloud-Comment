@@ -24,6 +24,8 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.Map;
+import java.util.EnumMap;
 import java.util.regex.Pattern;
 
 @Repository
@@ -181,6 +183,23 @@ class JdbcCommentRepository implements CommentRepository {
         return findById(commentId);
     }
 
+    @Override
+    public Map<CommentStatus, Long> countByOwnerId(UUID ownerId) {
+        Map<CommentStatus, Long> counts = new EnumMap<>(CommentStatus.class);
+        for (CommentStatus status : CommentStatus.values()) {
+            counts.put(status, 0L);
+        }
+        List<Map.Entry<CommentStatus, Long>> rows = jdbcTemplate.query("""
+            select c.status, count(*) as total
+            from comments c join pages p on p.id = c.page_id join sites s on s.id = p.site_id
+            where s.owner_id = ? and c.deleted_at is null group by c.status
+            """, (resultSet, rowNum) -> Map.entry(
+            CommentStatus.valueOf(resultSet.getString("status")), resultSet.getLong("total")
+        ), ownerId);
+        rows.forEach(entry -> counts.put(entry.getKey(), entry.getValue()));
+        return counts;
+    }
+
     private FilterQuery buildFilterQuery(UUID ownerId, ModerationCommentFilters filters) {
         StringBuilder where = new StringBuilder(" where s.owner_id = ? and c.deleted_at is null");
         List<Object> params = new ArrayList<>();
@@ -201,6 +220,12 @@ class JdbcCommentRepository implements CommentRepository {
         if (filters.status() != null) {
             where.append(" and c.status = ?");
             params.add(filters.status().name());
+        }
+        if (filters.statuses() != null && !filters.statuses().isEmpty()) {
+            where.append(" and c.status in (");
+            where.append(String.join(",", java.util.Collections.nCopies(filters.statuses().size(), "?")));
+            where.append(")");
+            filters.statuses().forEach(status -> params.add(status.name()));
         }
         if (filters.createdFrom() != null) {
             where.append(" and c.created_at >= ?");

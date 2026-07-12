@@ -106,7 +106,7 @@ class PublicCommentControllerTests {
         UUID pageId = UUID.randomUUID();
         CommentView comment = comment(siteId, pageId, null, CommentStatus.APPROVED);
         when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
-        when(publicCommentService.listComments(siteId, ORIGIN, PAGE_URL, 1, 20, PublicCommentSort.NEWEST, Optional.empty()))
+        when(publicCommentService.listComments(siteId, ORIGIN, PAGE_URL, 1, 20, PublicCommentSort.NEWEST, Optional.empty(), null))
             .thenReturn(new CommentPage(List.of(comment), 1, 20, 1));
 
         mockMvc.perform(get("/api/public/sites/{siteId}/pages/comments", siteId)
@@ -122,6 +122,7 @@ class PublicCommentControllerTests {
             .andExpect(jsonPath("$.items[0].status", is("APPROVED")))
             .andExpect(jsonPath("$.items[0].pinned", is(false)))
             .andExpect(jsonPath("$.items[0].favorite").doesNotExist())
+            .andExpect(jsonPath("$.items[0].replyCount", is(0)))
             .andExpect(jsonPath("$.items[0].replies", empty()))
             .andExpect(jsonPath("$.page", is(1)))
             .andExpect(jsonPath("$.pageSize", is(20)))
@@ -137,7 +138,7 @@ class PublicCommentControllerTests {
         when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
         when(currentUserService.getCurrentUser(eq("expired-session-token")))
             .thenThrow(new ApplicationException(ApiErrorCode.INVALID_SESSION, "Invalid or expired session"));
-        when(publicCommentService.listComments(siteId, ORIGIN, PAGE_URL, 1, 20, PublicCommentSort.PINNED_FIRST, Optional.empty()))
+        when(publicCommentService.listComments(siteId, ORIGIN, PAGE_URL, 1, 20, PublicCommentSort.PINNED_FIRST, Optional.empty(), null))
             .thenReturn(new CommentPage(List.of(), 1, 20, 0));
 
         mockMvc.perform(get("/api/public/sites/{siteId}/pages/comments", siteId)
@@ -147,6 +148,39 @@ class PublicCommentControllerTests {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.items", empty()))
             .andExpect(jsonPath("$.totalItems", is(0)));
+    }
+
+    @Test
+    void listCommentsPassesOptionalReplyLimit() throws Exception {
+        UUID siteId = UUID.randomUUID();
+        when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
+        when(publicCommentService.listComments(
+            siteId, ORIGIN, PAGE_URL, 1, 20, PublicCommentSort.PINNED_FIRST, Optional.empty(), 3
+        )).thenReturn(new CommentPage(List.of(), 1, 20, 0));
+
+        mockMvc.perform(get("/api/public/sites/{siteId}/pages/comments", siteId)
+                .header(HttpHeaders.ORIGIN, ORIGIN)
+                .param("pageUrl", PAGE_URL)
+                .param("replyLimit", "3"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.items", empty()));
+    }
+
+    @Test
+    void listRepliesReturnsOwnerScopedPage() throws Exception {
+        UUID siteId = UUID.randomUUID();
+        UUID rootId = UUID.randomUUID();
+        UUID pageId = UUID.randomUUID();
+        CommentView reply = comment(siteId, pageId, rootId, CommentStatus.APPROVED);
+        when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
+        when(publicCommentService.listReplies(siteId, ORIGIN, rootId, 1, 20, Optional.empty()))
+            .thenReturn(new CommentPage(List.of(reply), 1, 20, 1));
+
+        mockMvc.perform(get("/api/public/sites/{siteId}/comments/{commentId}/replies", siteId, rootId)
+                .header(HttpHeaders.ORIGIN, ORIGIN))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.items[0].parentId", is(rootId.toString())))
+            .andExpect(jsonPath("$.totalItems", is(1)));
     }
 
     @Test

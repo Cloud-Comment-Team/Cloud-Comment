@@ -5,6 +5,7 @@ import com.cloudcomment.auth.application.CurrentUserService;
 import com.cloudcomment.moderation.application.ModerationCommentFilters;
 import com.cloudcomment.moderation.application.ModerationCommentPage;
 import com.cloudcomment.moderation.application.ModerationService;
+import com.cloudcomment.moderation.application.BulkModerationResult;
 import com.cloudcomment.moderation.domain.Comment;
 import com.cloudcomment.moderation.domain.CommentAuthor;
 import com.cloudcomment.moderation.domain.CommentSortField;
@@ -211,6 +212,99 @@ class ModerationControllerTests {
             .andExpect(jsonPath("$.error.path", is("/api/moderation/comments")));
 
         verifyNoInteractions(moderationService);
+    }
+
+    @Test
+    void listCommentsAcceptsRepeatedStatusesAndRejectsLegacyFilterConflict() throws Exception {
+        AuthenticatedUser currentUser = currentUser();
+        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        ModerationCommentFilters filters = new ModerationCommentFilters(
+            null, null, null, null, List.of(CommentStatus.PENDING, CommentStatus.SPAM),
+            null, null, null, null, CommentSortField.SMART, SortOrder.DESC
+        );
+        when(moderationService.listComments(eq(currentUser), eq(filters), eq(1), eq(20)))
+            .thenReturn(new ModerationCommentPage(List.of(), 1, 20, 0));
+
+        mockMvc.perform(get("/api/moderation/comments")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .param("statuses", "PENDING", "SPAM"))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/moderation/comments")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .param("status", "PENDING")
+                .param("statuses", "SPAM"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code", is("BAD_REQUEST")));
+    }
+
+    @Test
+    void countsReturnsAllStatusesAndDecisionWorkload() throws Exception {
+        AuthenticatedUser currentUser = currentUser();
+        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(moderationService.counts(currentUser)).thenReturn(java.util.Map.of(
+            CommentStatus.PENDING, 3L,
+            CommentStatus.SPAM, 2L,
+            CommentStatus.APPROVED, 5L
+        ));
+
+        mockMvc.perform(get("/api/moderation/counts")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.statuses.PENDING", is(3)))
+            .andExpect(jsonPath("$.statuses.SPAM", is(2)))
+            .andExpect(jsonPath("$.requiringDecision", is(5)));
+    }
+
+    @Test
+    void bulkActionReturnsPerCommentPartialResult() throws Exception {
+        AuthenticatedUser currentUser = currentUser();
+        UUID operationId = UUID.randomUUID();
+        UUID firstCommentId = UUID.randomUUID();
+        UUID secondCommentId = UUID.randomUUID();
+        ModerationAction action = new ModerationAction(
+            UUID.randomUUID(), firstCommentId, ModerationActionType.APPROVE,
+            CommentStatus.PENDING, CommentStatus.APPROVED, null, currentUser.id(), currentUser.email(),
+            operationId, null, TIMESTAMP
+        );
+        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(moderationService.applyBulk(
+            currentUser, operationId, List.of(firstCommentId, secondCommentId), ModerationActionType.APPROVE, null
+        )).thenReturn(List.of(
+            BulkModerationResult.success(firstCommentId, action),
+            BulkModerationResult.failure(secondCommentId, "ACTION_FAILED", "Не удалось применить действие")
+        ));
+
+        mockMvc.perform(post("/api/moderation/comments/bulk-actions")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"operationId":"%s","commentIds":["%s","%s"],"action":"APPROVE"}
+                    """.formatted(operationId, firstCommentId, secondCommentId)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.items[0].success", is(true)))
+            .andExpect(jsonPath("$.items[0].action.operationId", is(operationId.toString())))
+            .andExpect(jsonPath("$.items[1].success", is(false)))
+            .andExpect(jsonPath("$.items[1].errorCode", is("ACTION_FAILED")));
+    }
+
+    @Test
+    void undoReturnsCreatedActionWithRevertedActionReference() throws Exception {
+        AuthenticatedUser currentUser = currentUser();
+        UUID originalActionId = UUID.randomUUID();
+        ModerationAction undo = new ModerationAction(
+            UUID.randomUUID(), UUID.randomUUID(), ModerationActionType.UNDO,
+            CommentStatus.APPROVED, CommentStatus.PENDING, "Отмена действия",
+            currentUser.id(), currentUser.email(), UUID.randomUUID(), originalActionId, TIMESTAMP
+        );
+        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(moderationService.undo(currentUser, originalActionId)).thenReturn(undo);
+
+        mockMvc.perform(post("/api/moderation/actions/{actionId}/undo", originalActionId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.action", is("UNDO")))
+            .andExpect(jsonPath("$.revertsActionId", is(originalActionId.toString())));
     }
 
     @Test

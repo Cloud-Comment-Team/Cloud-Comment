@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Предварительный просмотр CloudComment</title>
+    <style>
+      html { color-scheme: light; background: #f8fafc; }
+      body { margin: 0; padding: 24px; font-family: system-ui, sans-serif; }
+    </style>
+  </head>
+  <body>
+    <div id="cloud-comment-preview"></div>
+    <script>
+      (() => {
+        const SITE_ID = '00000000-0000-0000-0000-000000000001';
+        let style = null;
+        let instance = null;
+        const json = (body) => Promise.resolve(new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }));
+        const comment = {
+          id: '00000000-0000-0000-0000-000000000002', siteId: SITE_ID,
+          pageId: '00000000-0000-0000-0000-000000000003', parentId: null,
+          author: { id: '00000000-0000-0000-0000-000000000004', email: 'demo@example.com', displayName: 'Анна' },
+          content: 'Так выглядит комментарий с выбранным оформлением.', status: 'APPROVED',
+          createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), editedAt: null,
+          pinned: true, ownedByCurrentUser: false,
+          reactions: [
+            { type: 'LIKE', emoji: '👍', label: 'Нравится', count: 4, reactedByCurrentUser: false },
+            { type: 'LOVE', emoji: '❤️', label: 'Любовь', count: 2, reactedByCurrentUser: false },
+            { type: 'LAUGH', emoji: '😄', label: 'Смешно', count: 1, reactedByCurrentUser: false },
+            { type: 'WOW', emoji: '😮', label: 'Удивление', count: 0, reactedByCurrentUser: false },
+          ],
+          replyCount: 0, replies: [],
+        };
+        window.fetch = (input) => {
+          const url = String(input);
+          if (url.endsWith('/config')) return json({ siteId: SITE_ID, moderationMode: 'POST_MODERATION', style });
+          if (url.includes('/pages/comments')) return json({ items: [comment], page: 0, pageSize: 20, totalItems: 1, totalPages: 1 });
+          if (url.endsWith('/privacy/consent-requirements')) return json({
+            privacyPolicyVersion: 'preview', termsVersion: 'preview', privacyPolicyUrl: '#', termsUrl: '#',
+            personalDataNoticeUrl: '#', dataExportInfoUrl: '#',
+          });
+          return Promise.resolve(new Response('{}', { status: 404 }));
+        };
+        function render() {
+          if (!style || !window.CloudCommentWidget) return;
+          instance?.destroy();
+          document.getElementById('cloud-comment-preview').replaceChildren();
+          instance = window.CloudCommentWidget.init({
+            siteId: SITE_ID, apiBaseUrl: 'https://preview.invalid/api',
+            pageUrl: 'https://preview.invalid/article', target: '#cloud-comment-preview',
+          });
+        }
+        window.addEventListener('message', (event) => {
+          if (event.source !== parent || event.data?.type !== 'cloud-comment-preview') return;
+          style = event.data.style;
+          render();
+        });
+        const script = document.createElement('script');
+        script.src = '/widget/cloud-comment-widget.js';
+        script.addEventListener('load', render);
+        document.head.append(script);
+      })();
+    </script>
+  </body>
+</html>

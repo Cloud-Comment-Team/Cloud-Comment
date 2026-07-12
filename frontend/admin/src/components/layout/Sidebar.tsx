@@ -5,6 +5,7 @@ import { Globe, LayoutDashboard, LogOut, Shield, X } from 'lucide-react'
 import { BrandMark } from '../brand/BrandLogo'
 import { useAuthStore } from '../../store'
 import { ThemeToggle } from '../../theme'
+import { preloadRoute } from '../../routes/lazyPages'
 
 const navigation = [
   { name: 'Дашборд', href: '/', icon: LayoutDashboard },
@@ -78,6 +79,8 @@ const Sidebar = ({ isOpen, onClose, onNavigationIntent }: SidebarProps) => {
                 to={item.href}
                 end={item.href === '/'}
                 onPointerDown={(event) => onNavigationIntent(item.href, event.currentTarget)}
+                onPointerEnter={() => void preloadRoute(item.href)}
+                onFocus={() => void preloadRoute(item.href)}
                 onClick={(event) => {
                   onNavigationIntent(item.href, event.currentTarget)
                   onClose()
@@ -122,6 +125,8 @@ const Sidebar = ({ isOpen, onClose, onNavigationIntent }: SidebarProps) => {
             <NavLink
               to="/account"
               onPointerDown={(event) => onNavigationIntent('/account', event.currentTarget)}
+              onPointerEnter={() => void preloadRoute('/account')}
+              onFocus={() => void preloadRoute('/account')}
               onClick={(event) => {
                 onNavigationIntent('/account', event.currentTarget)
                 onClose()

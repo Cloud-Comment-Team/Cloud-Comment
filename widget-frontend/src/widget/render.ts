@@ -51,6 +51,11 @@ type WidgetState = {
   authMode: AuthMode;
   deleteConfirming: boolean;
   replyingTo: ReplyTarget | null;
+  authExpanded: boolean;
+  profileOpen: boolean;
+  loadingRepliesId: string | null;
+  replyPages: Record<string, number>;
+  collapsedReplyIds: Set<string>;
 };
 
 export function renderWidget(
@@ -93,7 +98,12 @@ export function renderWidget(
     notice: null,
     authMode: "login",
     deleteConfirming: false,
-    replyingTo: null
+    replyingTo: null,
+    authExpanded: false,
+    profileOpen: false,
+    loadingRepliesId: null,
+    replyPages: {},
+    collapsedReplyIds: new Set()
   };
   let destroyed = false;
 
@@ -102,7 +112,10 @@ export function renderWidget(
       return;
     }
 
-    shell.replaceChildren(renderHeader(options, state), renderBody(state, options));
+    const content = [renderHeader(options, state), renderBody(state, options)].filter(
+      (element): element is HTMLElement => element !== null
+    );
+    shell.replaceChildren(...content);
   }
 
   async function loadInitialData(): Promise<void> {
@@ -111,14 +124,16 @@ export function renderWidget(
     render();
 
     try {
-      const [config, comments, consentRequirements] = await Promise.all([
-        api.getConfig(),
+      const config = await api.getConfig();
+      config.style = normalizeWidgetStyle(config.style);
+      state.config = config;
+      state.sort = config.style.defaultSort;
+      applyWidgetStyle(shell, config.style);
+      themeController.setConfiguredTheme(config.style.theme);
+      const [comments, consentRequirements] = await Promise.all([
         api.listComments(state.sort, state.token),
         api.getConsentRequirements()
       ]);
-      state.config = config;
-      applyWidgetStyle(shell, config.style);
-      themeController.setConfiguredTheme(config.style.theme);
       state.comments = comments.items;
       state.consentRequirements = consentRequirements;
       if (state.token) {
@@ -162,6 +177,7 @@ export function renderWidget(
 
       state.token = loginResponse.token;
       state.userEmail = loginResponse.user.email;
+      state.authExpanded = false;
       storeAuthToken(loginResponse.token);
       state.comments = (await api.listComments(state.sort, loginResponse.token)).items;
       state.notice = "Вы вошли и можете оставить комментарий.";
@@ -278,6 +294,7 @@ export function renderWidget(
     state.replyingTo = null;
     state.editingComment = null;
     state.confirmingCommentDeleteId = null;
+    state.profileOpen = false;
     state.comments = clearViewerReactions(state.comments);
     removeStoredAuthToken();
   }
@@ -291,6 +308,11 @@ export function renderWidget(
 
     const parentId = state.replyingTo?.id ?? null;
     const replyAuthor = state.replyingTo?.authorLabel ?? null;
+    const previousComments = state.comments;
+    const optimisticComment = createOptimisticComment(content, parentId, state.userEmail);
+    state.comments = parentId
+      ? addReplyToRoot(state.comments, parentId, optimisticComment).comments
+      : [optimisticComment, ...state.comments];
     state.submitting = true;
     state.error = null;
     state.notice = null;
@@ -301,6 +323,7 @@ export function renderWidget(
       const createdComment = await api.createComment(content, parentId, state.token);
       submittedStatus = createdComment.status;
       const refreshedComments = await api.listComments(state.sort, state.token);
+      state.comments = removeCommentFromTree(state.comments, optimisticComment.id);
       state.comments = parentId
         ? mergeCreatedReply(createdComment, refreshedComments.items, parentId, state.comments)
         : mergeCreatedComment(createdComment, refreshedComments.items);
@@ -315,6 +338,7 @@ export function renderWidget(
           : `Ответ для ${replyAuthor ?? "комментария"} отправлен и ждет модерации.`;
       }
     } catch (error) {
+      state.comments = previousComments;
       if (error instanceof WidgetApiError && error.status === 401) {
         clearAuthState();
       }
@@ -335,6 +359,15 @@ export function renderWidget(
       return;
     }
 
+    const previousComments = state.comments;
+    const currentComment = findComment(state.comments, commentId);
+    if (currentComment) {
+      state.comments = updateCommentInTree(state.comments, {
+        ...currentComment,
+        content,
+        updatedAt: new Date().toISOString()
+      });
+    }
     state.updatingCommentId = commentId;
     state.error = null;
     state.notice = null;
@@ -348,6 +381,7 @@ export function renderWidget(
         ? "Комментарий обновлен."
         : "Комментарий обновлен и отправлен на проверку.";
     } catch (error) {
+      state.comments = previousComments;
       if (error instanceof WidgetApiError && error.status === 401) {
         clearAuthState();
       }
@@ -365,17 +399,19 @@ export function renderWidget(
       return;
     }
 
+    const previousComments = state.comments;
+    state.comments = removeCommentFromTree(state.comments, commentId);
     state.deletingCommentId = commentId;
     state.error = null;
     render();
 
     try {
       await api.deleteComment(commentId, state.token);
-      state.comments = removeCommentFromTree(state.comments, commentId);
       state.confirmingCommentDeleteId = null;
       state.editingComment = state.editingComment?.id === commentId ? null : state.editingComment;
       state.notice = "Комментарий удален.";
     } catch (error) {
+      state.comments = previousComments;
       if (error instanceof WidgetApiError && error.status === 401) {
         clearAuthState();
       }
@@ -396,6 +432,15 @@ export function renderWidget(
     const currentReaction = findComment(state.comments, commentId)?.reactions.find((reaction) =>
       reaction.reactedByCurrentUser
     )?.type;
+    const previousComments = state.comments;
+    const currentComment = findComment(state.comments, commentId);
+    if (currentComment) {
+      state.comments = updateCommentReactions(
+        state.comments,
+        commentId,
+        optimisticReactions(currentComment.reactions, currentReaction === type ? null : type)
+      );
+    }
     state.reactingCommentId = commentId;
     state.error = null;
     render();
@@ -404,6 +449,7 @@ export function renderWidget(
       const response = await api.setReaction(commentId, currentReaction === type ? null : type, state.token);
       state.comments = updateCommentReactions(state.comments, commentId, response.reactions);
     } catch (error) {
+      state.comments = previousComments;
       if (error instanceof WidgetApiError && error.status === 401) {
         clearAuthState();
         state.authError = "Сессия истекла. Войдите снова, чтобы поставить реакцию.";
@@ -430,6 +476,27 @@ export function renderWidget(
       state.error = getErrorMessage(error);
     } finally {
       state.loading = false;
+      render();
+    }
+  }
+
+  async function loadMoreReplies(commentId: string): Promise<void> {
+    const comment = findComment(state.comments, commentId);
+    if (!comment || state.loadingRepliesId) {
+      return;
+    }
+    const nextPage = (state.replyPages[commentId] ?? 0) + 1;
+    state.loadingRepliesId = commentId;
+    state.error = null;
+    render();
+    try {
+      const response = await api.listReplies(commentId, nextPage, 20, state.token);
+      state.comments = updateRepliesInTree(state.comments, commentId, response.items, response.totalItems);
+      state.replyPages = { ...state.replyPages, [commentId]: nextPage };
+    } catch (error) {
+      state.error = getErrorMessage(error);
+    } finally {
+      state.loadingRepliesId = null;
       render();
     }
   }
@@ -496,6 +563,14 @@ export function renderWidget(
       return;
     }
 
+    if (!state.token && target.closest("[data-auth-intent='true']")) {
+      state.authExpanded = true;
+      state.authError = null;
+      render();
+      shell.querySelector<HTMLInputElement>("[data-cloud-comment-form='auth'] input[name='email']")?.focus();
+      return;
+    }
+
     const button = target.closest("button");
     if (!(button instanceof HTMLButtonElement) || !shell.contains(button)) {
       return;
@@ -508,6 +583,36 @@ export function renderWidget(
       return;
     }
 
+    if (button.dataset.authAction === "expand") {
+      state.authExpanded = true;
+      render();
+      shell.querySelector<HTMLInputElement>("[data-cloud-comment-form='auth'] input[name='email']")?.focus();
+      return;
+    }
+
+    if (button.dataset.profileAction === "toggle") {
+      state.profileOpen = !state.profileOpen;
+      render();
+      return;
+    }
+
+    if (button.dataset.loadReplies) {
+      void loadMoreReplies(button.dataset.loadReplies);
+      return;
+    }
+
+    if (button.dataset.toggleReplies) {
+      const next = new Set(state.collapsedReplyIds);
+      if (next.has(button.dataset.toggleReplies)) {
+        next.delete(button.dataset.toggleReplies);
+      } else {
+        next.add(button.dataset.toggleReplies);
+      }
+      state.collapsedReplyIds = next;
+      render();
+      return;
+    }
+
     if (button.dataset.replyAction === "cancel") {
       state.replyingTo = null;
       render();
@@ -516,6 +621,7 @@ export function renderWidget(
 
     if (button.dataset.replyTo) {
       if (!state.token) {
+        state.authExpanded = true;
         state.authError = "Войдите или зарегистрируйтесь, чтобы ответить.";
         render();
         return;
@@ -565,6 +671,9 @@ export function renderWidget(
     }
 
     if (button.dataset.reactionCommentId && isCommentReactionType(button.dataset.reactionType)) {
+      if (!state.token) {
+        state.authExpanded = true;
+      }
       void setReaction(button.dataset.reactionCommentId, button.dataset.reactionType);
       return;
     }
@@ -654,6 +763,14 @@ function applyWidgetStyle(shell: HTMLElement, style: WidgetStyle): void {
   shell.style.setProperty("--cc-custom-accent", style.accentColor);
   shell.style.setProperty("--cc-custom-accent-contrast", readableTextColor(style.accentColor));
   shell.dataset.radius = style.cornerRadius.toLowerCase();
+  shell.dataset.density = style.density.toLowerCase();
+  shell.dataset.elevation = style.elevation.toLowerCase();
+  shell.dataset.fontFamily = style.fontFamily.toLowerCase();
+  shell.dataset.fontScale = style.fontScale.toLowerCase();
+  shell.dataset.alignment = style.alignment.toLowerCase();
+  shell.dataset.contentWidth = style.contentWidth.toLowerCase();
+  shell.lang = style.locale.toLowerCase();
+  shell.setAttribute("aria-label", `${style.commentsTitle} CloudComment`);
 }
 
 function resolveWidgetTheme(theme: WidgetTheme, configuredTheme: WidgetStyleTheme): ResolvedWidgetTheme {
@@ -714,7 +831,11 @@ function normalizeThemeName(value: string | undefined): ResolvedWidgetTheme | nu
 function renderHeader(
   options: Required<CloudCommentWidgetOptions>,
   state: WidgetState
-): HTMLElement {
+): HTMLElement | null {
+  const style = state.config?.style;
+  if (style && !style.showHeader) {
+    return null;
+  }
   const header = document.createElement("header");
   header.className = "cloud-comment__header";
 
@@ -726,7 +847,7 @@ function renderHeader(
 
   const title = document.createElement("h2");
   title.className = "cloud-comment__title";
-  title.textContent = "Комментарии";
+  title.textContent = style?.headerTitle ?? "Комментарии";
 
   titleBlock.append(eyebrow, title);
 
@@ -750,13 +871,25 @@ function renderBody(state: WidgetState, options: Required<CloudCommentWidgetOpti
     body.append(renderMessage(state.notice, "notice"));
   }
 
+  const style = state.config?.style;
+  const form = renderCommentForm(state);
+  if (style?.composerPosition === "TOP") {
+    body.append(form);
+  }
+
   if (state.loading) {
     body.append(renderMessage("Загружаем комментарии...", "muted"));
   } else {
-    body.append(renderCommentSort(state.sort), renderCommentList(state.comments, state));
+    if (style?.showSort ?? true) {
+      body.append(renderCommentSort(state.sort));
+    }
+    body.append(renderCommentList(state.comments, state));
   }
 
-  body.append(renderCommentForm(state), renderAccountSection(state, options), renderAuthSection(state, options));
+  if (style?.composerPosition !== "TOP") {
+    body.append(form);
+  }
+  body.append(renderAccountSection(state, options), renderAuthSection(state, options));
   return body;
 }
 
@@ -795,7 +928,7 @@ function renderCommentList(comments: PublicComment[], state: WidgetState): HTMLE
   if (comments.length === 0) {
     const empty = document.createElement("p");
     empty.className = "cloud-comment__empty";
-    empty.textContent = "Пока нет комментариев. Будьте первым, кто начнет обсуждение.";
+    empty.textContent = state.config?.style.emptyMessage ?? "Пока нет комментариев. Будьте первым, кто начнет обсуждение.";
     list.append(empty);
     return list;
   }
@@ -828,7 +961,10 @@ function renderComment(comment: PublicComment, state: WidgetState, depth: number
   date.dateTime = comment.createdAt;
   date.textContent = formatDate(comment.createdAt);
 
-  header.append(avatar, author, date);
+  if (state.config?.style.avatarStyle !== "HIDDEN") {
+    header.append(avatar);
+  }
+  header.append(author, date);
 
   if (comment.status !== "APPROVED") {
     const status = document.createElement("span");
@@ -882,13 +1018,39 @@ function renderComment(comment: PublicComment, state: WidgetState, depth: number
     article.append(renderDeleteCommentConfirm(comment, state));
   }
 
+  const repliesCollapsed = state.collapsedReplyIds.has(comment.id);
   if (depth === 0 && comment.replies.length > 0) {
+    const toggleReplies = document.createElement("button");
+    toggleReplies.type = "button";
+    toggleReplies.className = "cloud-comment__load-replies";
+    toggleReplies.dataset.toggleReplies = comment.id;
+    toggleReplies.setAttribute("aria-expanded", String(!repliesCollapsed));
+    toggleReplies.textContent = repliesCollapsed
+      ? `Показать ответы (${comment.replyCount ?? comment.replies.length})`
+      : "Скрыть ответы";
+    article.append(toggleReplies);
+  }
+
+  if (depth === 0 && comment.replies.length > 0 && !repliesCollapsed) {
     const replies = document.createElement("div");
     replies.className = "cloud-comment__replies";
     for (const reply of comment.replies) {
       replies.append(renderComment(reply, state, depth + 1));
     }
     article.append(replies);
+  }
+
+  if (depth === 0 && !repliesCollapsed && (comment.replyCount ?? comment.replies.length) > comment.replies.length) {
+    const remaining = (comment.replyCount ?? comment.replies.length) - comment.replies.length;
+    const loadReplies = document.createElement("button");
+    loadReplies.type = "button";
+    loadReplies.className = "cloud-comment__load-replies";
+    loadReplies.dataset.loadReplies = comment.id;
+    loadReplies.disabled = state.loadingRepliesId === comment.id;
+    loadReplies.textContent = state.loadingRepliesId === comment.id
+      ? "Загружаем ответы..."
+      : `Показать ещё ответы (${remaining})`;
+    article.append(loadReplies);
   }
 
   return article;
@@ -983,7 +1145,8 @@ function renderReactionBar(comment: PublicComment, state: WidgetState): HTMLElem
   const bar = document.createElement("div");
   bar.className = "cloud-comment__reactions";
 
-  for (const reaction of normalizeReactions(comment.reactions)) {
+  const enabled = new Set(state.config?.style.enabledReactions ?? ["LIKE", "LOVE", "LAUGH", "WOW"]);
+  for (const reaction of normalizeReactions(comment.reactions).filter((item) => enabled.has(item.type))) {
     const button = document.createElement("button");
     button.className = reaction.reactedByCurrentUser
       ? "cloud-comment__reaction cloud-comment__reaction--active"
@@ -1035,13 +1198,19 @@ function renderCommentForm(state: WidgetState): HTMLElement {
   const textarea = document.createElement("textarea");
   textarea.className = "cloud-comment__textarea";
   textarea.name = "comment";
-  textarea.placeholder = state.token ? "Напишите комментарий" : "Войдите, чтобы написать комментарий";
+  textarea.placeholder = state.token
+    ? state.config?.style.composerPlaceholder ?? "Напишите комментарий"
+    : "Войдите, чтобы написать комментарий";
   textarea.setAttribute("aria-label", "Написать комментарий");
   if (state.replyingTo) {
     textarea.placeholder = "Напишите ответ";
   }
   textarea.maxLength = 5000;
-  textarea.disabled = state.submitting || !state.token;
+  textarea.disabled = state.submitting;
+  textarea.readOnly = !state.token;
+  if (!state.token) {
+    textarea.dataset.authIntent = "true";
+  }
 
   const actions = document.createElement("div");
   actions.className = "cloud-comment__actions";
@@ -1073,8 +1242,12 @@ function renderAccountSection(
     return section;
   }
 
-  const summary = document.createElement("div");
+  const summary = document.createElement("button");
   summary.className = "cloud-comment__account-summary";
+  summary.type = "button";
+  summary.dataset.profileAction = "toggle";
+  summary.setAttribute("aria-expanded", String(state.profileOpen));
+  summary.setAttribute("aria-label", "Меню профиля");
 
   const avatar = document.createElement("span");
   avatar.className = "cloud-comment__avatar cloud-comment__avatar--account";
@@ -1110,7 +1283,11 @@ function renderAccountSection(
     );
   }
 
-  section.append(summary, actions);
+  section.append(summary);
+  if (!state.profileOpen) {
+    return section;
+  }
+  section.append(actions);
   if (links.childNodes.length > 0) {
     section.append(links);
   }
@@ -1172,6 +1349,16 @@ function renderAuthSection(state: WidgetState, options: Required<CloudCommentWid
 
   if (state.token) {
     section.hidden = true;
+    return section;
+  }
+
+  if (!state.authExpanded) {
+    const expand = document.createElement("button");
+    expand.type = "button";
+    expand.className = "cloud-comment__auth-expand";
+    expand.dataset.authAction = "expand";
+    expand.textContent = "Войти, чтобы участвовать";
+    section.append(expand);
     return section;
   }
 
@@ -1288,17 +1475,104 @@ function mergeCreatedReply(
   parentId: string,
   previousComments: PublicComment[]
 ): PublicComment[] {
-  const merged = addReplyToRoot(refreshedComments, parentId, createdComment);
+  const merged = addReplyToRoot(refreshedComments, parentId, createdComment, true);
   if (merged.added) {
     return merged.comments;
   }
   return addReplyToRoot(previousComments, parentId, createdComment).comments;
 }
 
+function normalizeWidgetStyle(style: WidgetStyle): WidgetStyle {
+  return {
+    version: style.version ?? 2,
+    theme: style.theme ?? "AUTO",
+    accentColor: style.accentColor ?? "#0f766e",
+    cornerRadius: style.cornerRadius ?? "MEDIUM",
+    density: style.density ?? "COMFORTABLE",
+    contentWidth: style.contentWidth ?? "READABLE",
+    alignment: style.alignment ?? "CENTER",
+    fontScale: style.fontScale ?? "MEDIUM",
+    fontFamily: style.fontFamily ?? "INHERIT",
+    showHeader: style.showHeader ?? true,
+    headerTitle: style.headerTitle ?? "Комментарии",
+    composerPosition: style.composerPosition ?? "BOTTOM",
+    defaultSort: style.defaultSort ?? "PINNED_FIRST",
+    showSort: style.showSort ?? true,
+    enabledReactions: style.enabledReactions ?? ["LIKE", "LOVE", "LAUGH", "WOW"],
+    avatarStyle: style.avatarStyle ?? "INITIALS",
+    elevation: style.elevation ?? "BORDER",
+    locale: style.locale ?? "RU",
+    commentsTitle: style.commentsTitle ?? "Комментарии",
+    composerPlaceholder: style.composerPlaceholder ?? "Напишите комментарий",
+    emptyMessage: style.emptyMessage ?? "Пока нет комментариев. Будьте первым, кто начнет обсуждение."
+  };
+}
+
+function createOptimisticComment(
+  content: string,
+  parentId: string | null,
+  email: string | null
+): PublicComment {
+  const now = new Date().toISOString();
+  return {
+    id: `optimistic-${crypto.randomUUID()}`,
+    siteId: "",
+    pageId: "",
+    parentId,
+    author: { id: "", email: email ?? "Вы", displayName: null },
+    content,
+    status: "PENDING",
+    createdAt: now,
+    updatedAt: now,
+    editedAt: null,
+    pinned: false,
+    ownedByCurrentUser: true,
+    reactions: normalizeReactions([]),
+    replyCount: 0,
+    replies: []
+  };
+}
+
+export function optimisticReactions(
+  reactions: CommentReaction[],
+  nextType: CommentReactionType | null
+): CommentReaction[] {
+  return normalizeReactions(reactions).map((reaction) => {
+    const wasActive = reaction.reactedByCurrentUser;
+    const becomesActive = reaction.type === nextType;
+    return {
+      ...reaction,
+      count: Math.max(0, reaction.count + (becomesActive ? 1 : 0) - (wasActive ? 1 : 0)),
+      reactedByCurrentUser: becomesActive
+    };
+  });
+}
+
+export function updateRepliesInTree(
+  comments: PublicComment[],
+  commentId: string,
+  replies: PublicComment[],
+  replyCount: number
+): PublicComment[] {
+  return comments.map((comment) => {
+    if (comment.id === commentId) {
+      const known = new Map(comment.replies.map((reply) => [reply.id, reply]));
+      for (const reply of replies) {
+        known.set(reply.id, reply);
+      }
+      return { ...comment, replyCount, replies: [...known.values()] };
+    }
+    return comment.replies.length === 0
+      ? comment
+      : { ...comment, replies: updateRepliesInTree(comment.replies, commentId, replies, replyCount) };
+  });
+}
+
 function addReplyToRoot(
   comments: PublicComment[],
   parentId: string,
-  reply: PublicComment
+  reply: PublicComment,
+  countAlreadyIncludesReply = false
 ): { comments: PublicComment[]; added: boolean } {
   let added = false;
   const nextComments = comments.map((comment) => {
@@ -1312,6 +1586,7 @@ function addReplyToRoot(
     added = true;
     return {
       ...comment,
+      replyCount: (comment.replyCount ?? comment.replies.length) + (countAlreadyIncludesReply ? 0 : 1),
       replies: [...comment.replies, reply]
     };
   });
@@ -1331,6 +1606,7 @@ function updateCommentInTree(comments: PublicComment[], updatedComment: PublicCo
     if (comment.id === updatedComment.id) {
       return {
         ...updatedComment,
+        replyCount: comment.replyCount,
         replies: comment.replies
       };
     }
@@ -1347,10 +1623,14 @@ function updateCommentInTree(comments: PublicComment[], updatedComment: PublicCo
 function removeCommentFromTree(comments: PublicComment[], commentId: string): PublicComment[] {
   return comments
     .filter((comment) => comment.id !== commentId)
-    .map((comment) => ({
-      ...comment,
-      replies: removeCommentFromTree(comment.replies, commentId)
-    }));
+    .map((comment) => {
+      const removedDirectReply = comment.replies.some((reply) => reply.id === commentId);
+      return {
+        ...comment,
+        replyCount: removedDirectReply ? Math.max(0, comment.replyCount - 1) : comment.replyCount,
+        replies: removeCommentFromTree(comment.replies, commentId)
+      };
+    });
 }
 
 function updateCommentReactions(
@@ -1523,10 +1803,10 @@ function getPageLabel(pageUrl: string): string {
 
 function getStoredAuthToken(): string | null {
   return (
-    readStorage(window.localStorage, WIDGET_AUTH_TOKEN_KEY) ??
-    readStorage(window.sessionStorage, WIDGET_AUTH_TOKEN_KEY) ??
-    readStorage(window.localStorage, ADMIN_AUTH_TOKEN_KEY) ??
-    readStorage(window.sessionStorage, ADMIN_AUTH_TOKEN_KEY)
+    readStorage("localStorage", WIDGET_AUTH_TOKEN_KEY) ??
+    readStorage("sessionStorage", WIDGET_AUTH_TOKEN_KEY) ??
+    readStorage("localStorage", ADMIN_AUTH_TOKEN_KEY) ??
+    readStorage("sessionStorage", ADMIN_AUTH_TOKEN_KEY)
   );
 }
 
@@ -1549,9 +1829,9 @@ function removeStoredAuthToken(): void {
   }
 }
 
-function readStorage(storage: Storage, key: string): string | null {
+function readStorage(storageName: "localStorage" | "sessionStorage", key: string): string | null {
   try {
-    return storage.getItem(key);
+    return window[storageName].getItem(key);
   } catch {
     return null;
   }

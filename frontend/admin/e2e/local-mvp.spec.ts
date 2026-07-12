@@ -151,6 +151,32 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
     status: 'APPROVED',
   })
 
+  for (const index of [2, 3, 4]) {
+    const response = await request.post(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
+      headers: { Authorization: `Bearer ${token}`, Origin: ADMIN_ORIGIN },
+      data: { pageUrl, parentId: createdComment.id, content: `${apiReplyText} ${index}` },
+    })
+    await expect(response).toBeOK()
+  }
+
+  const limitedRepliesResponse = await request.get(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
+    headers: { Origin: ADMIN_ORIGIN },
+    params: { pageUrl, page: '1', pageSize: '20', replyLimit: '1' },
+  })
+  await expect(limitedRepliesResponse).toBeOK()
+  const limitedRepliesPage = await limitedRepliesResponse.json()
+  expect(limitedRepliesPage.items[0].replyCount).toBe(4)
+  expect(limitedRepliesPage.items[0].replies).toHaveLength(1)
+
+  const repliesPageResponse = await request.get(
+    `${API_BASE_URL}/public/sites/${siteId}/comments/${createdComment.id}/replies`,
+    { headers: { Origin: ADMIN_ORIGIN }, params: { page: '2', pageSize: '2' } },
+  )
+  await expect(repliesPageResponse).toBeOK()
+  const repliesPage = await repliesPageResponse.json()
+  expect(repliesPage.totalItems).toBe(4)
+  expect(repliesPage.items).toHaveLength(2)
+
   const reactionResponse = await request.put(`${API_BASE_URL}/public/sites/${siteId}/comments/${createdComment.id}/reaction`, {
     headers: {
       Authorization: `Bearer ${token}`,
@@ -378,7 +404,7 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
 
   const moderationPage = await context.newPage()
   await moderationPage.goto('/moderation')
-  await expect(moderationPage.getByRole('heading', { name: 'Модерация комментариев' })).toBeVisible()
+  await expect(moderationPage.getByRole('heading', { name: 'Модерация', exact: true })).toBeVisible()
   await moderationPage.getByRole('button', { name: 'Уведомления' }).click()
   await expect(moderationPage.getByText('Подключено', { exact: true })).toBeVisible({ timeout: 15_000 })
 
@@ -395,7 +421,68 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
     },
   })
   expect(realtimeCommentResponse.status()).toBe(201)
+  const realtimeComment = await realtimeCommentResponse.json()
   await expect(moderationPage.getByText(realtimeCommentText)).toBeVisible({ timeout: 15_000 })
+
+  const moderationCountsResponse = await request.get(`${API_BASE_URL}/moderation/counts`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  await expect(moderationCountsResponse).toBeOK()
+  const moderationCounts = await moderationCountsResponse.json()
+  expect(moderationCounts.statuses.SPAM).toBeGreaterThanOrEqual(1)
+  expect(moderationCounts.statuses.PENDING).toBeGreaterThanOrEqual(1)
+  expect(moderationCounts.requiringDecision).toBeGreaterThanOrEqual(2)
+
+  const repeatedStatusesResponse = await request.get(
+    `${API_BASE_URL}/moderation/comments?statuses=PENDING&statuses=SPAM&page=1&pageSize=30`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  )
+  await expect(repeatedStatusesResponse).toBeOK()
+  const repeatedStatuses = await repeatedStatusesResponse.json()
+  expect(repeatedStatuses.items.map((item: { id: string }) => item.id)).toEqual(
+    expect.arrayContaining([spamComment.id, realtimeComment.id]),
+  )
+
+  const conflictingStatusesResponse = await request.get(
+    `${API_BASE_URL}/moderation/comments?status=PENDING&statuses=SPAM`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  )
+  expect(conflictingStatusesResponse.status()).toBe(400)
+
+  const operationId = crypto.randomUUID()
+  const bulkModerationResponse = await request.post(`${API_BASE_URL}/moderation/comments/bulk-actions`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: {
+      operationId,
+      commentIds: [spamComment.id, realtimeComment.id],
+      action: 'APPROVE',
+      reason: 'Проверено в E2E',
+    },
+  })
+  await expect(bulkModerationResponse).toBeOK()
+  const bulkModeration = await bulkModerationResponse.json()
+  expect(bulkModeration.items).toHaveLength(2)
+  expect(bulkModeration.items.every((item: { success: boolean }) => item.success)).toBe(true)
+  expect(bulkModeration.items.every((item: { action: { operationId: string } }) => item.action.operationId === operationId)).toBe(true)
+
+  const realtimeModerationAction = bulkModeration.items.find(
+    (item: { commentId: string }) => item.commentId === realtimeComment.id,
+  ).action
+  const undoModerationResponse = await request.post(
+    `${API_BASE_URL}/moderation/actions/${realtimeModerationAction.id}/undo`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  )
+  expect(undoModerationResponse.status()).toBe(201)
+  expect(await undoModerationResponse.json()).toMatchObject({
+    action: 'UNDO',
+    revertsActionId: realtimeModerationAction.id,
+  })
+
+  const restoredCommentResponse = await request.get(`${API_BASE_URL}/moderation/comments/${realtimeComment.id}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  await expect(restoredCommentResponse).toBeOK()
+  expect(await restoredCommentResponse.json()).toMatchObject({ status: 'PENDING' })
 
   const analyticsResponse = await request.get(`${API_BASE_URL}/analytics/owner`, {
     headers: {
@@ -412,6 +499,13 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   const widgetShell = widget.locator('.cloud-comment')
   await expect(widget.locator('.cloud-comment__title')).toHaveText('Комментарии')
   await expect(widget.locator('.cloud-comment__comment-content')).toContainText([editedCommentText, apiReplyText])
+  await expect(widget.getByRole('button', { name: 'Показать ещё ответы (1)' })).toBeVisible()
+  await widget.getByRole('button', { name: 'Показать ещё ответы (1)' }).click()
+  await expect(widget.locator('.cloud-comment__replies .cloud-comment__comment')).toHaveCount(4)
+  await widget.getByRole('button', { name: 'Скрыть ответы' }).click()
+  await expect(widget.locator('.cloud-comment__replies')).toHaveCount(0)
+  await widget.getByRole('button', { name: 'Показать ответы (4)' }).click()
+  await expect(widget.locator('.cloud-comment__replies .cloud-comment__comment')).toHaveCount(4)
   await expect(widget.locator('.cloud-comment__pinned')).toHaveText('Закреплён')
   const sortSelector = widget.locator('select[data-comment-sort="true"]')
   await expect(sortSelector).toHaveValue('PINNED_FIRST')
@@ -470,6 +564,7 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   )
   const externalWidget = externalPage.locator('#comments')
   await expect(externalWidget.locator('.cloud-comment__title')).toHaveText('Комментарии')
+  await externalWidget.getByRole('button', { name: 'Войти, чтобы участвовать' }).click()
   await externalWidget.getByRole('button', { name: 'Регистрация' }).click()
   await expect(externalWidget.getByRole('link', { name: 'политика' })).toHaveAttribute(
     'href',

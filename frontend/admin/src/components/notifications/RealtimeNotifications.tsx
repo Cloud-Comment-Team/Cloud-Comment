@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { Bell, BellRing, Circle, ExternalLink, WifiOff, X } from 'lucide-react'
@@ -27,6 +28,8 @@ export function RealtimeNotifications() {
   const [notifications, setNotifications] = useState<CommentNotification[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
   const [isOpen, setIsOpen] = useState(false)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const panelId = useId()
 
   const latestNotifications = useMemo(() => notifications.slice(0, 6), [notifications])
 
@@ -49,8 +52,22 @@ export function RealtimeNotifications() {
     setUnreadCount(0)
   }
 
-  function openModeration() {
+  function closePanel() {
     setIsOpen(false)
+    window.requestAnimationFrame(() => triggerRef.current?.focus())
+  }
+
+  useEffect(() => {
+    if (!isOpen) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closePanel()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [isOpen])
+
+  function openModeration() {
+    closePanel()
     setUnreadCount(0)
     navigate('/moderation')
   }
@@ -63,12 +80,15 @@ export function RealtimeNotifications() {
   const connected = connectionStatus === 'connected'
 
   return (
-    <div className="fixed right-4 top-20 z-50 flex flex-col items-end lg:right-6 lg:top-6">
+    <>
       <button
+        ref={triggerRef}
         type="button"
-        className="relative inline-flex h-11 w-11 items-center justify-center rounded-xl border shadow-lg transition hover:-translate-y-0.5"
+        className="relative inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border transition"
         style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)', color: 'var(--text-h)' }}
         aria-label="Уведомления"
+        aria-expanded={isOpen}
+        aria-controls={panelId}
         onClick={openPanel}
       >
         {unreadCount > 0 ? <BellRing className="h-5 w-5" /> : <Bell className="h-5 w-5" />}
@@ -89,9 +109,14 @@ export function RealtimeNotifications() {
         )}
       </button>
 
-      {isOpen && (
-        <div
-          className="mt-3 w-[min(360px,calc(100vw-2rem))] overflow-hidden rounded-xl border shadow-2xl"
+      {isOpen && createPortal(<>
+        <button type="button" className="fixed inset-0 z-40 cursor-default bg-transparent" aria-label="Закрыть уведомления" onClick={closePanel} />
+        <section
+          id={panelId}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Центр уведомлений"
+          className="fixed right-4 top-[4.5rem] z-50 w-[min(360px,calc(100vw-2rem))] overflow-hidden rounded-lg border shadow-2xl lg:right-6"
           style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}
         >
           <div className="flex items-center justify-between gap-3 border-b p-4" style={{ borderColor: 'var(--border)' }}>
@@ -111,7 +136,7 @@ export function RealtimeNotifications() {
               className="inline-flex h-8 w-8 items-center justify-center rounded-lg border"
               style={{ borderColor: 'var(--border)', color: 'var(--text)' }}
               aria-label="Закрыть уведомления"
-              onClick={() => setIsOpen(false)}
+              onClick={closePanel}
             >
               <X className="h-4 w-4" />
             </button>
@@ -152,8 +177,8 @@ export function RealtimeNotifications() {
               </button>
             ))}
           </div>
-        </div>
-      )}
-    </div>
+        </section>
+      </>, document.body)}
+    </>
   )
 }

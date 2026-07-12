@@ -1,50 +1,62 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { Link } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import {
-  AlertTriangle,
-  CalendarClock,
   Check,
-  CornerDownRight,
+  ChevronRight,
+  Clock3,
   EyeOff,
   Filter,
-  Flame,
-  Globe,
-  Hash,
-  Link2,
-  Pin,
   RotateCcw,
   Search,
   ShieldAlert,
-  Sparkles,
   Star,
   X,
 } from 'lucide-react'
-import type { LucideIcon } from 'lucide-react'
 
 import { getApiErrorMessage } from '../../api/auth'
-import { applyModerationAction, listComments, updateCommentFlags } from '../../api/moderation'
+import {
+  applyBulkModerationAction,
+  applyModerationAction,
+  getComment,
+  getModerationCounts,
+  listComments,
+  undoModerationAction,
+  updateCommentFlags,
+} from '../../api/moderation'
 import { listAllSites } from '../../api/sites'
 import { AsyncState } from '../../components/common/AsyncState'
 import { Badge } from '../../components/common/Badge'
 import { PaginationControls } from '../../components/common/PaginationControls'
+import { ActionBar, DataRow, Drawer, PageHeader } from '../../components/common/Workspace'
+import { useRealtimeEvent } from '../../components/realtime/useRealtime'
 import type {
   Comment,
   CommentStatus,
-  ModerationActionNotification,
-  ModerationActionType,
-  ModerationPriority,
-  NewCommentNotification,
+  ModerationAction,
+  ModerationCommand,
+  ModerationCounts,
   Site,
 } from '../../types/api'
 import { formatDateTime } from '../../utils/formatDate'
 import { getAvailableModerationActions } from '../../utils/moderationActions'
-import { useRealtimeEvent } from '../../components/realtime/useRealtime'
+
+type QueueView = 'pending' | 'spam' | 'history'
+
+interface SavedFilters {
+  siteId: string
+  pageUrl: string
+  search: string
+  favorite: boolean
+}
+
+const FILTERS_KEY = 'cloud-comment:moderation-filters:v2'
+const emptyFilters: SavedFilters = { siteId: '', pageUrl: '', search: '', favorite: false }
 
 const statusLabels: Record<CommentStatus, string> = {
-  PENDING: 'На модерации',
+  PENDING: 'Ожидает решения',
   APPROVED: 'Одобрен',
-  REJECTED: 'Отклонен',
+  REJECTED: 'Отклонён',
   HIDDEN: 'Скрыт',
   SPAM: 'Спам',
 }
@@ -57,770 +69,434 @@ const statusTones: Record<CommentStatus, 'success' | 'warning' | 'danger' | 'mut
   SPAM: 'danger',
 }
 
-const priorityLabels: Record<ModerationPriority, string> = {
-  LOW: 'Низкий приоритет',
-  MEDIUM: 'Средний приоритет',
-  HIGH: 'Высокий приоритет',
-  URGENT: 'Срочно',
+const actionLabels: Record<ModerationCommand, string> = {
+  APPROVE: 'Одобрить',
+  REJECT: 'Отклонить',
+  HIDE: 'Скрыть',
+  MARK_SPAM: 'В спам',
+  RESTORE: 'Восстановить',
 }
 
-const priorityStyles: Record<ModerationPriority, { background: string; color: string; border: string }> = {
-  LOW: {
-    background: 'color-mix(in srgb, var(--surface-2) 82%, var(--accent) 18%)',
-    color: 'var(--text)',
-    border: 'var(--border)',
-  },
-  MEDIUM: {
-    background: 'color-mix(in srgb, var(--status-pending-bg) 86%, var(--status-pending-accent) 14%)',
-    color: 'var(--status-pending-accent)',
-    border: 'var(--status-pending-border)',
-  },
-  HIGH: {
-    background: 'color-mix(in srgb, var(--status-spam-bg) 88%, var(--status-spam-accent) 12%)',
-    color: 'var(--status-spam-accent)',
-    border: 'var(--status-spam-border)',
-  },
-  URGENT: {
-    background: 'color-mix(in srgb, var(--status-rejected-bg) 84%, var(--status-rejected-accent) 16%)',
-    color: 'var(--status-rejected-accent)',
-    border: 'var(--status-rejected-border)',
-  },
+const actionIcons: Record<ModerationCommand, typeof Check> = {
+  APPROVE: Check,
+  REJECT: X,
+  HIDE: EyeOff,
+  MARK_SPAM: ShieldAlert,
+  RESTORE: RotateCcw,
 }
 
-const priorityIcons: Record<ModerationPriority, LucideIcon> = {
-  LOW: Sparkles,
-  MEDIUM: AlertTriangle,
-  HIGH: ShieldAlert,
-  URGENT: Flame,
+const viewStatuses: Record<QueueView, CommentStatus[]> = {
+  pending: ['PENDING', 'SPAM'],
+  spam: ['SPAM'],
+  history: ['APPROVED', 'REJECTED', 'HIDDEN'],
 }
 
-const statusCardStyles: Record<
-  CommentStatus,
-  {
-    background: string
-    border: string
-    accent: string
-    metaBackground: string
+function readSavedFilters(): SavedFilters {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(FILTERS_KEY) ?? '') as Partial<SavedFilters>
+    return {
+      siteId: typeof parsed.siteId === 'string' ? parsed.siteId : '',
+      pageUrl: typeof parsed.pageUrl === 'string' ? parsed.pageUrl : '',
+      search: typeof parsed.search === 'string' ? parsed.search : '',
+      favorite: parsed.favorite === true,
+    }
+  } catch {
+    return emptyFilters
   }
-> = {
-  PENDING: {
-    background: 'var(--status-pending-bg)',
-    border: 'var(--status-pending-border)',
-    accent: 'var(--status-pending-accent)',
-    metaBackground: 'var(--status-pending-meta-bg)',
-  },
-  APPROVED: {
-    background: 'var(--status-approved-bg)',
-    border: 'var(--status-approved-border)',
-    accent: 'var(--status-approved-accent)',
-    metaBackground: 'var(--status-approved-meta-bg)',
-  },
-  REJECTED: {
-    background: 'var(--status-rejected-bg)',
-    border: 'var(--status-rejected-border)',
-    accent: 'var(--status-rejected-accent)',
-    metaBackground: 'var(--status-rejected-meta-bg)',
-  },
-  HIDDEN: {
-    background: 'var(--status-hidden-bg)',
-    border: 'var(--status-hidden-border)',
-    accent: 'var(--status-hidden-accent)',
-    metaBackground: 'var(--status-hidden-meta-bg)',
-  },
-  SPAM: {
-    background: 'var(--status-spam-bg)',
-    border: 'var(--status-spam-border)',
-    accent: 'var(--status-spam-accent)',
-    metaBackground: 'var(--status-spam-meta-bg)',
-  },
 }
 
-const actionButtons: Record<
-  ModerationActionType,
-  {
-    label: string
-    icon: typeof Check
-  }
-> = {
-  APPROVE: { label: 'Одобрить', icon: Check },
-  REJECT: { label: 'Отклонить', icon: X },
-  HIDE: { label: 'Скрыть', icon: EyeOff },
-  MARK_SPAM: { label: 'Спам', icon: ShieldAlert },
-  RESTORE: { label: 'Восстановить', icon: RotateCcw },
+function isQueueView(value: string | null): value is QueueView {
+  return value === 'pending' || value === 'spam' || value === 'history'
 }
 
-const emptyFilters = {
-  siteId: '',
-  pageId: '',
-  status: '' as CommentStatus | '',
-  pageUrl: '',
-  search: '',
-  favorite: false,
-}
-
-function matchesCommentNotificationFilters(
-  payload: NewCommentNotification,
-  filters: typeof emptyFilters,
-): boolean {
-  if (filters.siteId && payload.siteId !== filters.siteId) {
-    return false
-  }
-  if (filters.pageId && payload.pageId !== filters.pageId.trim()) {
-    return false
-  }
-  if (filters.status && payload.status !== filters.status) {
-    return false
-  }
-  if (filters.pageUrl.trim() && !payload.pageUrl.includes(filters.pageUrl.trim())) {
-    return false
-  }
-  if (filters.search.trim() && !payload.contentPreview.toLowerCase().includes(filters.search.trim().toLowerCase())) {
-    return false
-  }
-  if (filters.favorite) {
-    return false
-  }
-  return true
-}
-
-function matchesModerationActionFilters(
-  payload: ModerationActionNotification,
-  filters: typeof emptyFilters,
-): boolean {
-  if (filters.siteId && payload.siteId !== filters.siteId) {
-    return false
-  }
-  if (filters.pageId && payload.pageId !== filters.pageId.trim()) {
-    return false
-  }
-  if (filters.status && payload.fromStatus !== filters.status && payload.toStatus !== filters.status) {
-    return false
-  }
-  if (filters.favorite) {
-    return true
-  }
-  return true
-}
-
-function getInitials(value: string): string {
-  const trimmed = value.trim()
-  return trimmed ? trimmed.slice(0, 2).toUpperCase() : '??'
-}
-
-function shortenId(value: string): string {
-  return `${value.slice(0, 8)}...${value.slice(-6)}`
-}
-
-function parentAuthorLabel(comment: Comment): string {
-  return comment.parent?.author?.displayName || comment.parent?.author?.email || 'Автор комментария'
-}
-
-function PriorityBadge({ priority, score }: { priority: ModerationPriority; score: number }) {
-  const style = priorityStyles[priority]
-  const Icon = priorityIcons[priority]
-
-  return (
-    <span
-      className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold"
-      style={{ backgroundColor: style.background, borderColor: style.border, color: style.color }}
-      title={`Оценка очереди: ${score}`}
-    >
-      <Icon className="h-3.5 w-3.5" aria-hidden="true" />
-      {priorityLabels[priority]}
-    </span>
-  )
-}
-
-function MetadataItem({
-  icon: Icon,
-  label,
-  value,
-  title,
-}: {
-  icon: LucideIcon
-  label: string
-  value: string
-  title?: string
-}) {
-  return (
-    <div className="flex min-w-0 items-start gap-2">
-      <span
-        className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg"
-        style={{ backgroundColor: 'var(--accent-bg)', color: 'var(--accent)' }}
-      >
-        <Icon className="h-3.5 w-3.5" aria-hidden="true" />
-      </span>
-      <span className="min-w-0">
-        <span className="block text-xs font-semibold" style={{ color: 'var(--text-h)' }}>
-          {label}
-        </span>
-        <span className="block truncate text-xs" title={title ?? value} style={{ color: 'var(--text)' }}>
-          {value}
-        </span>
-      </span>
-    </div>
-  )
+function authorName(comment: Comment): string {
+  return comment.author?.displayName || comment.author?.email || 'Гость'
 }
 
 const Moderation = () => {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const initialFilters = useMemo(() => readSavedFilters(), [])
+  const requestedView = searchParams.get('view')
+  const view: QueueView = isQueueView(requestedView) ? requestedView : 'pending'
+  const selectedCommentId = searchParams.get('comment')
+
   const [sites, setSites] = useState<Site[]>([])
-  const [sitesLoading, setSitesLoading] = useState(true)
   const [comments, setComments] = useState<Comment[]>([])
+  const [detailComment, setDetailComment] = useState<Comment | null>(null)
+  const [counts, setCounts] = useState<ModerationCounts | null>(null)
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(0)
   const [totalItems, setTotalItems] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [actionCommentId, setActionCommentId] = useState<string | null>(null)
-  const [flagCommentId, setFlagCommentId] = useState<string | null>(null)
-  const [appliedFilters, setAppliedFilters] = useState(emptyFilters)
-  const [siteId, setSiteId] = useState('')
-  const [pageId, setPageId] = useState('')
-  const [status, setStatus] = useState<CommentStatus | ''>('')
-  const [pageUrl, setPageUrl] = useState('')
-  const [search, setSearch] = useState('')
-  const [favoriteOnly, setFavoriteOnly] = useState(false)
-  const [reasons, setReasons] = useState<Record<string, string>>({})
+  const [busy, setBusy] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [lastAction, setLastAction] = useState<ModerationAction | null>(null)
+  const [reason, setReason] = useState('')
+  const [filters, setFilters] = useState(initialFilters)
+  const [appliedFilters, setAppliedFilters] = useState(initialFilters)
 
-  const siteNamesById = useMemo(() => new Map(sites.map((site) => [site.id, site.name])), [sites])
-  const filtersApplied = Object.values(appliedFilters).some(Boolean)
+  const selectedComment = comments.find((comment) => comment.id === selectedCommentId)
+    ?? (detailComment?.id === selectedCommentId ? detailComment : null)
+  const siteNames = useMemo(() => new Map(sites.map((site) => [site.id, site.name])), [sites])
+  const allVisibleSelected = comments.length > 0 && comments.every((comment) => selectedIds.has(comment.id))
+
+  useEffect(() => {
+    void listAllSites().then(setSites).catch(() => setSites([]))
+  }, [])
 
   useRealtimeEvent((event) => {
-    if (event.type === 'comment.created') {
-      const payload: NewCommentNotification = event.payload
-      if (matchesCommentNotificationFilters(payload, appliedFilters)) {
-        setReloadKey((current) => current + 1)
-      }
-      return
-    }
-
-    if (event.type === 'comment.moderation_action_applied') {
-      const payload: ModerationActionNotification = event.payload
-      if (matchesModerationActionFilters(payload, appliedFilters)) {
-        setReloadKey((current) => current + 1)
-      }
+    if (event.type === 'comment.created' || event.type === 'comment.moderation_action_applied') {
+      setReloadKey((current) => current + 1)
     }
   })
 
   useEffect(() => {
     let cancelled = false
-
-    async function loadSites() {
-      setSitesLoading(true)
-      try {
-        const allSites = await listAllSites()
-        if (!cancelled) {
-          setSites(allSites)
-        }
-      } catch {
-        if (!cancelled) {
-          setSites([])
-        }
-      } finally {
-        if (!cancelled) {
-          setSitesLoading(false)
-        }
-      }
-    }
-
-    void loadSites()
-
+    Promise.all([
+      listComments({
+        siteId: appliedFilters.siteId || undefined,
+        pageUrl: appliedFilters.pageUrl.trim() || undefined,
+        search: appliedFilters.search.trim() || undefined,
+        favorite: appliedFilters.favorite || undefined,
+        statuses: viewStatuses[view],
+        sortBy: 'SMART',
+        sortOrder: 'DESC',
+        page,
+        pageSize: 30,
+      }),
+      getModerationCounts().catch(() => null),
+    ])
+      .then(([response, nextCounts]) => {
+        if (cancelled) return
+        setComments(response.items)
+        setTotalPages(response.totalPages)
+        setTotalItems(response.totalItems)
+        if (nextCounts) setCounts(nextCounts)
+        setError(null)
+        setSelectedIds((current) => new Set([...current].filter((id) => response.items.some((item) => item.id === id))))
+      })
+      .catch((loadError) => {
+        if (!cancelled) setError(getApiErrorMessage(loadError, 'Не удалось загрузить очередь модерации.'))
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [appliedFilters, page, reloadKey, view])
 
   useEffect(() => {
+    if (!selectedCommentId || comments.some((comment) => comment.id === selectedCommentId)) return
     let cancelled = false
-
-    async function fetchComments() {
-      setLoading(true)
-      setError(null)
-
-      try {
-        const response = await listComments({
-          siteId: appliedFilters.siteId || undefined,
-          pageId: appliedFilters.pageId.trim() || undefined,
-          status: appliedFilters.status || undefined,
-          pageUrl: appliedFilters.pageUrl.trim() || undefined,
-          search: appliedFilters.search.trim() || undefined,
-          favorite: appliedFilters.favorite || undefined,
-          sortBy: 'SMART',
-          sortOrder: 'DESC',
-          page,
-          pageSize: 20,
-        })
-        if (!cancelled) {
-          setComments(response.items)
-          setTotalPages(response.totalPages)
-          setTotalItems(response.totalItems)
-        }
-      } catch (loadError) {
-        if (!cancelled) {
-          setError(getApiErrorMessage(loadError, 'Не удалось загрузить комментарии.'))
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false)
-        }
-      }
-    }
-
-    void fetchComments()
-
+    void getComment(selectedCommentId)
+      .then((comment) => {
+        if (!cancelled) setDetailComment(comment)
+      })
+      .catch((loadError) => {
+        if (!cancelled) toast.error(getApiErrorMessage(loadError, 'Не удалось открыть комментарий.'))
+      })
     return () => {
       cancelled = true
     }
-  }, [appliedFilters, page, reloadKey])
+  }, [comments, selectedCommentId])
 
-  async function handleAction(commentId: string, action: ModerationActionType) {
-    setActionCommentId(commentId)
+  function updateRoute(nextView: QueueView, commentId?: string) {
+    const next = new URLSearchParams(searchParams)
+    next.set('view', nextView)
+    if (commentId) next.set('comment', commentId)
+    else next.delete('comment')
+    setSearchParams(next)
+    if (nextView !== view) {
+      setPage(1)
+      setSelectedIds(new Set())
+    }
+  }
+
+  async function runAction(commentIds: string[], action: ModerationCommand) {
+    if (commentIds.length === 0) return
+    setBusy(true)
     try {
-      await applyModerationAction(commentId, {
-        action,
-        reason: reasons[commentId]?.trim() || null,
-      })
-      toast.success('Статус комментария обновлен')
-      setReasons((current) => {
-        const next = { ...current }
-        delete next[commentId]
-        return next
-      })
+      if (commentIds.length === 1) {
+        const result = await applyModerationAction(commentIds[0], { action, reason: reason.trim() || null })
+        setLastAction(result)
+        toast.success('Действие выполнено')
+      } else {
+        const result = await applyBulkModerationAction({
+          operationId: crypto.randomUUID(),
+          commentIds,
+          action,
+          reason: reason.trim() || null,
+        })
+        const successful = result.items.filter((item) => item.success)
+        const failed = result.items.length - successful.length
+        setLastAction(successful.at(-1)?.action ?? null)
+        toast.success(`Обработано: ${successful.length}${failed ? `, не удалось: ${failed}` : ''}`)
+      }
+      setReason('')
+      setSelectedIds(new Set())
       setReloadKey((current) => current + 1)
     } catch (actionError) {
       toast.error(getApiErrorMessage(actionError, 'Не удалось выполнить действие модерации.'))
     } finally {
-      setActionCommentId(null)
+      setBusy(false)
     }
   }
 
-  async function handleTogglePin(comment: Comment) {
-    setFlagCommentId(comment.id)
+  async function undoLastAction() {
+    if (!lastAction) return
+    setBusy(true)
     try {
-      await updateCommentFlags(comment.id, { pinned: !comment.pinned })
-      toast.success(comment.pinned ? 'Комментарий откреплен' : 'Комментарий закреплен')
+      await undoModerationAction(lastAction.id)
+      setLastAction(null)
+      toast.success('Последнее действие отменено')
       setReloadKey((current) => current + 1)
-    } catch (flagError) {
-      toast.error(getApiErrorMessage(flagError, 'Не удалось обновить закрепление.'))
+    } catch (undoError) {
+      toast.error(getApiErrorMessage(undoError, 'Не удалось отменить действие. Возможно, прошло больше 15 минут.'))
     } finally {
-      setFlagCommentId(null)
+      setBusy(false)
     }
   }
 
-  async function handleToggleFavorite(comment: Comment) {
-    setFlagCommentId(comment.id)
+  async function toggleFavorite(comment: Comment) {
+    setBusy(true)
     try {
       await updateCommentFlags(comment.id, { favorite: !comment.favorite })
-      toast.success(comment.favorite ? 'Комментарий убран из избранного' : 'Комментарий добавлен в избранное')
       setReloadKey((current) => current + 1)
     } catch (flagError) {
       toast.error(getApiErrorMessage(flagError, 'Не удалось обновить избранное.'))
     } finally {
-      setFlagCommentId(null)
+      setBusy(false)
     }
   }
 
-  function handleApplyFilters(event: FormEvent) {
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      const target = event.target as HTMLElement
+      if (target.matches('input, textarea, select, button, [contenteditable="true"]') || event.metaKey || event.ctrlKey || event.altKey) return
+      const targets = selectedIds.size > 0 ? [...selectedIds] : selectedComment ? [selectedComment.id] : []
+      const shortcut: Record<string, ModerationCommand> = { a: 'APPROVE', s: 'MARK_SPAM', r: 'REJECT' }
+      if (shortcut[event.key.toLowerCase()] && targets.length > 0) {
+        event.preventDefault()
+        void runAction(targets, shortcut[event.key.toLowerCase()])
+      }
+      if (event.key.toLowerCase() === 'u' && lastAction) {
+        event.preventDefault()
+        void undoLastAction()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  })
+
+  function applyFilters(event: FormEvent) {
     event.preventDefault()
-    setAppliedFilters({ siteId, pageId, status, pageUrl, search, favorite: favoriteOnly })
+    localStorage.setItem(FILTERS_KEY, JSON.stringify(filters))
+    setAppliedFilters(filters)
     setPage(1)
   }
 
-  function handleResetFilters() {
-    setSiteId('')
-    setPageId('')
-    setStatus('')
-    setPageUrl('')
-    setSearch('')
-    setFavoriteOnly(false)
+  function resetFilters() {
+    localStorage.removeItem(FILTERS_KEY)
+    setFilters(emptyFilters)
     setAppliedFilters(emptyFilters)
     setPage(1)
   }
 
+  function toggleSelection(commentId: string) {
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      if (next.has(commentId)) next.delete(commentId)
+      else next.add(commentId)
+      return next
+    })
+  }
+
   return (
     <div className="cc-page">
-      <div className="cc-page-heading">
-        <div>
-          <p className="cc-eyebrow">Очередь</p>
-          <h1 className="cc-title">Модерация комментариев</h1>
-          <p className="cc-subtitle">
-            Сначала показываем комментарии с самым высоким риском: ожидание решения, спам-сигналы, ссылки,
-            длинный текст и ответы внутри обсуждений.
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        eyebrow="Рабочая очередь"
+        title="Модерация"
+        description="Разберите спорные комментарии без переходов между страницами. A — одобрить, S — спам, R — отклонить, U — отменить."
+        actions={<Badge tone="warning">Требуют решения: {counts?.requiringDecision ?? '—'}</Badge>}
+      />
 
-      <div
-        className="mb-6 flex flex-col gap-3 rounded-lg border p-4 md:flex-row md:items-center md:justify-between"
-        style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}
-      >
-        <div className="flex items-start gap-3">
-          <span
-            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg"
-            style={{ backgroundColor: 'var(--accent-bg)', color: 'var(--accent)' }}
+      <nav className="mb-4 flex flex-wrap gap-2" aria-label="Представление очереди">
+        {([
+          ['pending', `К разбору (${(counts?.statuses.PENDING ?? 0) + (counts?.statuses.SPAM ?? 0)})`],
+          ['spam', `Спам (${counts?.statuses.SPAM ?? 0})`],
+          ['history', 'История решений'],
+        ] as Array<[QueueView, string]>).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            className={view === value ? 'cc-button-primary' : 'cc-button-secondary'}
+            onClick={() => updateRoute(value)}
+            aria-current={view === value ? 'page' : undefined}
           >
-            <Sparkles className="h-5 w-5" aria-hidden="true" />
-          </span>
-          <div>
-            <p className="text-sm font-semibold" style={{ color: 'var(--text-h)' }}>
-              Умная очередь включена
-            </p>
-            <p className="text-sm leading-6" style={{ color: 'var(--text)' }}>
-              Сортировка учитывает статус, причину автомодерации, ссылки, возраст комментария и контекст ответа.
-            </p>
-          </div>
-        </div>
-        <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--accent)' }}>
-          SMART DESC
-        </span>
-      </div>
+            {label}
+          </button>
+        ))}
+      </nav>
 
-      <form
-        className="cc-card mb-6 grid gap-4 p-4 md:grid-cols-2 xl:grid-cols-3"
-        style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}
-        onSubmit={handleApplyFilters}
-      >
-        <div className="flex items-center gap-2 md:col-span-2 xl:col-span-3">
-          <Filter className="h-4 w-4" style={{ color: 'var(--accent)' }} aria-hidden="true" />
-          <span className="text-sm font-semibold" style={{ color: 'var(--text-h)' }}>
-            Фильтры очереди
-          </span>
-        </div>
-
-        <label className="block">
-          <span className="mb-2 block text-sm font-medium" style={{ color: 'var(--text-h)' }}>
-            Сайт
-          </span>
+      <form className="cc-filter-bar mb-4" onSubmit={applyFilters}>
+        <Filter className="mb-2 h-4 w-4" aria-hidden="true" />
+        <label className="min-w-44 flex-1 text-xs font-semibold">
+          Сайт
           <select
-            className="cc-field py-2"
-            value={siteId}
-            disabled={sitesLoading}
-            onChange={(event) => setSiteId(event.target.value)}
+            className="cc-field mt-1 !px-3 !py-2 text-sm"
+            value={filters.siteId}
+            onChange={(event) => setFilters({ ...filters, siteId: event.target.value })}
           >
             <option value="">Все сайты</option>
-            {sites.map((site) => (
-              <option key={site.id} value={site.id}>
-                {site.name}
-              </option>
-            ))}
+            {sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
           </select>
         </label>
-
-        <label className="block">
-          <span className="mb-2 block text-sm font-medium" style={{ color: 'var(--text-h)' }}>
-            Page ID
-          </span>
-          <input
-            className="cc-field py-2"
-            placeholder="UUID страницы"
-            value={pageId}
-            onChange={(event) => setPageId(event.target.value)}
-          />
+        <label className="min-w-52 flex-[2] text-xs font-semibold">
+          Поиск
+          <div className="relative mt-1">
+            <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4" aria-hidden="true" />
+            <input
+              className="cc-field !py-2 !pl-9 text-sm"
+              value={filters.search}
+              placeholder="Текст комментария"
+              onChange={(event) => setFilters({ ...filters, search: event.target.value })}
+            />
+          </div>
         </label>
-
-        <label className="block">
-          <span className="mb-2 block text-sm font-medium" style={{ color: 'var(--text-h)' }}>
-            Статус
-          </span>
-          <select
-            className="cc-field py-2"
-            value={status}
-            onChange={(event) => setStatus(event.target.value as CommentStatus | '')}
-          >
-            <option value="">Все статусы</option>
-            {Object.entries(statusLabels).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label className="block">
-          <span className="mb-2 block text-sm font-medium" style={{ color: 'var(--text-h)' }}>
-            URL страницы
-          </span>
+        <label className="min-w-52 flex-[2] text-xs font-semibold">
+          URL страницы
           <input
-            className="cc-field py-2"
+            className="cc-field mt-1 !px-3 !py-2 text-sm"
+            value={filters.pageUrl}
             placeholder="https://example.com/page"
-            value={pageUrl}
-            onChange={(event) => setPageUrl(event.target.value)}
+            onChange={(event) => setFilters({ ...filters, pageUrl: event.target.value })}
           />
         </label>
-
-        <label className="block md:col-span-2 xl:col-span-2">
-          <span className="mb-2 block text-sm font-medium" style={{ color: 'var(--text-h)' }}>
-            Поиск по тексту
-          </span>
-          <input
-            className="cc-field py-2"
-            placeholder="Текст комментария"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-          />
-        </label>
-
-        <label
-          className="flex items-center gap-3 rounded-lg border px-3 py-2 text-sm font-medium"
-          style={{ borderColor: 'var(--border)', color: 'var(--text-h)' }}
-        >
+        <label className="mb-2 flex items-center gap-2 text-sm">
           <input
             type="checkbox"
-            checked={favoriteOnly}
-            onChange={(event) => setFavoriteOnly(event.target.checked)}
+            checked={filters.favorite}
+            onChange={(event) => setFilters({ ...filters, favorite: event.target.checked })}
           />
-          <Star className="h-4 w-4" aria-hidden="true" style={{ color: 'var(--accent)' }} />
-          Только избранные
+          <Star className="h-4 w-4" aria-hidden="true" /> Избранные
         </label>
-
-        <div className="flex flex-wrap gap-2 md:col-span-2 xl:col-span-3">
-          <button type="submit" className="cc-button-primary">
-            <Search className="h-4 w-4" aria-hidden="true" />
-            Применить фильтры
-          </button>
-          {filtersApplied && (
-            <button type="button" className="cc-button-secondary" onClick={handleResetFilters}>
-              Сбросить
-            </button>
-          )}
-        </div>
+        <button className="cc-button-primary" type="submit">Применить</button>
+        <button className="cc-button-secondary" type="button" onClick={resetFilters}>Сбросить</button>
       </form>
 
-      <AsyncState
-        loading={loading}
-        error={error}
-        empty={!loading && !error && comments.length === 0}
-        emptyMessage="Комментарии не найдены. Измените фильтры или дождитесь новых сообщений из виджета."
-      >
-        <div className="space-y-4">
-          {comments.map((comment) => {
-            const authorLabel = comment.author?.displayName || comment.author?.email || 'Гость'
-            const siteName = siteNamesById.get(comment.siteId) ?? comment.siteId
-            const availableActions = getAvailableModerationActions(comment.status)
-            const statusStyle = statusCardStyles[comment.status]
-            const priorityReasons = comment.priorityReasons ?? []
-
-            return (
-              <article
-                key={comment.id}
-                className="cc-card overflow-hidden transition hover:-translate-y-0.5"
-                style={{
-                  backgroundColor: statusStyle.background,
-                  borderColor: statusStyle.border,
-                  borderLeftColor: statusStyle.accent,
-                  borderLeftWidth: '5px',
-                }}
-              >
-                <div
-                  className="flex flex-wrap items-start justify-between gap-3 border-b px-4 py-4"
-                  style={{ borderColor: statusStyle.border }}
-                >
-                  <div className="flex min-w-0 items-center gap-3">
-                    <div
-                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold"
-                      style={{ backgroundColor: statusStyle.metaBackground, color: statusStyle.accent }}
-                    >
-                      {getInitials(authorLabel)}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="truncate font-semibold" style={{ color: 'var(--text-h)' }}>
-                        {authorLabel}
-                      </p>
-                      <p className="text-xs" style={{ color: 'var(--text)' }}>
-                        Автор комментария
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap justify-end gap-2">
-                    <PriorityBadge priority={comment.priority} score={comment.priorityScore} />
-                    <Badge tone={statusTones[comment.status]}>{statusLabels[comment.status]}</Badge>
-                    {comment.pinned && <Badge tone="success">Закреплен</Badge>}
-                    {comment.favorite && <Badge tone="warning">Избранное</Badge>}
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap gap-2 border-b px-4 py-3" style={{ borderColor: statusStyle.border }}>
-                  <button
-                    type="button"
-                    disabled={flagCommentId === comment.id || comment.parentId !== null || comment.status !== 'APPROVED'}
-                    onClick={() => void handleTogglePin(comment)}
-                    className="inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs font-semibold transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50"
-                    style={{ borderColor: 'var(--border)', color: comment.pinned ? 'var(--accent)' : 'var(--text-h)' }}
-                    title={
-                      comment.parentId !== null || comment.status !== 'APPROVED'
-                        ? 'Закреплять можно только одобренные корневые комментарии'
-                        : undefined
-                    }
-                  >
-                    <Pin className="h-3.5 w-3.5" aria-hidden="true" />
-                    {comment.pinned ? 'Открепить' : 'Закрепить'}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={flagCommentId === comment.id}
-                    onClick={() => void handleToggleFavorite(comment)}
-                    className="inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs font-semibold transition hover:-translate-y-0.5 disabled:opacity-50"
-                    style={{ borderColor: 'var(--border)', color: comment.favorite ? 'var(--accent)' : 'var(--text-h)' }}
-                  >
-                    <Star className="h-3.5 w-3.5" aria-hidden="true" />
-                    {comment.favorite ? 'Убрать из избранного' : 'В избранное'}
-                  </button>
-                </div>
-
-                <div
-                  className="grid gap-3 border-b px-4 py-3 md:grid-cols-[minmax(0,1.1fr)_minmax(0,1.5fr)_minmax(0,0.9fr)_minmax(0,0.9fr)]"
-                  style={{ backgroundColor: statusStyle.metaBackground, borderColor: statusStyle.border }}
-                >
-                  <MetadataItem icon={Globe} label="Сайт" value={siteName} />
-                  <MetadataItem icon={Link2} label="Страница" value={comment.pageUrl} />
-                  <MetadataItem icon={CalendarClock} label="Создан" value={formatDateTime(comment.createdAt)} />
-                  <MetadataItem icon={Hash} label="ID страницы" value={shortenId(comment.pageId)} title={comment.pageId} />
-                </div>
-
-                {comment.parent && (
-                  <div className="border-b px-4 py-4" style={{ borderColor: statusStyle.border }}>
-                    <div
-                      className="rounded-lg border p-3"
-                      style={{ backgroundColor: statusStyle.metaBackground, borderColor: statusStyle.border }}
-                    >
-                      <div className="mb-2 flex flex-wrap items-center gap-2 text-xs" style={{ color: 'var(--text)' }}>
-                        <CornerDownRight className="h-4 w-4" style={{ color: statusStyle.accent }} aria-hidden="true" />
-                        <span className="font-semibold uppercase" style={{ color: 'var(--text-h)' }}>
-                          Ответ на комментарий
-                        </span>
-                        <span>{parentAuthorLabel(comment)}</span>
-                        <Badge tone={statusTones[comment.parent.status]}>{statusLabels[comment.parent.status]}</Badge>
-                        <span>{formatDateTime(comment.parent.createdAt)}</span>
-                      </div>
-                      <p className="line-clamp-3 whitespace-pre-wrap text-sm leading-6" style={{ color: 'var(--text-h)' }}>
-                        {comment.parent.content}
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                <div className="px-4 py-4">
-                  <p className="mb-2 text-xs font-semibold uppercase" style={{ color: 'var(--text)' }}>
-                    Текст комментария
-                  </p>
-                  <p
-                    className="whitespace-pre-wrap border-l-4 py-2 pl-4 text-sm leading-6"
-                    style={{ borderColor: statusStyle.accent, color: 'var(--text-h)' }}
-                  >
-                    {comment.content}
-                  </p>
-                </div>
-
-                {priorityReasons.length > 0 && (
-                  <div className="border-t px-4 py-4" style={{ borderColor: statusStyle.border }}>
-                    <div
-                      className="rounded-lg border p-3"
-                      style={{ backgroundColor: statusStyle.metaBackground, borderColor: statusStyle.border }}
-                    >
-                      <div className="mb-2 flex items-center gap-2">
-                        <Sparkles className="h-4 w-4" style={{ color: statusStyle.accent }} aria-hidden="true" />
-                        <span className="text-xs font-semibold uppercase" style={{ color: 'var(--text-h)' }}>
-                          Почему выше в очереди
-                        </span>
-                        <span className="text-xs" style={{ color: 'var(--text)' }}>
-                          score {comment.priorityScore}
-                        </span>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        {priorityReasons.map((reason) => (
-                          <span
-                            key={reason}
-                            className="rounded-full border px-2.5 py-1 text-xs font-medium"
-                            style={{
-                              backgroundColor: 'var(--surface)',
-                              borderColor: statusStyle.border,
-                              color: 'var(--text-h)',
-                            }}
-                          >
-                            {reason}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {comment.moderationReason && (
-                  <div className="border-t px-4 py-4" style={{ borderColor: statusStyle.border }}>
-                    <div
-                      className="rounded-lg border p-3"
-                      style={{ backgroundColor: statusStyle.metaBackground, borderColor: statusStyle.border }}
-                    >
-                      <div className="mb-2 flex items-center gap-2">
-                        <ShieldAlert className="h-4 w-4" style={{ color: statusStyle.accent }} aria-hidden="true" />
-                        <span className="text-xs font-semibold uppercase" style={{ color: 'var(--text-h)' }}>
-                          Сработала автомодерация
-                        </span>
-                      </div>
-                      <p className="text-sm leading-6" style={{ color: 'var(--text-h)' }}>
-                        {comment.moderationReason}
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                {availableActions.length > 0 && (
-                  <div className="border-t px-4 py-4" style={{ borderColor: statusStyle.border }}>
-                    <label className="mb-3 block">
-                      <span className="mb-2 block text-xs font-medium" style={{ color: 'var(--text-h)' }}>
-                        Причина (необязательно)
-                      </span>
-                      <input
-                        className="cc-field py-2 text-sm"
-                        placeholder="Причина для этого комментария"
-                        value={reasons[comment.id] ?? ''}
-                        onChange={(event) =>
-                          setReasons((current) => ({
-                            ...current,
-                            [comment.id]: event.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-
-                    <div className="flex flex-wrap items-center gap-2">
-                      {availableActions.map((action) => {
-                        const { label, icon: Icon } = actionButtons[action]
-                        return (
-                          <button
-                            key={action}
-                            type="button"
-                            disabled={actionCommentId === comment.id}
-                            onClick={() => void handleAction(comment.id, action)}
-                            className="inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs font-semibold transition hover:-translate-y-0.5 disabled:opacity-50"
-                            style={{ borderColor: 'var(--border)', color: 'var(--text-h)' }}
-                          >
-                            <Icon className="h-3.5 w-3.5" aria-hidden="true" />
-                            {label}
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )}
-              </article>
-            )
-          })}
-
-          <PaginationControls page={page} totalPages={totalPages} totalItems={totalItems} onPageChange={setPage} />
-        </div>
-      </AsyncState>
-
-      {!sitesLoading && sites.length === 0 && !loading && (
-        <p className="mt-4 text-sm" style={{ color: 'var(--text)' }}>
-          Сначала создайте сайт в разделе{' '}
-          <Link to="/sites" className="font-medium hover:underline" style={{ color: 'var(--accent)' }}>
-            Сайты
-          </Link>
-          .
-        </p>
+      {(selectedIds.size > 0 || lastAction) && (
+        <ActionBar label="Массовые действия">
+          <div className="flex flex-wrap items-center gap-2">
+            {selectedIds.size > 0 && <strong className="text-sm">Выбрано: {selectedIds.size}</strong>}
+            {selectedIds.size > 0 && (['APPROVE', 'REJECT', 'MARK_SPAM'] as ModerationCommand[]).map((action) => {
+              const Icon = actionIcons[action]
+              return (
+                <button key={action} type="button" className="cc-button-secondary" disabled={busy} onClick={() => void runAction([...selectedIds], action)}>
+                  <Icon className="h-4 w-4" aria-hidden="true" /> {actionLabels[action]}
+                </button>
+              )
+            })}
+          </div>
+          {lastAction && (
+            <button type="button" className="cc-button-secondary" disabled={busy} onClick={() => void undoLastAction()}>
+              <RotateCcw className="h-4 w-4" aria-hidden="true" /> Отменить последнее действие
+            </button>
+          )}
+        </ActionBar>
       )}
+
+      <div className="cc-table-shell mt-4">
+        <div className="grid grid-cols-[2rem_minmax(0,1fr)_9rem_8rem_2rem] items-center gap-3 border-b px-4 py-3 text-xs font-semibold uppercase" style={{ borderColor: 'var(--border)', color: 'var(--text)' }}>
+          <input
+            type="checkbox"
+            aria-label="Выбрать все видимые комментарии"
+            checked={allVisibleSelected}
+            onChange={() => setSelectedIds(allVisibleSelected ? new Set() : new Set(comments.map((comment) => comment.id)))}
+          />
+          <span>Комментарий</span><span>Статус</span><span>Создан</span><span />
+        </div>
+        <AsyncState loading={loading} error={error} empty={!loading && !error && comments.length === 0} emptyMessage="В этом представлении комментариев нет.">
+          {comments.map((comment) => (
+            <DataRow key={comment.id} compact>
+              <div className="grid w-full grid-cols-[2rem_minmax(0,1fr)_9rem_8rem_2rem] items-center gap-3 py-2">
+                <input
+                  type="checkbox"
+                  aria-label={`Выбрать комментарий ${authorName(comment)}`}
+                  checked={selectedIds.has(comment.id)}
+                  onChange={() => toggleSelection(comment.id)}
+                />
+                <button type="button" className="min-w-0 text-left" onClick={() => updateRoute(view, comment.id)}>
+                  <span className="flex items-center gap-2">
+                    <strong className="truncate" style={{ color: 'var(--text-h)' }}>{authorName(comment)}</strong>
+                    {comment.favorite && <Star className="h-3.5 w-3.5" aria-label="В избранном" />}
+                  </span>
+                  <span className="block truncate text-xs" style={{ color: 'var(--text)' }}>{comment.content}</span>
+                  <span className="block truncate text-xs" style={{ color: 'var(--text)' }}>{siteNames.get(comment.siteId) ?? comment.pageUrl}</span>
+                </button>
+                <Badge tone={statusTones[comment.status]}>{statusLabels[comment.status]}</Badge>
+                <time className="text-xs" dateTime={comment.createdAt}>{formatDateTime(comment.createdAt)}</time>
+                <button type="button" className="cc-button-secondary !p-1.5" aria-label="Открыть подробности" onClick={() => updateRoute(view, comment.id)}>
+                  <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                </button>
+              </div>
+            </DataRow>
+          ))}
+        </AsyncState>
+      </div>
+
+      <div className="mt-4 flex items-center justify-between gap-3 text-sm" style={{ color: 'var(--text)' }}>
+        <span>Найдено: {totalItems}</span>
+        <PaginationControls page={page} totalPages={totalPages} totalItems={totalItems} onPageChange={setPage} />
+      </div>
+
+      <Drawer title="Комментарий" open={selectedComment !== null} onClose={() => updateRoute(view)}>
+        {selectedComment && (
+          <div className="space-y-5">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge tone={statusTones[selectedComment.status]}>{statusLabels[selectedComment.status]}</Badge>
+              <span className="text-sm font-semibold">{authorName(selectedComment)}</span>
+              <time className="ml-auto flex items-center gap-1 text-xs" dateTime={selectedComment.createdAt}>
+                <Clock3 className="h-3.5 w-3.5" aria-hidden="true" /> {formatDateTime(selectedComment.createdAt)}
+              </time>
+            </div>
+            <div className="rounded-lg border p-4" style={{ borderColor: 'var(--border)', background: 'var(--surface-muted)' }}>
+              <p className="whitespace-pre-wrap text-sm leading-6" style={{ color: 'var(--text-h)' }}>{selectedComment.content}</p>
+            </div>
+            {selectedComment.parent && (
+              <div>
+                <p className="mb-1 text-xs font-semibold uppercase">Ответ на комментарий</p>
+                <p className="line-clamp-3 text-sm" style={{ color: 'var(--text)' }}>{selectedComment.parent.content}</p>
+              </div>
+            )}
+            <dl className="grid gap-3 text-sm sm:grid-cols-2">
+              <div><dt className="text-xs font-semibold">Сайт</dt><dd>{siteNames.get(selectedComment.siteId) ?? selectedComment.siteId}</dd></div>
+              <div><dt className="text-xs font-semibold">Приоритет</dt><dd>{selectedComment.priority} · {selectedComment.priorityScore}</dd></div>
+              <div className="sm:col-span-2"><dt className="text-xs font-semibold">Страница</dt><dd className="break-all">{selectedComment.pageUrl}</dd></div>
+              {selectedComment.moderationReason && <div className="sm:col-span-2"><dt className="text-xs font-semibold">Причина автомодерации</dt><dd>{selectedComment.moderationReason}</dd></div>}
+            </dl>
+            <label className="block text-sm font-semibold">
+              Причина действия
+              <textarea className="cc-field mt-1 min-h-20 text-sm" maxLength={1000} value={reason} onChange={(event) => setReason(event.target.value)} />
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {getAvailableModerationActions(selectedComment.status).map((action) => {
+                const Icon = actionIcons[action]
+                return (
+                  <button key={action} type="button" className={action === 'APPROVE' ? 'cc-button-primary' : 'cc-button-secondary'} disabled={busy} onClick={() => void runAction([selectedComment.id], action)}>
+                    <Icon className="h-4 w-4" aria-hidden="true" /> {actionLabels[action]}
+                  </button>
+                )
+              })}
+              <button type="button" className="cc-button-secondary" disabled={busy} onClick={() => void toggleFavorite(selectedComment)}>
+                <Star className="h-4 w-4" aria-hidden="true" /> {selectedComment.favorite ? 'Убрать из избранного' : 'В избранное'}
+              </button>
+            </div>
+          </div>
+        )}
+      </Drawer>
     </div>
   )
 }

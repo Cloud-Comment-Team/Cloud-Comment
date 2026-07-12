@@ -3,6 +3,7 @@ import { createBrowserRouter } from 'react-router-dom'
 
 import ProtectedRoute from '../components/auth/ProtectedRoute'
 import Layout from '../components/layout/Layout'
+import { RouteFallback } from '../components/layout/RouteFallback'
 import {
   AccountDeletionConfirm,
   AccountSettings,
@@ -19,11 +20,7 @@ import {
 function routeElement(element: ReactNode) {
   return (
     <Suspense
-      fallback={
-        <div className="px-4 py-6 text-sm" style={{ color: 'var(--text)' }}>
-          Загрузка раздела...
-        </div>
-      }
+      fallback={<RouteFallback />}
     >
       {element}
     </Suspense>

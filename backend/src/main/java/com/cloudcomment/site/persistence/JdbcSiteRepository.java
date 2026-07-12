@@ -1,5 +1,6 @@
 package com.cloudcomment.site.persistence;
 
+import tools.jackson.databind.ObjectMapper;
 import com.cloudcomment.site.application.SitePage;
 import com.cloudcomment.site.domain.AutoModerationSettings;
 import com.cloudcomment.site.domain.AutoModerationStrictness;
@@ -30,6 +31,7 @@ import java.util.UUID;
 class JdbcSiteRepository implements SiteRepository {
 
     private final JdbcTemplate jdbcTemplate;
+    private final ObjectMapper objectMapper;
 
     @Override
     public SitePage findByOwnerId(UUID ownerId, int page, int pageSize) {
@@ -37,7 +39,7 @@ class JdbcSiteRepository implements SiteRepository {
         List<Site> items = jdbcTemplate.query(
             """
                 select id, owner_id, name, domain, public_key, moderation_mode, is_active,
-                       widget_theme, widget_accent_color, widget_corner_radius,
+                       widget_theme, widget_accent_color, widget_corner_radius, widget_style_version, widget_style_config,
                        automod_enabled, automod_strictness, automod_blocked_words,
                        automod_hold_links, automod_block_links, automod_max_links,
                        created_at, updated_at
@@ -66,7 +68,7 @@ class JdbcSiteRepository implements SiteRepository {
         List<SiteRow> rows = jdbcTemplate.query(
             """
                 select id, owner_id, name, domain, public_key, moderation_mode, is_active,
-                       widget_theme, widget_accent_color, widget_corner_radius,
+                       widget_theme, widget_accent_color, widget_corner_radius, widget_style_version, widget_style_config,
                        automod_enabled, automod_strictness, automod_blocked_words,
                        automod_hold_links, automod_block_links, automod_max_links,
                        created_at, updated_at
@@ -150,6 +152,8 @@ class JdbcSiteRepository implements SiteRepository {
                     widget_theme,
                     widget_accent_color,
                     widget_corner_radius,
+                    widget_style_version,
+                    widget_style_config,
                     automod_enabled,
                     automod_strictness,
                     automod_blocked_words,
@@ -157,9 +161,9 @@ class JdbcSiteRepository implements SiteRepository {
                     automod_block_links,
                     automod_max_links
                 )
-                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?)
                 returning id, owner_id, name, domain, public_key, moderation_mode, is_active,
-                          widget_theme, widget_accent_color, widget_corner_radius,
+                          widget_theme, widget_accent_color, widget_corner_radius, widget_style_version, widget_style_config,
                           automod_enabled, automod_strictness, automod_blocked_words,
                           automod_hold_links, automod_block_links, automod_max_links,
                           created_at, updated_at
@@ -173,6 +177,8 @@ class JdbcSiteRepository implements SiteRepository {
             normalizedStyle.theme().name(),
             normalizedStyle.accentColor(),
             normalizedStyle.cornerRadius().name(),
+            normalizedStyle.version(),
+            serializeWidgetStyle(normalizedStyle),
             normalizedAutoModeration.enabled(),
             normalizedAutoModeration.strictness().name(),
             serializeBlockedWords(normalizedAutoModeration.blockedWords()),
@@ -211,10 +217,12 @@ class JdbcSiteRepository implements SiteRepository {
             params.add(update.active());
         }
         if (update.widgetStyle() != null) {
-            sql.append(", widget_theme = ?, widget_accent_color = ?, widget_corner_radius = ?");
+            sql.append(", widget_theme = ?, widget_accent_color = ?, widget_corner_radius = ?, widget_style_version = ?, widget_style_config = ?::jsonb");
             params.add(update.widgetStyle().theme().name());
             params.add(update.widgetStyle().accentColor());
             params.add(update.widgetStyle().cornerRadius().name());
+            params.add(update.widgetStyle().version());
+            params.add(serializeWidgetStyle(update.widgetStyle()));
         }
         if (update.autoModeration() != null) {
             sql.append("""
@@ -237,7 +245,7 @@ class JdbcSiteRepository implements SiteRepository {
 
             where id = ?
             returning id, owner_id, name, domain, public_key, moderation_mode, is_active,
-                      widget_theme, widget_accent_color, widget_corner_radius,
+                      widget_theme, widget_accent_color, widget_corner_radius, widget_style_version, widget_style_config,
                       automod_enabled, automod_strictness, automod_blocked_words,
                       automod_hold_links, automod_block_links, automod_max_links,
                       created_at, updated_at
@@ -351,11 +359,7 @@ class JdbcSiteRepository implements SiteRepository {
             resultSet.getString("public_key"),
             ModerationMode.valueOf(resultSet.getString("moderation_mode")),
             resultSet.getBoolean("is_active"),
-            new WidgetStyle(
-                WidgetTheme.valueOf(resultSet.getString("widget_theme")),
-                resultSet.getString("widget_accent_color"),
-                WidgetCornerRadius.valueOf(resultSet.getString("widget_corner_radius"))
-            ),
+            deserializeWidgetStyle(resultSet),
             new AutoModerationSettings(
                 resultSet.getBoolean("automod_enabled"),
                 AutoModerationStrictness.valueOf(resultSet.getString("automod_strictness")),
@@ -371,6 +375,30 @@ class JdbcSiteRepository implements SiteRepository {
 
     private String serializeBlockedWords(List<String> blockedWords) {
         return String.join("\n", blockedWords);
+    }
+
+    private String serializeWidgetStyle(WidgetStyle style) {
+        try {
+            return objectMapper.writeValueAsString(style);
+        } catch (RuntimeException exception) {
+            throw new IllegalStateException("failed to serialize widget style", exception);
+        }
+    }
+
+    private WidgetStyle deserializeWidgetStyle(ResultSet resultSet) throws SQLException {
+        String json = resultSet.getString("widget_style_config");
+        if (json != null && !json.isBlank()) {
+            try {
+                return objectMapper.readValue(json, WidgetStyle.class);
+            } catch (RuntimeException exception) {
+                throw new SQLException("failed to deserialize widget style", exception);
+            }
+        }
+        return new WidgetStyle(
+            WidgetTheme.valueOf(resultSet.getString("widget_theme")),
+            resultSet.getString("widget_accent_color"),
+            WidgetCornerRadius.valueOf(resultSet.getString("widget_corner_radius"))
+        );
     }
 
     private List<String> parseBlockedWords(String value) {

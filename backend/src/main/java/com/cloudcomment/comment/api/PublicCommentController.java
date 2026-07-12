@@ -68,7 +68,8 @@ class PublicCommentController {
         @RequestParam @NotBlank @Size(max = 2048) @ValidPageUrl String pageUrl,
         @RequestParam(defaultValue = "PINNED_FIRST") PublicCommentSort sort,
         @RequestParam(defaultValue = "1") @Min(1) @Max(100_000) int page,
-        @RequestParam(defaultValue = "20") @Min(1) @Max(100) int pageSize
+        @RequestParam(defaultValue = "20") @Min(1) @Max(100) int pageSize,
+        @RequestParam(required = false) @Min(0) @Max(100) Integer replyLimit
     ) {
         String origin = requestOriginResolver.resolve(request);
         CommentPage comments = publicCommentService.listComments(
@@ -78,13 +79,39 @@ class PublicCommentController {
             page,
             pageSize,
             sort,
-            resolveOptionalViewer(request)
+            resolveOptionalViewer(request),
+            replyLimit
         );
         return PaginatedResponse.of(
             comments.items().stream().map(CommentResponse::from).toList(),
             comments.page(),
             comments.pageSize(),
             comments.totalItems()
+        );
+    }
+
+    @PublicApi
+    @GetMapping("/comments/{commentId}/replies")
+    PaginatedResponse<CommentResponse> listReplies(
+        @PathVariable UUID siteId,
+        @PathVariable UUID commentId,
+        HttpServletRequest request,
+        @RequestParam(defaultValue = "1") @Min(1) @Max(100_000) int page,
+        @RequestParam(defaultValue = "20") @Min(1) @Max(100) int pageSize
+    ) {
+        CommentPage replies = publicCommentService.listReplies(
+            siteId,
+            requestOriginResolver.resolve(request),
+            commentId,
+            page,
+            pageSize,
+            resolveOptionalViewer(request)
+        );
+        return PaginatedResponse.of(
+            replies.items().stream().map(CommentResponse::from).toList(),
+            replies.page(),
+            replies.pageSize(),
+            replies.totalItems()
         );
     }
 

@@ -153,6 +153,10 @@ jobs:
         working-directory: frontend/admin
         run: npm run lint
 
+      - name: Test admin
+        working-directory: frontend/admin
+        run: npm test
+
       - name: Build admin
         working-directory: frontend/admin
         run: npm run build
@@ -179,6 +183,10 @@ jobs:
       - name: Type-check widget
         working-directory: widget-frontend
         run: npm run check
+
+      - name: Test widget
+        working-directory: widget-frontend
+        run: npm test
 
       - name: Build widget
         working-directory: widget-frontend
@@ -217,6 +225,9 @@ jobs:
         run: npm ci
       - name: Run admin unit tests
         working-directory: frontend/admin
+        run: npm test
+      - name: Run widget unit tests
+        working-directory: widget-frontend
         run: npm test
       - name: Build Storybook
         working-directory: frontend/admin

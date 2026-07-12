@@ -3,13 +3,42 @@ export type ModerationMode = 'PRE_MODERATION' | 'POST_MODERATION' | 'DISABLED'
 export type WidgetTheme = 'AUTO' | 'LIGHT' | 'DARK'
 
 export type WidgetCornerRadius = 'SMALL' | 'MEDIUM' | 'LARGE'
+export type WidgetDensity = 'COMFORTABLE' | 'COMPACT'
+export type WidgetContentWidth = 'READABLE' | 'WIDE' | 'FULL'
+export type WidgetAlignment = 'LEFT' | 'CENTER'
+export type WidgetFontScale = 'SMALL' | 'MEDIUM' | 'LARGE'
+export type WidgetFontFamily = 'INHERIT' | 'SYSTEM' | 'SERIF' | 'MONO'
+export type WidgetComposerPosition = 'TOP' | 'BOTTOM'
+export type WidgetAvatarStyle = 'INITIALS' | 'HIDDEN'
+export type WidgetElevation = 'BORDER' | 'SHADOW' | 'NONE'
+export type WidgetLocale = 'RU' | 'EN'
+export type CommentReactionType = 'LIKE' | 'LOVE' | 'LAUGH' | 'WOW'
+export type PublicCommentSort = 'PINNED_FIRST' | 'NEWEST' | 'OLDEST' | 'TOP_REACTIONS'
 
 export type AutoModerationStrictness = 'OFF' | 'RELAXED' | 'BALANCED' | 'STRICT'
 
 export interface WidgetStyle {
+  version: number
   theme: WidgetTheme
   accentColor: string
   cornerRadius: WidgetCornerRadius
+  density: WidgetDensity
+  contentWidth: WidgetContentWidth
+  alignment: WidgetAlignment
+  fontScale: WidgetFontScale
+  fontFamily: WidgetFontFamily
+  showHeader: boolean
+  headerTitle: string
+  composerPosition: WidgetComposerPosition
+  defaultSort: PublicCommentSort
+  showSort: boolean
+  enabledReactions: CommentReactionType[]
+  avatarStyle: WidgetAvatarStyle
+  elevation: WidgetElevation
+  locale: WidgetLocale
+  commentsTitle: string
+  composerPlaceholder: string
+  emptyMessage: string
 }
 
 export interface AutoModerationSettings {
@@ -38,7 +67,8 @@ export type CommentStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'HIDDEN' | 'SP
 
 export type ModerationPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT'
 
-export type ModerationActionType = 'APPROVE' | 'REJECT' | 'HIDE' | 'MARK_SPAM' | 'RESTORE'
+export type ModerationActionType = 'APPROVE' | 'REJECT' | 'HIDE' | 'MARK_SPAM' | 'RESTORE' | 'UNDO'
+export type ModerationCommand = Exclude<ModerationActionType, 'UNDO'>
 
 export interface PaginatedResponse<T> {
   items: T[]
@@ -128,7 +158,7 @@ export interface Comment {
 }
 
 export interface ModerationActionRequest {
-  action: ModerationActionType
+  action: ModerationCommand
   reason?: string | null
 }
 
@@ -143,7 +173,31 @@ export interface ModerationAction {
     id: string
     email: string
   }
+  operationId: string | null
+  revertsActionId: string | null
   createdAt: string
+}
+
+export interface BulkModerationRequest {
+  operationId: string
+  commentIds: string[]
+  action: ModerationCommand
+  reason?: string | null
+}
+
+export interface BulkModerationResponse {
+  items: Array<{
+    commentId: string
+    success: boolean
+    action: ModerationAction | null
+    errorCode: string | null
+    message: string | null
+  }>
+}
+
+export interface ModerationCounts {
+  statuses: Record<CommentStatus, number>
+  requiringDecision: number
 }
 
 export interface ListCommentsParams {
@@ -151,6 +205,7 @@ export interface ListCommentsParams {
   pageId?: string
   pageUrl?: string
   status?: CommentStatus
+  statuses?: CommentStatus[]
   createdFrom?: string
   createdTo?: string
   search?: string

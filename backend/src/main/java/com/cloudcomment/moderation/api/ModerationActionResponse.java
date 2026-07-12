@@ -15,6 +15,8 @@ public record ModerationActionResponse(
     CommentStatus toStatus,
     String reason,
     PerformerResponse performedBy,
+    UUID operationId,
+    UUID revertsActionId,
     Instant createdAt
 ) {
 
@@ -27,6 +29,8 @@ public record ModerationActionResponse(
             moderationAction.toStatus(),
             moderationAction.reason(),
             new PerformerResponse(moderationAction.moderatorId(), moderationAction.moderatorEmail()),
+            moderationAction.operationId(),
+            moderationAction.revertsActionId(),
             moderationAction.createdAt()
         );
     }

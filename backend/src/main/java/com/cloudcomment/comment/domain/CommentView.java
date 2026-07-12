@@ -18,6 +18,7 @@ public record CommentView(
     boolean pinned,
     boolean ownedByCurrentUser,
     List<CommentReactionSummary> reactions,
+    long replyCount,
     List<CommentView> replies
 ) {
 
@@ -52,7 +53,17 @@ public record CommentView(
             false,
             false,
             List.of(),
+            replies.size(),
             replies
         );
+    }
+
+    public CommentView(
+        UUID id, UUID siteId, UUID pageId, UUID parentId, CommentAuthor author, String content,
+        CommentStatus status, Instant createdAt, Instant updatedAt, Instant editedAt, boolean pinned,
+        boolean ownedByCurrentUser, List<CommentReactionSummary> reactions, List<CommentView> replies
+    ) {
+        this(id, siteId, pageId, parentId, author, content, status, createdAt, updatedAt, editedAt, pinned,
+            ownedByCurrentUser, reactions, replies.size(), replies);
     }
 }

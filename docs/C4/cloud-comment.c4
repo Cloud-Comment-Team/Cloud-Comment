@@ -168,7 +168,7 @@ model {
 
       embedCodePage = component 'Страница embed-кода' 'Показывает JS-код для подключения виджета'
 
-      moderationPages = component 'Страницы модерации' 'Просмотр, скрытие, публикация, закрепление и избранное комментариев'
+      moderationPages = component 'Страницы модерации' 'Компактная owner-scoped очередь, подробности, массовые действия, горячие клавиши и отмена'
 
       analyticsPages = component 'Страницы аналитики' 'Дашборд владельца и аналитика конкретного сайта по комментариям, реакциям и модерации'
 
@@ -181,7 +181,7 @@ model {
 
       embedLoader = component 'Embed loader' 'Минимальный JS-скрипт, который загружает виджет на страницу'
 
-      widgetShell = component 'Widget shell' 'Корневой компонент виджета'
+      widgetShell = component 'Widget shell' 'Адаптивный container-query интерфейс: постепенная авторизация, профильное меню, страницы ответов и оптимистичные действия'
 
       widgetAuthClient = component 'Widget auth client' 'Работа с авторизацией пользователя внутри виджета'
 
@@ -215,11 +215,11 @@ model {
 
       pageModule = component 'Page module' 'Определение страницы сайта и разделение обсуждений по URL'
 
-      widgetConfigModule = component 'Widget config module' 'Публичная конфигурация виджета и настройка темы/акцента для конкретного сайта'
+      widgetConfigModule = component 'Widget config module' 'Версионированная безопасная конфигурация оформления виджета; синхронизирует JSONB V2 с legacy-полями'
 
       commentModule = component 'Comment module' 'Создание, получение, сортировка, pin, редактирование, soft-delete, реакции и хранение комментариев'
 
-      moderationModule = component 'Moderation module' 'Смена статусов, owner-scoped pin/favorite flags и smart-ranked очередь модерации'
+      moderationModule = component 'Moderation module' 'Smart-ranked очередь, owner-scoped флаги, идемпотентные массовые действия и ограниченная отмена'
 
       analyticsModule = component 'Analytics module' 'Owner-scoped read-model для метрик сайтов, страниц, комментариев, реакций и модерации'
 
@@ -605,6 +605,18 @@ views {
     cloudComment.backendApi.moderationModule -> cloudComment.backendApi.persistenceModule 'Сохраняет новый статус'
 
     cloudComment.backendApi.persistenceModule -> cloudComment.postgres 'UPDATE comment'
+
+    websiteOwner -> cloudComment.adminWebApp.moderationPages 'Выбирает несколько комментариев'
+
+    cloudComment.adminWebApp.adminApiClient -> cloudComment.backendApi.adminApiController 'POST /api/moderation/comments/bulk-actions'
+
+    cloudComment.backendApi.moderationModule -> cloudComment.backendApi.persistenceModule 'Атомарно фиксирует успешные элементы и operationId'
+
+    websiteOwner -> cloudComment.adminWebApp.moderationPages 'Отменяет последнее действие не позднее 15 минут'
+
+    cloudComment.adminWebApp.adminApiClient -> cloudComment.backendApi.adminApiController 'POST /api/moderation/actions/{actionId}/undo'
+
+    cloudComment.backendApi.persistenceModule -> cloudComment.postgres 'INSERT moderation_actions (UNDO, reverts_action_id)'
   }
 
   deployment view deployment_mvp {

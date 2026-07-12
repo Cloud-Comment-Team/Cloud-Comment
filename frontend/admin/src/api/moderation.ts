@@ -1,16 +1,37 @@
 import type {
   Comment,
+  BulkModerationRequest,
+  BulkModerationResponse,
   ListCommentsParams,
   ModerationAction,
   ModerationActionRequest,
+  ModerationCounts,
   PaginatedResponse,
   UpdateCommentFlagsRequest,
 } from '../types/api'
 import { apiClient } from './client'
 
 export async function listComments(params: ListCommentsParams = {}): Promise<PaginatedResponse<Comment>> {
-  const response = await apiClient.get<PaginatedResponse<Comment>>('/moderation/comments', { params })
+  const response = await apiClient.get<PaginatedResponse<Comment>>('/moderation/comments', {
+    params,
+    paramsSerializer: { indexes: null },
+  })
   assertPaginatedCommentResponse(response.data)
+  return response.data
+}
+
+export async function getModerationCounts(): Promise<ModerationCounts> {
+  const response = await apiClient.get<ModerationCounts>('/moderation/counts')
+  return response.data
+}
+
+export async function applyBulkModerationAction(request: BulkModerationRequest): Promise<BulkModerationResponse> {
+  const response = await apiClient.post<BulkModerationResponse>('/moderation/comments/bulk-actions', request)
+  return response.data
+}
+
+export async function undoModerationAction(actionId: string): Promise<ModerationAction> {
+  const response = await apiClient.post<ModerationAction>(`/moderation/actions/${actionId}/undo`)
   return response.data
 }
 

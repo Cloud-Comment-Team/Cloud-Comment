@@ -6,6 +6,7 @@ import com.cloudcomment.shared.web.security.CurrentUser;
 import com.cloudcomment.site.application.SitePage;
 import com.cloudcomment.site.application.SiteService;
 import com.cloudcomment.site.domain.Site;
+import com.cloudcomment.site.domain.WidgetStyle;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -77,6 +78,11 @@ class SiteController {
         @PathVariable UUID siteId,
         @Valid @RequestBody UpdateSiteRequest request
     ) {
+        WidgetStyle widgetStyle = null;
+        if (request.widgetStyle() != null) {
+            Site currentSite = siteService.getSite(currentUser, siteId);
+            widgetStyle = request.widgetStyle().toDomainOrNull(currentSite.widgetStyle());
+        }
         return SiteResponse.from(siteService.updateSite(
             currentUser,
             siteId,
@@ -84,7 +90,7 @@ class SiteController {
             request.domain(),
             request.moderationMode(),
             request.isActive(),
-            request.widgetStyle() != null ? request.widgetStyle().toDomainOrNull() : null,
+            widgetStyle,
             request.autoModeration() != null ? request.autoModeration().toDomainOrNull() : null
         ));
     }

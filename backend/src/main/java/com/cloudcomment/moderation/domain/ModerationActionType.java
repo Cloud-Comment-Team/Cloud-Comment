@@ -5,5 +5,6 @@ public enum ModerationActionType {
     REJECT,
     HIDE,
     MARK_SPAM,
-    RESTORE
+    RESTORE,
+    UNDO
 }
