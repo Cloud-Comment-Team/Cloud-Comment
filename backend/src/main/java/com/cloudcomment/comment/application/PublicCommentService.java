@@ -50,7 +50,6 @@ public class PublicCommentService {
         });
     }
 
-    @Transactional(readOnly = true)
     public PublicWidgetConfig getConfig(UUID siteId, String origin) {
         WidgetSiteAccess access = domainPolicyService.validate(siteId, origin);
         return new PublicWidgetConfig(access.siteId(), access.moderationMode(), access.widgetStyle());

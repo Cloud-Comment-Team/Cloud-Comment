@@ -40,6 +40,8 @@ cloud-comment:
     retention-cleanup-cron: ${CLOUD_COMMENT_RETENTION_CLEANUP_CRON:0 0 3 * * *}
   notifications:
     retention-cleanup-cron: ${CLOUD_COMMENT_NOTIFICATION_RETENTION_CLEANUP_CRON:0 30 3 * * *}
+  installation-health:
+    retention-cleanup-cron: ${CLOUD_COMMENT_INSTALLATION_HEALTH_CLEANUP_CRON:0 45 3 * * *}
   demo:
     seed:
       enabled: ${CLOUD_COMMENT_DEMO_SEED_ENABLED:false}

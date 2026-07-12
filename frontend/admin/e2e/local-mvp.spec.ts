@@ -41,13 +41,19 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
 
   await page.getByRole('textbox', { name: 'Название' }).fill(siteName)
   await page.getByRole('textbox', { name: 'Домен' }).fill(domain)
+  await page.reload()
+  await expect(page.getByRole('textbox', { name: 'Название' })).toHaveValue(siteName)
+  await expect(page.getByRole('textbox', { name: 'Домен' })).toHaveValue(domain)
+  await page.getByRole('button', { name: 'Далее' }).click()
   await page.getByLabel('Режим модерации').selectOption('POST_MODERATION')
   await page.getByRole('textbox', { name: /Разрешённые origins/ }).fill(
     `${ADMIN_ORIGIN}\nhttp://127.0.0.1\nhttp://127.0.0.1:5173`,
   )
+  await page.getByRole('button', { name: 'Далее' }).click()
   await page.getByLabel('Тема виджета').selectOption('DARK')
   await page.getByRole('textbox', { name: 'HEX акцентного цвета' }).fill(WIDGET_ACCENT_COLOR)
   await page.getByLabel('Скругления').selectOption('LARGE')
+  await page.getByRole('button', { name: 'Далее' }).click()
 
   const onboardingPreview = page.locator('aside')
   await expect(onboardingPreview.getByRole('heading', { name: siteName })).toBeVisible()
@@ -55,8 +61,7 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   await expect(onboardingPreview.getByText(ADMIN_ORIGIN, { exact: true }).first()).toBeVisible()
   await expect(onboardingPreview.getByText('Пост-модерация')).toBeVisible()
   await expect(onboardingPreview.getByText('Черновик embed-кода')).toBeVisible()
-  await expect(onboardingPreview.getByText('Опубликован сразу')).toBeVisible()
-  await expect(onboardingPreview.getByText(`Стиль: Темная, ${WIDGET_ACCENT_COLOR}, large`)).toBeVisible()
+  await expect(page.frameLocator('iframe[title="Предварительный просмотр создаваемого виджета"]').getByText('Комментарии').first()).toBeVisible()
 
   await page.getByRole('button', { name: 'Создать сайт' }).click()
 
@@ -66,10 +71,28 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   await expect(page.getByText(domain, { exact: true }).first()).toBeVisible()
   const siteId = page.url().match(/\/sites\/([0-9a-f-]{36})$/)?.[1]
   expect(siteId, 'created site id should be present in URL').toBeTruthy()
+  await expect(page.getByRole('heading', { name: 'Виджет ещё не подключался' })).toBeVisible()
+  await page.getByRole('button', { name: 'Установка' }).click()
   await expect(page.getByText(`data-site-id="${siteId}"`)).toBeVisible()
 
   const token = await page.evaluate(() => window.localStorage.getItem('cloud-comment.admin.authToken'))
   expect(token, 'login should store bearer token').toBeTruthy()
+
+  const initialRejectedOriginResponse = await request.get(`${API_BASE_URL}/public/sites/${siteId}/config`, {
+    headers: {
+      Origin: `${ADMIN_ORIGIN}.evil.example`,
+    },
+  })
+  expect(initialRejectedOriginResponse.status()).toBe(404)
+  const initiallyRejectedInstallationResponse = await request.get(`${API_BASE_URL}/sites/${siteId}/installation-status`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  await expect(initiallyRejectedInstallationResponse).toBeOK()
+  expect(await initiallyRejectedInstallationResponse.json()).toMatchObject({
+    status: 'REJECTED',
+    reason: 'ORIGIN_REJECTED',
+    lastRejectedOrigin: `${ADMIN_ORIGIN}.evil.example`,
+  })
 
   const configResponse = await request.get(`${API_BASE_URL}/public/sites/${siteId}/config`, {
     headers: {
@@ -85,6 +108,17 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
       accentColor: WIDGET_ACCENT_COLOR,
       cornerRadius: 'LARGE',
     },
+  })
+
+  const healthyInstallationResponse = await request.get(`${API_BASE_URL}/sites/${siteId}/installation-status`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  await expect(healthyInstallationResponse).toBeOK()
+  expect(await healthyInstallationResponse.json()).toMatchObject({
+    status: 'HEALTHY',
+    reason: 'RECENT_SUCCESS',
+    widgetSeen: true,
+    lastSuccessfulOrigin: ADMIN_ORIGIN,
   })
 
   const createCommentResponse = await request.post(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
@@ -214,6 +248,16 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
     },
   })
   expect(rejectedOriginResponse.status()).toBe(404)
+  const rejectedInstallationResponse = await request.get(`${API_BASE_URL}/sites/${siteId}/installation-status`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  await expect(rejectedInstallationResponse).toBeOK()
+  expect(await rejectedInstallationResponse.json()).toMatchObject({
+    status: 'HEALTHY',
+    reason: 'RECENT_SUCCESS',
+    lastRejectedOrigin: `${ADMIN_ORIGIN}.evil.example`,
+    lastSuccessfulOrigin: ADMIN_ORIGIN,
+  })
   await expect(viewerCommentsResponse).toBeOK()
   const viewerComments = await viewerCommentsResponse.json()
   expect(viewerComments.items[0]).toMatchObject({

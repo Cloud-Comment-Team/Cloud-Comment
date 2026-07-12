@@ -1,6 +1,7 @@
 package com.cloudcomment.auth.persistence;
 
 import org.flywaydb.core.Flyway;
+import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -62,7 +63,9 @@ class PostgresFlywayIntegrationTests {
                 'moderation_actions',
                 'account_deletion_requests',
                 'user_consents',
-                'privacy_events'
+                'privacy_events',
+                'owner_notifications',
+                'site_widget_health'
             )
             """, Integer.class);
         Integer roleRows = jdbcTemplate.queryForObject("""
@@ -72,10 +75,68 @@ class PostgresFlywayIntegrationTests {
             """, Integer.class);
 
         assertThat(databaseVersion).contains("PostgreSQL");
-        assertThat(schemaHistoryRows).isEqualTo(13);
+        assertThat(schemaHistoryRows).isEqualTo(14);
         assertThat(smokeTableRows).isZero();
-        assertThat(coreTableRows).isEqualTo(12);
+        assertThat(coreTableRows).isEqualTo(14);
         assertThat(roleRows).isEqualTo(3);
+    }
+
+    @Test
+    void v13UpgradesExistingV12SiteWithoutInventingHealthEvents() {
+        String schema = "v13_upgrade_" + UUID.randomUUID().toString().replace("-", "");
+        try {
+            Flyway v12 = Flyway.configure()
+                .dataSource(dataSource)
+                .schemas(schema)
+                .defaultSchema(schema)
+                .target(MigrationVersion.fromVersion("12"))
+                .load();
+            v12.migrate();
+
+            UUID ownerId = jdbcTemplate.queryForObject(
+                "insert into " + schema + ".app_users (email, password_hash) values (?, ?) returning id",
+                UUID.class,
+                "upgrade-" + UUID.randomUUID() + "@example.com",
+                "hash"
+            );
+            UUID siteId = jdbcTemplate.queryForObject(
+                "insert into " + schema + ".sites (owner_id, name, domain, public_key) values (?, ?, ?, ?) returning id",
+                UUID.class,
+                ownerId,
+                "Existing V12 site",
+                "upgrade.example.com",
+                "upgrade-" + UUID.randomUUID()
+            );
+
+            Flyway.configure()
+                .dataSource(dataSource)
+                .schemas(schema)
+                .defaultSchema(schema)
+                .target(MigrationVersion.fromVersion("13"))
+                .load()
+                .migrate();
+
+            Boolean migrationSucceeded = jdbcTemplate.queryForObject(
+                "select success from " + schema + ".flyway_schema_history where version = '13'",
+                Boolean.class
+            );
+            Integer existingSiteRows = jdbcTemplate.queryForObject(
+                "select count(*) from " + schema + ".sites where id = ?",
+                Integer.class,
+                siteId
+            );
+            Integer healthRows = jdbcTemplate.queryForObject(
+                "select count(*) from " + schema + ".site_widget_health where site_id = ?",
+                Integer.class,
+                siteId
+            );
+
+            assertThat(migrationSucceeded).isTrue();
+            assertThat(existingSiteRows).isOne();
+            assertThat(healthRows).isZero();
+        } finally {
+            jdbcTemplate.execute("drop schema if exists " + schema + " cascade");
+        }
     }
 
     @Test
