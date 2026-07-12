@@ -32,6 +32,9 @@ class PublicWidgetCorsFilter extends OncePerRequestFilter {
     private static final Pattern PUBLIC_SITE_PATH = Pattern.compile(
         "^/api/public/sites/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?:/.*)?$"
     );
+    private static final Pattern PUBLIC_SITE_CONFIG_PATH = Pattern.compile(
+        "^/api/public/sites/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/config/?$"
+    );
     private static final String ALLOWED_METHODS = "GET, POST, PUT, OPTIONS";
     private static final String ALLOWED_HEADERS = "Authorization, Content-Type, Accept";
     private static final String MAX_AGE_SECONDS = "3600";
@@ -55,6 +58,9 @@ class PublicWidgetCorsFilter extends OncePerRequestFilter {
         String corsOrigin = request.getHeader(HttpHeaders.ORIGIN);
         String requestOrigin = requestOriginResolver.resolve(request);
         boolean allowed = domainPolicyService.isOriginAllowed(siteId.orElseThrow(), requestOrigin);
+        if (!allowed && shouldRecordRejectedInstallation(request)) {
+            domainPolicyService.recordRejectedInstallation(siteId.orElseThrow(), requestOrigin);
+        }
         applyVaryHeaders(response);
         if (allowed && corsOrigin != null && !corsOrigin.isBlank()) {
             applyCorsHeaders(response, corsOrigin);
@@ -71,6 +77,9 @@ class PublicWidgetCorsFilter extends OncePerRequestFilter {
         }
 
         filterChain.doFilter(request, response);
+        if (shouldRecordSuccessfulInstallation(request, response)) {
+            domainPolicyService.recordSuccessfulInstallation(siteId.orElseThrow(), requestOrigin);
+        }
     }
 
     private Optional<UUID> resolveSiteId(HttpServletRequest request) {
@@ -80,6 +89,31 @@ class PublicWidgetCorsFilter extends OncePerRequestFilter {
             return Optional.empty();
         }
         return Optional.of(UUID.fromString(matcher.group(1)));
+    }
+
+    private boolean shouldRecordRejectedInstallation(HttpServletRequest request) {
+        if (!isInstallationConfigPath(request)) {
+            return false;
+        }
+        if ("GET".equalsIgnoreCase(request.getMethod())) {
+            return true;
+        }
+        return CorsUtils.isPreFlightRequest(request)
+            && "GET".equalsIgnoreCase(request.getHeader(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD));
+    }
+
+    private boolean shouldRecordSuccessfulInstallation(
+        HttpServletRequest request,
+        HttpServletResponse response
+    ) {
+        return isInstallationConfigPath(request)
+            && "GET".equalsIgnoreCase(request.getMethod())
+            && response.getStatus() >= 200
+            && response.getStatus() < 300;
+    }
+
+    private boolean isInstallationConfigPath(HttpServletRequest request) {
+        return PUBLIC_SITE_CONFIG_PATH.matcher(pathWithoutContext(request)).matches();
     }
 
     private String pathWithoutContext(HttpServletRequest request) {

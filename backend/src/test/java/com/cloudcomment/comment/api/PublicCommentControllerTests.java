@@ -37,6 +37,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.head;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -80,6 +81,7 @@ class PublicCommentControllerTests {
             .andExpect(jsonPath("$.siteId", is(siteId.toString())))
             .andExpect(jsonPath("$.moderationMode", is("PRE_MODERATION")));
 
+        verify(domainPolicyService).recordSuccessfulInstallation(siteId, ORIGIN);
         verifyNoInteractions(currentUserService);
     }
 
@@ -97,7 +99,38 @@ class PublicCommentControllerTests {
             .andExpect(jsonPath("$.siteId", is(siteId.toString())))
             .andExpect(jsonPath("$.moderationMode", is("PRE_MODERATION")));
 
+        verify(domainPolicyService).recordSuccessfulInstallation(siteId, ORIGIN);
         verifyNoInteractions(currentUserService);
+    }
+
+    @Test
+    void configHeadDoesNotCreateSuccessfulInstallationSignal() throws Exception {
+        UUID siteId = UUID.randomUUID();
+        when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
+        when(publicCommentService.getConfig(siteId, ORIGIN))
+            .thenReturn(new PublicWidgetConfig(siteId, ModerationMode.PRE_MODERATION));
+
+        mockMvc.perform(head("/api/public/sites/{siteId}/config", siteId)
+                .header(HttpHeaders.ORIGIN, ORIGIN))
+            .andExpect(status().isOk());
+
+        verify(domainPolicyService, org.mockito.Mockito.never())
+            .recordSuccessfulInstallation(siteId, ORIGIN);
+    }
+
+    @Test
+    void rejectedConfigRequestRecordsOnlyTheNormalizedInstallationSignal() throws Exception {
+        UUID siteId = UUID.randomUUID();
+        String rejectedOrigin = "https://evil.example";
+        when(domainPolicyService.isOriginAllowed(siteId, rejectedOrigin)).thenReturn(false);
+
+        mockMvc.perform(get("/api/public/sites/{siteId}/config", siteId)
+                .header(HttpHeaders.ORIGIN, rejectedOrigin))
+            .andExpect(status().isNotFound())
+            .andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN));
+
+        verify(domainPolicyService).recordRejectedInstallation(siteId, rejectedOrigin);
+        verifyNoInteractions(currentUserService, publicCommentService);
     }
 
     @Test
@@ -466,6 +499,9 @@ class PublicCommentControllerTests {
             .andExpect(jsonPath("$.error.code", is("NOT_FOUND")))
             .andExpect(jsonPath("$.error.message", is("Resource not found")))
             .andExpect(jsonPath("$.error.fields", empty()));
+
+        verify(domainPolicyService, org.mockito.Mockito.never())
+            .recordSuccessfulInstallation(siteId, ORIGIN);
     }
 
     @Test
@@ -483,6 +519,8 @@ class PublicCommentControllerTests {
             .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS, "Authorization, Content-Type, Accept"));
 
         verifyNoInteractions(currentUserService, publicCommentService);
+        verify(domainPolicyService, org.mockito.Mockito.never())
+            .recordSuccessfulInstallation(siteId, ORIGIN);
     }
 
     @Test
@@ -496,6 +534,44 @@ class PublicCommentControllerTests {
             .andExpect(status().isNotFound())
             .andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN));
 
+        verifyNoInteractions(currentUserService, publicCommentService);
+        verify(domainPolicyService, org.mockito.Mockito.never())
+            .recordRejectedInstallation(siteId, "https://evil.example");
+    }
+
+    @Test
+    void rejectedConfigPreflightRecordsInstallationSignal() throws Exception {
+        UUID siteId = UUID.randomUUID();
+        String rejectedOrigin = "https://evil.example";
+        when(domainPolicyService.isOriginAllowed(siteId, rejectedOrigin)).thenReturn(false);
+
+        mockMvc.perform(options("/api/public/sites/{siteId}/config", siteId)
+                .header(HttpHeaders.ORIGIN, rejectedOrigin)
+                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET"))
+            .andExpect(status().isNotFound())
+            .andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN));
+
+        verify(domainPolicyService).recordRejectedInstallation(siteId, rejectedOrigin);
+        verifyNoInteractions(currentUserService, publicCommentService);
+    }
+
+    @Test
+    void unsupportedConfigMethodsDoNotCreateInstallationSignals() throws Exception {
+        UUID siteId = UUID.randomUUID();
+        String rejectedOrigin = "https://evil.example";
+        when(domainPolicyService.isOriginAllowed(siteId, rejectedOrigin)).thenReturn(false);
+
+        mockMvc.perform(post("/api/public/sites/{siteId}/config", siteId)
+                .header(HttpHeaders.ORIGIN, rejectedOrigin))
+            .andExpect(status().isNotFound());
+        mockMvc.perform(options("/api/public/sites/{siteId}/config", siteId)
+                .header(HttpHeaders.ORIGIN, rejectedOrigin)
+                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "DELETE"))
+            .andExpect(status().isNotFound())
+            .andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN));
+
+        verify(domainPolicyService, org.mockito.Mockito.never())
+            .recordRejectedInstallation(siteId, rejectedOrigin);
         verifyNoInteractions(currentUserService, publicCommentService);
     }
 
@@ -514,6 +590,8 @@ class PublicCommentControllerTests {
             .andExpect(jsonPath("$.error.fields", empty()));
 
         verifyNoInteractions(currentUserService, publicCommentService);
+        verify(domainPolicyService, org.mockito.Mockito.never())
+            .recordRejectedInstallation(siteId, "https://evil.example");
     }
 
     @Test

@@ -3,8 +3,9 @@ package com.cloudcomment.analytics.persistence;
 import com.cloudcomment.analytics.domain.ActiveCommenter;
 import com.cloudcomment.analytics.domain.AnalyticsBucket;
 import com.cloudcomment.analytics.domain.AnalyticsSummary;
+import com.cloudcomment.analytics.domain.AnalyticsWorkload;
 import com.cloudcomment.analytics.domain.CommentTimePoint;
-import com.cloudcomment.analytics.domain.ModerationStatusCount;
+import com.cloudcomment.analytics.domain.PeriodActivity;
 import com.cloudcomment.analytics.domain.ReactionTypeCount;
 import com.cloudcomment.analytics.domain.TopPageAnalytics;
 
@@ -21,10 +22,13 @@ public interface OwnerAnalyticsRepository {
         UUID siteId,
         Instant from,
         Instant to,
-        AnalyticsBucket bucket
+        AnalyticsBucket bucket,
+        String timeZone
     );
 
-    List<ModerationStatusCount> findModerationFunnel(UUID ownerId, UUID siteId, Instant from, Instant to);
+    AnalyticsWorkload findWorkload(UUID ownerId, UUID siteId, Instant from, Instant to);
+
+    PeriodActivity findPeriodActivity(UUID ownerId, UUID siteId, Instant from, Instant to);
 
     List<ReactionTypeCount> findReactionDistribution(UUID ownerId, UUID siteId, Instant from, Instant to);
 

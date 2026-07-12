@@ -1,5 +1,6 @@
 package com.cloudcomment.comment.persistence;
 
+import com.cloudcomment.automoderation.domain.AutoModerationSnapshot;
 import com.cloudcomment.comment.application.CommentPage;
 import com.cloudcomment.comment.application.WidgetSite;
 import com.cloudcomment.comment.domain.CommentAuthor;
@@ -27,6 +28,7 @@ import java.sql.SQLException;
 import java.sql.Types;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.HashMap;
@@ -364,6 +366,34 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
         CommentStatus status,
         String moderationReason
     ) {
+        return createComment(
+            siteId,
+            pageId,
+            parentId,
+            authorUserId,
+            authorName,
+            authorEmail,
+            content,
+            status,
+            moderationReason,
+            null
+        );
+    }
+
+    @Override
+    @Transactional
+    public CommentView createComment(
+        UUID siteId,
+        UUID pageId,
+        UUID parentId,
+        UUID authorUserId,
+        String authorName,
+        String authorEmail,
+        String content,
+        CommentStatus status,
+        String moderationReason,
+        AutoModerationSnapshot autoModeration
+    ) {
         CommentRow row = jdbcTemplate.queryForObject(
             """
                 insert into comments (
@@ -374,9 +404,17 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
                     author_email,
                     body,
                     status,
-                    moderation_reason
+                    moderation_reason,
+                    automod_policy_version_id,
+                    automod_execution_mode,
+                    automod_score,
+                    automod_decision,
+                    automod_signals,
+                    automod_reason,
+                    automod_applied_status,
+                    automod_evaluated_at
                 )
-                values (?, ?, ?, ?, ?, ?, ?, ?)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?)
                 returning id,
                           ?::uuid as site_id,
                           page_id,
@@ -400,6 +438,14 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
             content,
             status.name(),
             moderationReason,
+            autoModeration != null ? autoModeration.policyVersionId() : null,
+            autoModeration != null ? autoModeration.executionMode().name() : null,
+            autoModeration != null ? autoModeration.score() : null,
+            autoModeration != null ? autoModeration.decision().name() : null,
+            autoModeration != null ? serializeAutoModerationSignals(autoModeration) : null,
+            autoModeration != null ? autoModeration.reason() : null,
+            autoModeration != null ? autoModeration.appliedStatus().name() : null,
+            autoModeration != null ? autoModeration.evaluatedAt().atOffset(ZoneOffset.UTC) : null,
             siteId
         );
         return toCommentView(
@@ -431,6 +477,27 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
     }
 
     @Override
+    public Optional<CommentStatus> findOwnCommentStatus(UUID siteId, UUID commentId, UUID authorUserId) {
+        List<CommentStatus> rows = jdbcTemplate.query(
+            """
+                select c.status
+                from comments c
+                join pages p on p.id = c.page_id
+                where p.site_id = ?
+                  and c.id = ?
+                  and c.author_user_id = ?
+                  and c.deleted_at is null
+                for update
+                """,
+            (resultSet, rowNumber) -> CommentStatus.valueOf(resultSet.getString("status")),
+            siteId,
+            commentId,
+            authorUserId
+        );
+        return rows.stream().findFirst();
+    }
+
+    @Override
     @Transactional
     public Optional<CommentView> updateOwnComment(
         UUID siteId,
@@ -440,12 +507,34 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
         CommentStatus status,
         String moderationReason
     ) {
+        return updateOwnComment(siteId, commentId, authorUserId, content, status, moderationReason, null);
+    }
+
+    @Override
+    @Transactional
+    public Optional<CommentView> updateOwnComment(
+        UUID siteId,
+        UUID commentId,
+        UUID authorUserId,
+        String content,
+        CommentStatus status,
+        String moderationReason,
+        AutoModerationSnapshot autoModeration
+    ) {
         List<CommentRow> rows = jdbcTemplate.query(
             """
                 update comments c
                 set body = ?,
                     status = ?,
                     moderation_reason = ?,
+                    automod_policy_version_id = ?,
+                    automod_execution_mode = ?,
+                    automod_score = ?,
+                    automod_decision = ?,
+                    automod_signals = ?::jsonb,
+                    automod_reason = ?,
+                    automod_applied_status = ?,
+                    automod_evaluated_at = ?,
                     edited_at = now(),
                     updated_at = now()
                 from pages p
@@ -472,6 +561,14 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
             content,
             status.name(),
             moderationReason,
+            autoModeration != null ? autoModeration.policyVersionId() : null,
+            autoModeration != null ? autoModeration.executionMode().name() : null,
+            autoModeration != null ? autoModeration.score() : null,
+            autoModeration != null ? autoModeration.decision().name() : null,
+            autoModeration != null ? serializeAutoModerationSignals(autoModeration) : null,
+            autoModeration != null ? autoModeration.reason() : null,
+            autoModeration != null ? autoModeration.appliedStatus().name() : null,
+            autoModeration != null ? autoModeration.evaluatedAt().atOffset(ZoneOffset.UTC) : null,
             siteId,
             commentId,
             authorUserId
@@ -479,6 +576,10 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
         return rows.stream()
             .findFirst()
             .map(row -> toCommentView(row, List.of(), Optional.of(authorUserId)));
+    }
+
+    private String serializeAutoModerationSignals(AutoModerationSnapshot snapshot) {
+        return objectMapper.writeValueAsString(snapshot.signals());
     }
 
     @Override

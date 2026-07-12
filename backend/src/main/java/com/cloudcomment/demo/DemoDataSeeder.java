@@ -1,5 +1,6 @@
 package com.cloudcomment.demo;
 
+import com.cloudcomment.automoderation.persistence.AutoModerationPolicyRepository;
 import com.cloudcomment.site.domain.SiteInputRules;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.ApplicationArguments;
@@ -29,6 +30,7 @@ class DemoDataSeeder implements ApplicationRunner {
     private final PasswordEncoder passwordEncoder;
     private final DemoDataProperties properties;
     private final TransactionTemplate transactionTemplate;
+    private final AutoModerationPolicyRepository autoModerationPolicyRepository;
 
     @Override
     public void run(ApplicationArguments args) {
@@ -39,6 +41,7 @@ class DemoDataSeeder implements ApplicationRunner {
         transactionTemplate.executeWithoutResult(status -> {
             UUID ownerId = upsertOwner();
             upsertSite(ownerId);
+            autoModerationPolicyRepository.initializeFromLegacy(properties.siteId());
             upsertAllowedOrigins();
             upsertPage();
             upsertComments(ownerId);

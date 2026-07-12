@@ -63,6 +63,88 @@ export interface AutoModerationCheckResponse {
   signals: AutoModerationSignal[]
 }
 
+export type AutoModerationPolicyPreset = 'OPEN' | 'BALANCED' | 'STRICT' | 'CUSTOM'
+export type AutoModerationExecutionMode = 'SHADOW' | 'LIVE'
+export type AutoModerationPolicyDecision = 'APPROVE' | 'REVIEW' | 'SPAM'
+export type AutoModerationCleanAction = 'APPROVE' | 'FOLLOW_SITE_MODE'
+export type AutoModerationLinkAction = 'ALLOW' | 'REVIEW' | 'SPAM'
+export type AutoModerationPolicyState = 'DRAFT' | 'PUBLISHED'
+export type AutoModerationFeedbackType = 'FALSE_POSITIVE' | 'FALSE_NEGATIVE'
+
+export interface AutoModerationPolicySignal {
+  code: string
+  score: number
+  message?: string
+}
+
+export interface AutoModerationPolicy {
+  id: string
+  siteId: string
+  version: number | null
+  revision: number
+  state: AutoModerationPolicyState
+  enabled: boolean
+  preset: AutoModerationPolicyPreset
+  executionMode: AutoModerationExecutionMode
+  reviewThreshold: number
+  spamThreshold: number
+  cleanAction: AutoModerationCleanAction
+  linkAction: AutoModerationLinkAction
+  maxLinks: number
+  blockedWords: string[]
+  active: boolean
+  basedOnVersionId: string | null
+  createdAt: string
+  updatedAt: string
+  publishedAt: string | null
+}
+
+export interface AutoModerationPoliciesResponse {
+  activePolicy: AutoModerationPolicy | null
+  draft: AutoModerationPolicy | null
+  versions: AutoModerationPolicy[]
+}
+
+export interface AutoModerationPolicyUpdateRequest {
+  expectedRevision: number
+  enabled: boolean
+  preset: AutoModerationPolicyPreset
+  executionMode: AutoModerationExecutionMode
+  reviewThreshold: number
+  spamThreshold: number
+  cleanAction: AutoModerationCleanAction
+  linkAction: AutoModerationLinkAction
+  maxLinks: number
+  blockedWords: string[]
+}
+
+export interface AutoModerationSimulationResponse {
+  score: number
+  decision: AutoModerationPolicyDecision
+  baselineStatus: CommentStatus
+  effectiveStatus: CommentStatus
+  applied: boolean
+  reason: string | null
+  signals: AutoModerationPolicySignal[]
+}
+
+export interface AutoModerationFeedback {
+  type: AutoModerationFeedbackType
+  createdAt: string
+}
+
+export interface CommentAutoModeration {
+  policyVersionId: string
+  policyVersion: number
+  executionMode: AutoModerationExecutionMode
+  decision: AutoModerationPolicyDecision
+  score: number
+  reason: string | null
+  signals: AutoModerationPolicySignal[]
+  evaluatedAt: string
+  feedback: AutoModerationFeedback | null
+}
+
 export type CommentStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'HIDDEN' | 'SPAM'
 
 export type ModerationPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT'
@@ -122,6 +204,28 @@ export interface EmbedCode {
   dataAttributes: Record<string, string>
 }
 
+export type InstallationStatus = 'NEVER_SEEN' | 'HEALTHY' | 'STALE' | 'REJECTED'
+export type InstallationStatusReason =
+  | 'WIDGET_NOT_SEEN'
+  | 'RECENT_SUCCESS'
+  | 'SUCCESS_STALE'
+  | 'ORIGIN_CONFIGURATION_CHANGED'
+  | 'ORIGIN_REJECTED'
+  | 'SITE_INACTIVE'
+
+export interface SiteInstallationStatus {
+  status: InstallationStatus
+  reason: InstallationStatusReason
+  siteCreated: boolean
+  originConfigured: boolean
+  widgetSeen: boolean
+  firstCommentReceived: boolean
+  lastSuccessfulOrigin: string | null
+  lastSuccessfulAt: string | null
+  lastRejectedOrigin: string | null
+  lastRejectedAt: string | null
+}
+
 export interface CommentAuthor {
   id: string | null
   email: string | null
@@ -147,6 +251,7 @@ export interface Comment {
   content: string
   status: CommentStatus
   moderationReason: string | null
+  autoModeration: CommentAutoModeration | null
   pinned: boolean
   favorite: boolean
   priority: ModerationPriority
@@ -223,6 +328,8 @@ export interface UpdateCommentFlagsRequest {
 
 export type AnalyticsRange = '7d' | '30d' | '90d' | 'all'
 
+export type AnalyticsBucketGranularity = 'DAY' | 'WEEK' | 'MONTH'
+
 export interface AnalyticsSummary {
   sites: number
   pages: number
@@ -247,6 +354,31 @@ export interface CommentTimePoint {
 export interface ModerationStatusCount {
   status: CommentStatus
   count: number
+}
+
+export interface AnalyticsMetricComparison {
+  current: number
+  previous: number
+  absoluteChange: number
+  percentageChange: number | null
+}
+
+export interface AnalyticsComparison {
+  previousFrom: string
+  previousTo: string
+  comments: AnalyticsMetricComparison
+  reactions: AnalyticsMetricComparison
+  automaticDecisions: AnalyticsMetricComparison
+  manualDecisions: AnalyticsMetricComparison
+  undoActions: AnalyticsMetricComparison
+}
+
+export interface AnalyticsWorkload {
+  requiringDecision: number
+  oldestPendingAt: string | null
+  automaticDecisions: number
+  manualDecisions: number
+  undoActions: number
 }
 
 export interface ReactionTypeCount {
@@ -282,10 +414,16 @@ export interface ActiveCommenter {
 export interface OwnerAnalytics {
   range: AnalyticsRange
   siteId: string | null
+  timeZone: string
+  bucketGranularity: AnalyticsBucketGranularity
   from: string | null
   to: string
   summary: AnalyticsSummary
+  comparison: AnalyticsComparison | null
+  workload: AnalyticsWorkload
   commentsOverTime: CommentTimePoint[]
+  moderationDistribution: ModerationStatusCount[]
+  /** @deprecated Совместимый псевдоним на один релиз. */
   moderationFunnel: ModerationStatusCount[]
   reactionDistribution: ReactionTypeCount[]
   topPages: TopPageAnalytics[]
@@ -299,6 +437,7 @@ export interface RealtimeEnvelope<TPayload> {
 }
 
 export interface NewCommentNotification {
+  notificationId: string
   commentId: string
   siteId: string
   siteName: string
@@ -308,6 +447,21 @@ export interface NewCommentNotification {
   authorEmail: string | null
   contentPreview: string
   status: CommentStatus
+  createdAt: string
+}
+
+export interface OwnerNotification {
+  id: string
+  commentId: string
+  siteId: string
+  siteName: string
+  pageId: string
+  pageUrl: string
+  parentId: string | null
+  authorEmail: string | null
+  contentPreview: string
+  status: CommentStatus
+  readAt: string | null
   createdAt: string
 }
 

@@ -41,13 +41,19 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
 
   await page.getByRole('textbox', { name: 'Название' }).fill(siteName)
   await page.getByRole('textbox', { name: 'Домен' }).fill(domain)
+  await page.reload()
+  await expect(page.getByRole('textbox', { name: 'Название' })).toHaveValue(siteName)
+  await expect(page.getByRole('textbox', { name: 'Домен' })).toHaveValue(domain)
+  await page.getByRole('button', { name: 'Далее' }).click()
   await page.getByLabel('Режим модерации').selectOption('POST_MODERATION')
   await page.getByRole('textbox', { name: /Разрешённые origins/ }).fill(
     `${ADMIN_ORIGIN}\nhttp://127.0.0.1\nhttp://127.0.0.1:5173`,
   )
+  await page.getByRole('button', { name: 'Далее' }).click()
   await page.getByLabel('Тема виджета').selectOption('DARK')
   await page.getByRole('textbox', { name: 'HEX акцентного цвета' }).fill(WIDGET_ACCENT_COLOR)
   await page.getByLabel('Скругления').selectOption('LARGE')
+  await page.getByRole('button', { name: 'Далее' }).click()
 
   const onboardingPreview = page.locator('aside')
   await expect(onboardingPreview.getByRole('heading', { name: siteName })).toBeVisible()
@@ -55,8 +61,7 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   await expect(onboardingPreview.getByText(ADMIN_ORIGIN, { exact: true }).first()).toBeVisible()
   await expect(onboardingPreview.getByText('Пост-модерация')).toBeVisible()
   await expect(onboardingPreview.getByText('Черновик embed-кода')).toBeVisible()
-  await expect(onboardingPreview.getByText('Опубликован сразу')).toBeVisible()
-  await expect(onboardingPreview.getByText(`Стиль: Темная, ${WIDGET_ACCENT_COLOR}, large`)).toBeVisible()
+  await expect(page.frameLocator('iframe[title="Предварительный просмотр создаваемого виджета"]').getByText('Комментарии').first()).toBeVisible()
 
   await page.getByRole('button', { name: 'Создать сайт' }).click()
 
@@ -66,10 +71,28 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   await expect(page.getByText(domain, { exact: true }).first()).toBeVisible()
   const siteId = page.url().match(/\/sites\/([0-9a-f-]{36})$/)?.[1]
   expect(siteId, 'created site id should be present in URL').toBeTruthy()
+  await expect(page.getByRole('heading', { name: 'Виджет ещё не подключался' })).toBeVisible()
+  await page.getByRole('button', { name: 'Установка' }).click()
   await expect(page.getByText(`data-site-id="${siteId}"`)).toBeVisible()
 
   const token = await page.evaluate(() => window.localStorage.getItem('cloud-comment.admin.authToken'))
   expect(token, 'login should store bearer token').toBeTruthy()
+
+  const initialRejectedOriginResponse = await request.get(`${API_BASE_URL}/public/sites/${siteId}/config`, {
+    headers: {
+      Origin: `${ADMIN_ORIGIN}.evil.example`,
+    },
+  })
+  expect(initialRejectedOriginResponse.status()).toBe(404)
+  const initiallyRejectedInstallationResponse = await request.get(`${API_BASE_URL}/sites/${siteId}/installation-status`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  await expect(initiallyRejectedInstallationResponse).toBeOK()
+  expect(await initiallyRejectedInstallationResponse.json()).toMatchObject({
+    status: 'REJECTED',
+    reason: 'ORIGIN_REJECTED',
+    lastRejectedOrigin: `${ADMIN_ORIGIN}.evil.example`,
+  })
 
   const configResponse = await request.get(`${API_BASE_URL}/public/sites/${siteId}/config`, {
     headers: {
@@ -85,6 +108,17 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
       accentColor: WIDGET_ACCENT_COLOR,
       cornerRadius: 'LARGE',
     },
+  })
+
+  const healthyInstallationResponse = await request.get(`${API_BASE_URL}/sites/${siteId}/installation-status`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  await expect(healthyInstallationResponse).toBeOK()
+  expect(await healthyInstallationResponse.json()).toMatchObject({
+    status: 'HEALTHY',
+    reason: 'RECENT_SUCCESS',
+    widgetSeen: true,
+    lastSuccessfulOrigin: ADMIN_ORIGIN,
   })
 
   const createCommentResponse = await request.post(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
@@ -214,6 +248,16 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
     },
   })
   expect(rejectedOriginResponse.status()).toBe(404)
+  const rejectedInstallationResponse = await request.get(`${API_BASE_URL}/sites/${siteId}/installation-status`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  await expect(rejectedInstallationResponse).toBeOK()
+  expect(await rejectedInstallationResponse.json()).toMatchObject({
+    status: 'HEALTHY',
+    reason: 'RECENT_SUCCESS',
+    lastRejectedOrigin: `${ADMIN_ORIGIN}.evil.example`,
+    lastSuccessfulOrigin: ADMIN_ORIGIN,
+  })
   await expect(viewerCommentsResponse).toBeOK()
   const viewerComments = await viewerCommentsResponse.json()
   expect(viewerComments.items[0]).toMatchObject({
@@ -392,6 +436,153 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   await expect(commentsAfterAutomodResponse).toBeOK()
   expect(JSON.stringify(await commentsAfterAutomodResponse.json())).not.toContain(spamCommentText)
 
+  const policiesAfterLegacyResponse = await request.get(`${API_BASE_URL}/sites/${siteId}/automoderation/policies`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  await expect(policiesAfterLegacyResponse).toBeOK()
+  const policiesAfterLegacy = await policiesAfterLegacyResponse.json()
+  expect(policiesAfterLegacy.activePolicy).toMatchObject({
+    enabled: true,
+    preset: 'CUSTOM',
+    executionMode: 'LIVE',
+    active: true,
+  })
+
+  const createShadowDraftResponse = await request.post(`${API_BASE_URL}/sites/${siteId}/automoderation/policies`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { preset: 'CUSTOM', enabled: true, executionMode: 'SHADOW' },
+  })
+  expect(createShadowDraftResponse.status()).toBe(201)
+  const createdShadowDraft = await createShadowDraftResponse.json()
+  const shadowBlockedWord = `shadow-${suffix}`
+  const updateShadowDraftResponse = await request.patch(
+    `${API_BASE_URL}/sites/${siteId}/automoderation/policies/${createdShadowDraft.id}`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        expectedRevision: createdShadowDraft.revision,
+        enabled: true,
+        preset: 'CUSTOM',
+        executionMode: 'SHADOW',
+        reviewThreshold: 45,
+        spamThreshold: 90,
+        cleanAction: 'APPROVE',
+        linkAction: 'REVIEW',
+        maxLinks: 2,
+        blockedWords: [shadowBlockedWord],
+      },
+    },
+  )
+  await expect(updateShadowDraftResponse).toBeOK()
+  const shadowDraft = await updateShadowDraftResponse.json()
+
+  const simulateShadowResponse = await request.post(
+    `${API_BASE_URL}/sites/${siteId}/automoderation/policies/${shadowDraft.id}/simulate`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { content: `Проверка ${shadowBlockedWord}` },
+    },
+  )
+  await expect(simulateShadowResponse).toBeOK()
+  expect(await simulateShadowResponse.json()).toMatchObject({
+    decision: 'SPAM',
+    baselineStatus: 'APPROVED',
+    effectiveStatus: 'APPROVED',
+    applied: false,
+  })
+
+  const publishShadowResponse = await request.post(
+    `${API_BASE_URL}/sites/${siteId}/automoderation/policies/${shadowDraft.id}/publish`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        expectedRevision: shadowDraft.revision,
+        expectedActiveVersionId: policiesAfterLegacy.activePolicy.id,
+      },
+    },
+  )
+  await expect(publishShadowResponse).toBeOK()
+  const shadowPolicy = await publishShadowResponse.json()
+  expect(shadowPolicy).toMatchObject({ executionMode: 'SHADOW', active: true })
+
+  const shadowCommentText = `E2E shadow ${shadowBlockedWord}`
+  const createShadowCommentResponse = await request.post(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
+    headers: { Authorization: `Bearer ${token}`, Origin: ADMIN_ORIGIN },
+    data: { pageUrl, parentId: null, content: shadowCommentText },
+  })
+  expect(createShadowCommentResponse.status()).toBe(201)
+  const shadowComment = await createShadowCommentResponse.json()
+  expect(shadowComment).toMatchObject({ content: shadowCommentText, status: 'APPROVED' })
+  expect(shadowComment).not.toHaveProperty('autoModeration')
+
+  const shadowModerationResponse = await request.get(`${API_BASE_URL}/moderation/comments/${shadowComment.id}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  await expect(shadowModerationResponse).toBeOK()
+  expect(await shadowModerationResponse.json()).toMatchObject({
+    id: shadowComment.id,
+    status: 'APPROVED',
+    moderationReason: null,
+    autoModeration: {
+      policyVersionId: shadowPolicy.id,
+      executionMode: 'SHADOW',
+      decision: 'SPAM',
+      feedback: null,
+    },
+  })
+
+  const feedbackResponse = await request.put(
+    `${API_BASE_URL}/moderation/comments/${shadowComment.id}/automoderation-feedback`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { type: 'FALSE_POSITIVE' },
+    },
+  )
+  await expect(feedbackResponse).toBeOK()
+  expect(await feedbackResponse.json()).toMatchObject({ type: 'FALSE_POSITIVE' })
+
+  const createLiveDraftResponse = await request.post(`${API_BASE_URL}/sites/${siteId}/automoderation/policies`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { preset: 'CUSTOM', enabled: true, executionMode: 'LIVE' },
+  })
+  expect(createLiveDraftResponse.status()).toBe(201)
+  const liveDraft = await createLiveDraftResponse.json()
+  const publishLiveResponse = await request.post(
+    `${API_BASE_URL}/sites/${siteId}/automoderation/policies/${liveDraft.id}/publish`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        expectedRevision: liveDraft.revision,
+        expectedActiveVersionId: shadowPolicy.id,
+      },
+    },
+  )
+  await expect(publishLiveResponse).toBeOK()
+  const livePolicy = await publishLiveResponse.json()
+  expect(livePolicy).toMatchObject({ executionMode: 'LIVE', active: true })
+
+  const liveCommentText = `E2E live ${shadowBlockedWord}`
+  const createLiveCommentResponse = await request.post(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
+    headers: { Authorization: `Bearer ${token}`, Origin: ADMIN_ORIGIN },
+    data: { pageUrl, parentId: null, content: liveCommentText },
+  })
+  expect(createLiveCommentResponse.status()).toBe(201)
+  expect(await createLiveCommentResponse.json()).toMatchObject({ content: liveCommentText, status: 'SPAM' })
+
+  const rollbackShadowResponse = await request.post(
+    `${API_BASE_URL}/sites/${siteId}/automoderation/versions/${shadowPolicy.id}/rollback`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { expectedActiveVersionId: livePolicy.id },
+    },
+  )
+  await expect(rollbackShadowResponse).toBeOK()
+  expect(await rollbackShadowResponse.json()).toMatchObject({
+    executionMode: 'SHADOW',
+    active: true,
+    basedOnVersionId: shadowPolicy.id,
+  })
+
   const enablePreModerationResponse = await request.patch(`${API_BASE_URL}/sites/${siteId}`, {
     headers: {
       Authorization: `Bearer ${token}`,
@@ -405,8 +596,8 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   const moderationPage = await context.newPage()
   await moderationPage.goto('/moderation')
   await expect(moderationPage.getByRole('heading', { name: 'Модерация', exact: true })).toBeVisible()
-  await moderationPage.getByRole('button', { name: 'Уведомления' }).click()
-  await expect(moderationPage.getByText('Подключено', { exact: true })).toBeVisible({ timeout: 15_000 })
+  await moderationPage.getByRole('button', { name: 'Уведомления', exact: true }).click()
+  await expect(moderationPage.getByRole('dialog', { name: 'Центр уведомлений' })).toBeVisible()
 
   const realtimeCommentText = `E2E realtime comment ${suffix}`
   const realtimeCommentResponse = await request.post(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
@@ -423,6 +614,45 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   expect(realtimeCommentResponse.status()).toBe(201)
   const realtimeComment = await realtimeCommentResponse.json()
   await expect(moderationPage.getByText(realtimeCommentText)).toBeVisible({ timeout: 15_000 })
+
+  const storedNotificationsResponse = await request.get(`${API_BASE_URL}/notifications`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  await expect(storedNotificationsResponse).toBeOK()
+  const storedNotifications = await storedNotificationsResponse.json()
+  const realtimeNotification = storedNotifications.items.find(
+    (notification: { commentId: string }) => notification.commentId === realtimeComment.id,
+  )
+  expect(realtimeNotification).toMatchObject({
+    commentId: realtimeComment.id,
+    siteId,
+    contentPreview: realtimeCommentText,
+    readAt: null,
+  })
+
+  const unreadBeforeReloadResponse = await request.get(`${API_BASE_URL}/notifications/unread-count`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  await expect(unreadBeforeReloadResponse).toBeOK()
+  const unreadBeforeReload = (await unreadBeforeReloadResponse.json()).unreadCount
+  expect(unreadBeforeReload).toBeGreaterThan(0)
+
+  await moderationPage.keyboard.press('Escape')
+  await expect(moderationPage.getByRole('dialog', { name: 'Центр уведомлений' })).toBeHidden()
+  await moderationPage.reload()
+  await moderationPage.getByRole('button', { name: 'Уведомления', exact: true }).click()
+  const notificationPanel = moderationPage.getByRole('dialog', { name: 'Центр уведомлений' })
+  await expect(notificationPanel.getByText(realtimeCommentText)).toBeVisible()
+  const realtimeNotificationButton = notificationPanel.locator('button').filter({ hasText: realtimeCommentText })
+  await expect(realtimeNotificationButton).toHaveCount(1)
+  await realtimeNotificationButton.click()
+  await expect(moderationPage).toHaveURL(new RegExp(`/moderation\\?comment=${realtimeComment.id}&view=pending$`))
+
+  const unreadAfterOpenResponse = await request.get(`${API_BASE_URL}/notifications/unread-count`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  await expect(unreadAfterOpenResponse).toBeOK()
+  expect((await unreadAfterOpenResponse.json()).unreadCount).toBeLessThan(unreadBeforeReload)
 
   const moderationCountsResponse = await request.get(`${API_BASE_URL}/moderation/counts`, {
     headers: { Authorization: `Bearer ${token}` },
@@ -488,10 +718,56 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
     headers: {
       Authorization: `Bearer ${token}`,
     },
-    params: { range: '7d' },
+    params: { range: '7d', timeZone: 'Europe/Moscow' },
   })
   await expect(analyticsResponse).toBeOK()
-  expect((await analyticsResponse.json()).summary.comments).toBeGreaterThan(0)
+  const analytics = await analyticsResponse.json()
+  expect(analytics).toMatchObject({
+    range: '7d',
+    timeZone: 'Europe/Moscow',
+    bucketGranularity: 'DAY',
+  })
+  expect(analytics.summary.comments).toBeGreaterThan(0)
+  expect(analytics.comparison.comments.current).toBe(analytics.summary.comments)
+  expect(analytics.workload.requiringDecision).toBeGreaterThan(0)
+  expect(analytics.workload.automaticDecisions).toBeGreaterThan(0)
+  expect(analytics.workload.manualDecisions).toBeGreaterThan(0)
+  expect(analytics.workload.undoActions).toBeGreaterThan(0)
+  expect(analytics.moderationDistribution).toEqual(analytics.moderationFunnel)
+
+  for (const [range, bucketGranularity] of [['30d', 'DAY'], ['90d', 'WEEK']] as const) {
+    const rangedAnalyticsResponse = await request.get(`${API_BASE_URL}/analytics/owner`, {
+      headers: { Authorization: `Bearer ${token}` },
+      params: { range, timeZone: 'America/New_York' },
+    })
+    await expect(rangedAnalyticsResponse).toBeOK()
+    expect(await rangedAnalyticsResponse.json()).toMatchObject({
+      range,
+      timeZone: 'America/New_York',
+      bucketGranularity,
+      comparison: {
+        comments: { current: expect.any(Number), previous: expect.any(Number) },
+      },
+    })
+  }
+
+  const allTimeAnalyticsResponse = await request.get(`${API_BASE_URL}/analytics/owner`, {
+    headers: { Authorization: `Bearer ${token}` },
+    params: { range: 'all', timeZone: 'UTC' },
+  })
+  await expect(allTimeAnalyticsResponse).toBeOK()
+  expect(await allTimeAnalyticsResponse.json()).toMatchObject({
+    range: 'all',
+    timeZone: 'UTC',
+    bucketGranularity: 'MONTH',
+    comparison: null,
+  })
+
+  const invalidTimeZoneResponse = await request.get(`${API_BASE_URL}/analytics/owner`, {
+    headers: { Authorization: `Bearer ${token}` },
+    params: { range: '7d', timeZone: 'Mars/Olympus' },
+  })
+  expect(invalidTimeZoneResponse.status()).toBe(400)
 
   await page.goto(`/demo-page.html?siteId=${siteId}`)
 

@@ -5,6 +5,7 @@ import type {
   PaginatedResponse,
   ReplaceAllowedOriginsRequest,
   Site,
+  SiteInstallationStatus,
   UpdateSiteRequest,
 } from '../types/api'
 import { apiClient } from './client'
@@ -45,6 +46,11 @@ export async function replaceAllowedOrigins(
 
 export async function getEmbedCode(siteId: string): Promise<EmbedCode> {
   const response = await apiClient.get<EmbedCode>(`/sites/${siteId}/embed-code`)
+  return response.data
+}
+
+export async function getInstallationStatus(siteId: string): Promise<SiteInstallationStatus> {
+  const response = await apiClient.get<SiteInstallationStatus>(`/sites/${siteId}/installation-status`)
   return response.data
 }
 

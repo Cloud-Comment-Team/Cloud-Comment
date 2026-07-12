@@ -135,6 +135,14 @@ class MvpApiSmokeTests {
             .andExpect(jsonPath("$.siteId", is(siteId)))
             .andExpect(jsonPath("$.moderationMode", is("POST_MODERATION")));
 
+        mockMvc.perform(get("/api/sites/{siteId}/installation-status", siteId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.status", is("HEALTHY")))
+            .andExpect(jsonPath("$.reason", is("RECENT_SUCCESS")))
+            .andExpect(jsonPath("$.lastSuccessfulOrigin", is(origin)))
+            .andExpect(jsonPath("$.firstCommentReceived", is(false)));
+
         mockMvc.perform(get("/api/public/sites/{siteId}/pages/comments", siteId)
                 .header(HttpHeaders.ORIGIN, origin)
                 .param("pageUrl", pageUrl))
@@ -169,6 +177,36 @@ class MvpApiSmokeTests {
             .andExpect(jsonPath("$.items[0].content", is("Smoke comment")))
             .andExpect(jsonPath("$.items[0].status", is("APPROVED")))
             .andExpect(jsonPath("$.totalItems", is(1)));
+
+        String otherEmail = "other-" + UUID.randomUUID() + "@example.com";
+        mockMvc.perform(post("/api/auth/register")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(registerRequestJson(otherEmail, "strong-password")))
+            .andExpect(status().isCreated());
+        String otherLoginResponse = mockMvc.perform(post("/api/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "email": "%s",
+                      "password": "strong-password"
+                    }
+                    """.formatted(otherEmail)))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+        String otherToken = extractToken(otherLoginResponse);
+
+        mockMvc.perform(get("/api/sites/{siteId}/installation-status", siteId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + otherToken))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error.code", is("NOT_FOUND")))
+            .andExpect(jsonPath("$.error.message", is("Resource not found")));
+        mockMvc.perform(get("/api/sites/{siteId}/installation-status", UUID.randomUUID())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + otherToken))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error.code", is("NOT_FOUND")))
+            .andExpect(jsonPath("$.error.message", is("Resource not found")));
 
         mockMvc.perform(get("/api/auth/me"))
             .andExpect(status().isUnauthorized())

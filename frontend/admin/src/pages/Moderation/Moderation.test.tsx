@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Comment } from '../../types/api'
@@ -13,11 +13,18 @@ const moderationApi = vi.hoisted(() => ({
   applyModerationAction: vi.fn(),
   undoModerationAction: vi.fn(),
   updateCommentFlags: vi.fn(),
+  setAutoModerationFeedback: vi.fn(),
+  deleteAutoModerationFeedback: vi.fn(),
 }))
 
 vi.mock('../../api/moderation', () => moderationApi)
 vi.mock('../../api/sites', () => ({ listAllSites: vi.fn().mockResolvedValue([]) }))
 vi.mock('../../components/realtime/useRealtime', () => ({ useRealtimeEvent: vi.fn() }))
+
+function CurrentLocation() {
+  const location = useLocation()
+  return <output data-testid="current-location">{location.pathname}{location.search}</output>
+}
 
 const comments: Comment[] = [
   {
@@ -31,6 +38,7 @@ const comments: Comment[] = [
     content: 'Первый комментарий',
     status: 'PENDING',
     moderationReason: null,
+    autoModeration: null,
     pinned: false,
     favorite: false,
     priority: 'HIGH',
@@ -51,6 +59,17 @@ const comments: Comment[] = [
     content: 'Второй комментарий',
     status: 'SPAM',
     moderationReason: 'Найдена подозрительная ссылка',
+    autoModeration: {
+      policyVersionId: '00000000-0000-0000-0000-000000000137',
+      policyVersion: 3,
+      executionMode: 'LIVE',
+      decision: 'SPAM',
+      score: 130,
+      reason: 'Найдены признаки спама',
+      signals: [{ code: 'SPAM_PHRASE', score: 55 }],
+      evaluatedAt: '2026-07-12T12:01:00Z',
+      feedback: null,
+    },
     pinned: false,
     favorite: false,
     priority: 'URGENT',
@@ -87,6 +106,11 @@ describe('страница модерации', () => {
         message: null,
       })),
     })
+    moderationApi.setAutoModerationFeedback.mockResolvedValue({
+      type: 'FALSE_POSITIVE',
+      createdAt: '2026-07-12T12:02:00Z',
+    })
+    moderationApi.deleteAutoModerationFeedback.mockResolvedValue(undefined)
   })
 
   it('по умолчанию запрашивает комментарии на модерации и спам', async () => {
@@ -98,6 +122,89 @@ describe('страница модерации', () => {
       sortBy: 'SMART',
     }))
     expect(screen.getByText('Требуют решения: 2')).toBeInTheDocument()
+  })
+
+  it('применяет фильтры сайта и страницы из прямой ссылки', async () => {
+    const pageUrl = 'https://example.com/article?a=1'
+    render(
+      <MemoryRouter initialEntries={[`/moderation?view=pending&status=PENDING&siteId=${comments[0].siteId}&pageUrl=${encodeURIComponent(pageUrl)}`]}>
+        <Moderation />
+        <CurrentLocation />
+      </MemoryRouter>,
+    )
+
+    await screen.findByText('Первый комментарий')
+    expect(moderationApi.listComments).toHaveBeenCalledWith(expect.objectContaining({
+      siteId: comments[0].siteId,
+      pageUrl,
+      status: 'PENDING',
+      statuses: undefined,
+    }))
+    expect(screen.getByText('Точный фильтр:')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /^Спам \(1\)$/ }))
+    await waitFor(() => expect(moderationApi.listComments).toHaveBeenCalledWith(expect.objectContaining({
+      status: undefined,
+      statuses: ['SPAM'],
+    })))
+    expect(screen.getByTestId('current-location')).toHaveTextContent(
+      `/moderation?view=spam&siteId=${comments[0].siteId}&pageUrl=${encodeURIComponent(pageUrl)}`,
+    )
+  })
+
+  it.each([
+    {
+      name: 'глобальная ссылка очищает все сохранённые фильтры',
+      href: '/moderation?view=pending&source=analytics&status=PENDING',
+      expectedSiteId: undefined,
+    },
+    {
+      name: 'ссылка сайта сохраняет только сайт и очищает старую страницу',
+      href: `/moderation?view=pending&source=analytics&status=PENDING&siteId=${comments[0].siteId}`,
+      expectedSiteId: comments[0].siteId,
+    },
+  ])('$name', async ({ href, expectedSiteId }) => {
+    localStorage.setItem('cloud-comment:moderation-filters:v2', JSON.stringify({
+      siteId: '00000000-0000-0000-0000-000000000099',
+      pageUrl: 'https://saved.example.test/old-page',
+      search: 'скрывающий запрос',
+      favorite: true,
+    }))
+
+    render(<MemoryRouter initialEntries={[href]}><Moderation /></MemoryRouter>)
+
+    await screen.findByText('Первый комментарий')
+    expect(moderationApi.listComments).toHaveBeenCalledWith({
+      siteId: expectedSiteId,
+      pageUrl: undefined,
+      search: undefined,
+      favorite: undefined,
+      status: 'PENDING',
+      statuses: undefined,
+      sortBy: 'SMART',
+      sortOrder: 'DESC',
+      page: 1,
+      pageSize: 30,
+    })
+  })
+
+  it('после ручного применения фильтров перестаёт считать аналитическую ссылку авторитетной', async () => {
+    render(
+      <MemoryRouter initialEntries={['/moderation?view=pending&source=analytics&status=PENDING']}>
+        <Moderation />
+        <CurrentLocation />
+      </MemoryRouter>,
+    )
+
+    await screen.findByText('Первый комментарий')
+    fireEvent.change(screen.getByLabelText('Поиск'), { target: { value: 'важный текст' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Применить' }))
+
+    await waitFor(() => expect(moderationApi.listComments).toHaveBeenLastCalledWith(expect.objectContaining({
+      search: 'важный текст',
+      status: 'PENDING',
+    })))
+    expect(screen.getByTestId('current-location')).toHaveTextContent('/moderation?view=pending&status=PENDING')
   })
 
   it('применяет одно массовое действие к выбранным строкам', async () => {
@@ -125,5 +232,21 @@ describe('страница модерации', () => {
     expect(await screen.findByRole('dialog', { name: 'Комментарий' })).toBeInTheDocument()
     expect(moderationApi.getComment).toHaveBeenCalledWith(comments[0].id)
     expect(screen.getByText('Первый комментарий')).toBeInTheDocument()
+  })
+
+  it('показывает решение политики и сохраняет обратную связь без текста комментария', async () => {
+    render(<MemoryRouter initialEntries={[`/moderation?comment=${comments[1].id}`]}><Moderation /></MemoryRouter>)
+
+    await screen.findByRole('dialog', { name: 'Комментарий' })
+    expect(screen.getByText('Решение автомодерации')).toBeInTheDocument()
+    expect(screen.getByText('Версия')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Это допустимый комментарий' }))
+
+    await waitFor(() => expect(moderationApi.setAutoModerationFeedback).toHaveBeenCalledWith(
+      comments[1].id,
+      'FALSE_POSITIVE',
+    ))
+    expect(moderationApi.setAutoModerationFeedback.mock.calls[0]).not.toContain(comments[1].content)
+    expect(await screen.findByText('Ложное срабатывание')).toBeInTheDocument()
   })
 })

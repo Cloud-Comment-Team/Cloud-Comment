@@ -33,7 +33,7 @@ class PrivacyControllerTests {
     @Test
     void consentRequirementsArePublic() throws Exception {
         when(consentService.currentRequirements()).thenReturn(new ConsentRequirements(
-            "2026-07-01",
+            "2026-07-12",
             "2026-07-01",
             "/legal/privacy-policy.html",
             "/legal/terms.html",
@@ -45,7 +45,7 @@ class PrivacyControllerTests {
                 .header(HttpHeaders.ORIGIN, EXTERNAL_ORIGIN))
             .andExpect(status().isOk())
             .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "*"))
-            .andExpect(jsonPath("$.privacyPolicyVersion", is("2026-07-01")))
+            .andExpect(jsonPath("$.privacyPolicyVersion", is("2026-07-12")))
             .andExpect(jsonPath("$.termsVersion", is("2026-07-01")))
             .andExpect(jsonPath("$.privacyPolicyUrl", is("/legal/privacy-policy.html")))
             .andExpect(jsonPath("$.personalDataNoticeUrl", is("/legal/personal-data-notice.html")))

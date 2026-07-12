@@ -6,6 +6,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 public record NewCommentNotification(
+    UUID notificationId,
     UUID commentId,
     UUID siteId,
     String siteName,

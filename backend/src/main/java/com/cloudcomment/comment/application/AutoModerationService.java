@@ -78,7 +78,7 @@ public class AutoModerationService {
             .forEach(word -> signals.add(new AutoModerationSignal(
                 "CUSTOM_BLOCKED_WORD",
                 120,
-                "Стоп-слово владельца: " + word.trim()
+                "Найдено стоп-слово владельца"
             )));
 
         int linkCount = countLinks(content);

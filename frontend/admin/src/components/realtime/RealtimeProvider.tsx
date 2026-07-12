@@ -31,6 +31,7 @@ function isRealtimeEvent(value: unknown): value is RealtimeEvent {
 
   if (value.type === 'comment.created') {
     return hasStringFields(value.payload, [
+      'notificationId',
       'commentId',
       'siteId',
       'siteName',

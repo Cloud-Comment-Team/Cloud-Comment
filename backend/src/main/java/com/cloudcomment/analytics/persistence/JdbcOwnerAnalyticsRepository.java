@@ -3,8 +3,9 @@ package com.cloudcomment.analytics.persistence;
 import com.cloudcomment.analytics.domain.ActiveCommenter;
 import com.cloudcomment.analytics.domain.AnalyticsBucket;
 import com.cloudcomment.analytics.domain.AnalyticsSummary;
+import com.cloudcomment.analytics.domain.AnalyticsWorkload;
 import com.cloudcomment.analytics.domain.CommentTimePoint;
-import com.cloudcomment.analytics.domain.ModerationStatusCount;
+import com.cloudcomment.analytics.domain.PeriodActivity;
 import com.cloudcomment.analytics.domain.ReactionTypeCount;
 import com.cloudcomment.analytics.domain.TopPageAnalytics;
 import lombok.RequiredArgsConstructor;
@@ -30,9 +31,9 @@ class JdbcOwnerAnalyticsRepository implements OwnerAnalyticsRepository {
     private static final String SITE_SCOPE = " s.owner_id = :ownerId and (cast(:siteId as uuid) is null or s.id = :siteId)";
     private static final String COMMENT_SCOPE = SITE_SCOPE + " and c.deleted_at is null";
     private static final String COMMENT_DATE_SCOPE =
-        " and (cast(:from as timestamptz) is null or c.created_at >= :from) and c.created_at <= :to ";
+        " and (cast(:from as timestamptz) is null or c.created_at >= :from) and c.created_at < :to ";
     private static final String REACTION_DATE_SCOPE =
-        " and (cast(:from as timestamptz) is null or cr.created_at >= :from) and cr.created_at <= :to ";
+        " and (cast(:from as timestamptz) is null or cr.created_at >= :from) and cr.created_at < :to ";
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
 
@@ -40,71 +41,44 @@ class JdbcOwnerAnalyticsRepository implements OwnerAnalyticsRepository {
     public AnalyticsSummary summarize(UUID ownerId, UUID siteId, Instant from, Instant to) {
         return jdbcTemplate.queryForObject(
             """
+                with scoped_sites as (
+                    select s.id
+                    from sites s
+                    where """ + SITE_SCOPE + """
+                ),
+                scoped_pages as (
+                    select p.id
+                    from pages p
+                    join scoped_sites s on s.id = p.site_id
+                ),
+                visible_comments as (
+                    select c.id, c.parent_id, c.status, c.created_at
+                    from comments c
+                    join scoped_pages p on p.id = c.page_id
+                    where c.deleted_at is null
+                ),
+                period_comments as (
+                    select vc.id, vc.parent_id, vc.status
+                    from visible_comments vc
+                    where (cast(:from as timestamptz) is null or vc.created_at >= :from)
+                      and vc.created_at < :to
+                )
                 select
-                    (select count(*)
-                     from sites s
-                     where """ + SITE_SCOPE + """
-                    ) as sites_count,
-                    (select count(*)
-                     from pages p
-                     join sites s on s.id = p.site_id
-                     where """ + SITE_SCOPE + """
-                    ) as pages_count,
-                    (select count(*)
-                     from comments c
-                     join pages p on p.id = c.page_id
-                     join sites s on s.id = p.site_id
-                     where """ + COMMENT_SCOPE + COMMENT_DATE_SCOPE + """
-                    ) as comments_count,
-                    (select count(*)
-                     from comments c
-                     join pages p on p.id = c.page_id
-                     join sites s on s.id = p.site_id
-                     where """ + COMMENT_SCOPE + COMMENT_DATE_SCOPE + """
-                       and c.parent_id is not null
-                    ) as replies_count,
+                    (select count(*) from scoped_sites) as sites_count,
+                    (select count(*) from scoped_pages) as pages_count,
+                    (select count(*) from period_comments) as comments_count,
+                    (select count(*) from period_comments where parent_id is not null) as replies_count,
                     (select count(*)
                      from comment_reactions cr
-                     join comments c on c.id = cr.comment_id
-                     join pages p on p.id = c.page_id
-                     join sites s on s.id = p.site_id
-                     where """ + COMMENT_SCOPE + REACTION_DATE_SCOPE + """
+                     join visible_comments vc on vc.id = cr.comment_id
+                     where (cast(:from as timestamptz) is null or cr.created_at >= :from)
+                       and cr.created_at < :to
                     ) as reactions_count,
-                    (select count(*)
-                     from comments c
-                     join pages p on p.id = c.page_id
-                     join sites s on s.id = p.site_id
-                     where """ + COMMENT_SCOPE + COMMENT_DATE_SCOPE + """
-                       and c.status = 'PENDING'
-                    ) as pending_count,
-                    (select count(*)
-                     from comments c
-                     join pages p on p.id = c.page_id
-                     join sites s on s.id = p.site_id
-                     where """ + COMMENT_SCOPE + COMMENT_DATE_SCOPE + """
-                       and c.status = 'APPROVED'
-                    ) as approved_count,
-                    (select count(*)
-                     from comments c
-                     join pages p on p.id = c.page_id
-                     join sites s on s.id = p.site_id
-                     where """ + COMMENT_SCOPE + COMMENT_DATE_SCOPE + """
-                       and c.status = 'REJECTED'
-                    ) as rejected_count,
-                    (select count(*)
-                     from comments c
-                     join pages p on p.id = c.page_id
-                     join sites s on s.id = p.site_id
-                     where """ + COMMENT_SCOPE + COMMENT_DATE_SCOPE + """
-                       and c.status = 'HIDDEN'
-                    ) as hidden_count,
-                    (select count(*)
-                     from comments c
-                     join pages p on p.id = c.page_id
-                     join sites s on s.id = p.site_id
-                     where """ + COMMENT_SCOPE + COMMENT_DATE_SCOPE + """
-                       and c.status = 'SPAM'
-                    ) as spam_count
+                    (select count(*) from period_comments where status = 'PENDING') as pending_count,
+                    (select count(*) from period_comments where status = 'APPROVED') as approved_count,
+                    (select count(*) from period_comments where status = 'REJECTED') as rejected_count,
+                    (select count(*) from period_comments where status = 'HIDDEN') as hidden_count,
+                    (select count(*) from period_comments where status = 'SPAM') as spam_count
                 """,
             params(ownerId, siteId, from, to),
             (resultSet, rowNumber) -> new AnalyticsSummary(
@@ -128,11 +102,15 @@ class JdbcOwnerAnalyticsRepository implements OwnerAnalyticsRepository {
         UUID siteId,
         Instant from,
         Instant to,
-        AnalyticsBucket bucket
+        AnalyticsBucket bucket,
+        String timeZone
     ) {
-        String bucketExpression = bucket == AnalyticsBucket.MONTH
-            ? "date_trunc('month', c.created_at at time zone 'UTC')::date"
-            : "date_trunc('day', c.created_at at time zone 'UTC')::date";
+        String bucketUnit = switch (bucket) {
+            case DAY -> "day";
+            case WEEK -> "week";
+            case MONTH -> "month";
+        };
+        String bucketExpression = "date_trunc('" + bucketUnit + "', timezone(:timeZone, c.created_at))::date";
         return jdbcTemplate.query(
             """
                 select
@@ -149,7 +127,7 @@ class JdbcOwnerAnalyticsRepository implements OwnerAnalyticsRepository {
                 group by bucket_date
                 order by bucket_date
                 """,
-            params(ownerId, siteId, from, to),
+            params(ownerId, siteId, from, to).addValue("timeZone", timeZone),
             (resultSet, rowNumber) -> new CommentTimePoint(
                 resultSet.getObject("bucket_date", LocalDate.class),
                 resultSet.getLong("total_count"),
@@ -161,21 +139,111 @@ class JdbcOwnerAnalyticsRepository implements OwnerAnalyticsRepository {
     }
 
     @Override
-    public List<ModerationStatusCount> findModerationFunnel(UUID ownerId, UUID siteId, Instant from, Instant to) {
-        return jdbcTemplate.query(
+    public AnalyticsWorkload findWorkload(UUID ownerId, UUID siteId, Instant from, Instant to) {
+        return jdbcTemplate.queryForObject(
             """
-                select c.status, count(*) as status_count
-                from comments c
-                join pages p on p.id = c.page_id
-                join sites s on s.id = p.site_id
-                where """ + COMMENT_SCOPE + COMMENT_DATE_SCOPE + """
-                group by c.status
-                order by status_count desc, c.status
+                select
+                    (select count(*)
+                     from comments c
+                     join pages p on p.id = c.page_id
+                     join sites s on s.id = p.site_id
+                     where """ + COMMENT_SCOPE + """
+                       and c.status in ('PENDING', 'SPAM')) as requiring_decision,
+                    (select min(c.created_at)
+                     from comments c
+                     join pages p on p.id = c.page_id
+                     join sites s on s.id = p.site_id
+                     where """ + COMMENT_SCOPE + """
+                       and c.status in ('PENDING', 'SPAM')) as oldest_pending_at,
+                    (select count(*)
+                     from automod_decision_events ade
+                     join comments c on c.id = ade.comment_id
+                     join pages p on p.id = c.page_id
+                     join sites s on s.id = p.site_id
+                     where """ + COMMENT_SCOPE + """
+                       and ade.execution_mode = 'LIVE'
+                       and (cast(:from as timestamptz) is null or ade.evaluated_at >= :from)
+                       and ade.evaluated_at < :to) as automatic_decisions,
+                    (select count(*)
+                     from moderation_actions ma
+                     join comments c on c.id = ma.comment_id
+                     join pages p on p.id = c.page_id
+                     join sites s on s.id = p.site_id
+                     where """ + COMMENT_SCOPE + """
+                       and ma.action <> 'UNDO'
+                       and (cast(:from as timestamptz) is null or ma.created_at >= :from)
+                       and ma.created_at < :to) as manual_decisions,
+                    (select count(*)
+                     from moderation_actions ma
+                     join comments c on c.id = ma.comment_id
+                     join pages p on p.id = c.page_id
+                     join sites s on s.id = p.site_id
+                     where """ + COMMENT_SCOPE + """
+                       and ma.action = 'UNDO'
+                       and (cast(:from as timestamptz) is null or ma.created_at >= :from)
+                       and ma.created_at < :to) as undo_actions
                 """,
             params(ownerId, siteId, from, to),
-            (resultSet, rowNumber) -> new ModerationStatusCount(
-                resultSet.getString("status"),
-                resultSet.getLong("status_count")
+            (resultSet, rowNumber) -> new AnalyticsWorkload(
+                resultSet.getLong("requiring_decision"),
+                toInstant(resultSet, "oldest_pending_at"),
+                resultSet.getLong("automatic_decisions"),
+                resultSet.getLong("manual_decisions"),
+                resultSet.getLong("undo_actions")
+            )
+        );
+    }
+
+    @Override
+    public PeriodActivity findPeriodActivity(UUID ownerId, UUID siteId, Instant from, Instant to) {
+        return jdbcTemplate.queryForObject(
+            """
+                select
+                    (select count(*)
+                     from comments c
+                     join pages p on p.id = c.page_id
+                     join sites s on s.id = p.site_id
+                     where """ + COMMENT_SCOPE + COMMENT_DATE_SCOPE + """
+                    ) as comments_count,
+                    (select count(*)
+                     from comment_reactions cr
+                     join comments c on c.id = cr.comment_id
+                     join pages p on p.id = c.page_id
+                     join sites s on s.id = p.site_id
+                     where """ + COMMENT_SCOPE + REACTION_DATE_SCOPE + """
+                    ) as reactions_count,
+                    (select count(*)
+                     from automod_decision_events ade
+                     join comments c on c.id = ade.comment_id
+                     join pages p on p.id = c.page_id
+                     join sites s on s.id = p.site_id
+                     where """ + COMMENT_SCOPE + """
+                       and ade.execution_mode = 'LIVE'
+                       and ade.evaluated_at >= :from and ade.evaluated_at < :to) as automatic_decisions,
+                    (select count(*)
+                     from moderation_actions ma
+                     join comments c on c.id = ma.comment_id
+                     join pages p on p.id = c.page_id
+                     join sites s on s.id = p.site_id
+                     where """ + COMMENT_SCOPE + """
+                       and ma.action <> 'UNDO'
+                       and ma.created_at >= :from and ma.created_at < :to) as manual_decisions,
+                    (select count(*)
+                     from moderation_actions ma
+                     join comments c on c.id = ma.comment_id
+                     join pages p on p.id = c.page_id
+                     join sites s on s.id = p.site_id
+                     where """ + COMMENT_SCOPE + """
+                       and ma.action = 'UNDO'
+                       and ma.created_at >= :from and ma.created_at < :to) as undo_actions
+                """,
+            params(ownerId, siteId, from, to),
+            (resultSet, rowNumber) -> new PeriodActivity(
+                resultSet.getLong("comments_count"),
+                resultSet.getLong("reactions_count"),
+                resultSet.getLong("automatic_decisions"),
+                resultSet.getLong("manual_decisions"),
+                resultSet.getLong("undo_actions")
             )
         );
     }

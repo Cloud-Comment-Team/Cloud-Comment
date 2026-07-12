@@ -1,11 +1,13 @@
 package com.cloudcomment.auth.persistence;
 
 import org.flywaydb.core.Flyway;
+import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.dao.DataAccessException;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -13,10 +15,13 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import javax.sql.DataSource;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest
 @Testcontainers(disabledWithoutDocker = true)
@@ -62,7 +67,13 @@ class PostgresFlywayIntegrationTests {
                 'moderation_actions',
                 'account_deletion_requests',
                 'user_consents',
-                'privacy_events'
+                'privacy_events',
+                'owner_notifications',
+                'site_widget_health',
+                'automod_policy_versions',
+                'site_automod_policy_state',
+                'automod_policy_feedback',
+                'automod_decision_events'
             )
             """, Integer.class);
         Integer roleRows = jdbcTemplate.queryForObject("""
@@ -72,10 +83,238 @@ class PostgresFlywayIntegrationTests {
             """, Integer.class);
 
         assertThat(databaseVersion).contains("PostgreSQL");
-        assertThat(schemaHistoryRows).isEqualTo(12);
+        assertThat(schemaHistoryRows).isEqualTo(16);
         assertThat(smokeTableRows).isZero();
-        assertThat(coreTableRows).isEqualTo(12);
+        assertThat(coreTableRows).isEqualTo(18);
         assertThat(roleRows).isEqualTo(3);
+    }
+
+    @Test
+    void v13UpgradesExistingV12SiteWithoutInventingHealthEvents() {
+        String schema = "v13_upgrade_" + UUID.randomUUID().toString().replace("-", "");
+        try {
+            Flyway v12 = Flyway.configure()
+                .dataSource(dataSource)
+                .schemas(schema)
+                .defaultSchema(schema)
+                .target(MigrationVersion.fromVersion("12"))
+                .load();
+            v12.migrate();
+
+            UUID ownerId = jdbcTemplate.queryForObject(
+                "insert into " + schema + ".app_users (email, password_hash) values (?, ?) returning id",
+                UUID.class,
+                "upgrade-" + UUID.randomUUID() + "@example.com",
+                "hash"
+            );
+            UUID siteId = jdbcTemplate.queryForObject(
+                "insert into " + schema + ".sites (owner_id, name, domain, public_key) values (?, ?, ?, ?) returning id",
+                UUID.class,
+                ownerId,
+                "Existing V12 site",
+                "upgrade.example.com",
+                "upgrade-" + UUID.randomUUID()
+            );
+
+            Flyway.configure()
+                .dataSource(dataSource)
+                .schemas(schema)
+                .defaultSchema(schema)
+                .target(MigrationVersion.fromVersion("13"))
+                .load()
+                .migrate();
+
+            Boolean migrationSucceeded = jdbcTemplate.queryForObject(
+                "select success from " + schema + ".flyway_schema_history where version = '13'",
+                Boolean.class
+            );
+            Integer existingSiteRows = jdbcTemplate.queryForObject(
+                "select count(*) from " + schema + ".sites where id = ?",
+                Integer.class,
+                siteId
+            );
+            Integer healthRows = jdbcTemplate.queryForObject(
+                "select count(*) from " + schema + ".site_widget_health where site_id = ?",
+                Integer.class,
+                siteId
+            );
+
+            assertThat(migrationSucceeded).isTrue();
+            assertThat(existingSiteRows).isOne();
+            assertThat(healthRows).isZero();
+        } finally {
+            jdbcTemplate.execute("drop schema if exists " + schema + " cascade");
+        }
+    }
+
+    @Test
+    void v14PreservesLegacyBlockedWordsAndMakesPublishedVersionImmutable() {
+        String schema = "v14_upgrade_" + UUID.randomUUID().toString().replace("-", "");
+        try {
+            Flyway.configure()
+                .dataSource(dataSource)
+                .schemas(schema)
+                .defaultSchema(schema)
+                .target(MigrationVersion.fromVersion("13"))
+                .load()
+                .migrate();
+
+            UUID ownerId = jdbcTemplate.queryForObject(
+                "insert into " + schema + ".app_users (email, password_hash) values (?, 'hash') returning id",
+                UUID.class,
+                "upgrade-" + UUID.randomUUID() + "@example.com"
+            );
+            String eightyCharacters = "x".repeat(80);
+            String blockedWords = String.join("\n", IntStream.range(0, 120)
+                .mapToObj(index -> index == 0 ? eightyCharacters : "word-" + index)
+                .toList());
+            UUID siteId = jdbcTemplate.queryForObject(
+                """
+                    insert into %s.sites (
+                        owner_id, name, domain, public_key, automod_blocked_words
+                    ) values (?, 'Legacy policy', ?, ?, ?) returning id
+                    """.formatted(schema),
+                UUID.class,
+                ownerId,
+                UUID.randomUUID() + ".example.com",
+                "key-" + UUID.randomUUID(),
+                blockedWords
+            );
+
+            Flyway.configure()
+                .dataSource(dataSource)
+                .schemas(schema)
+                .defaultSchema(schema)
+                .target(MigrationVersion.fromVersion("14"))
+                .load()
+                .migrate();
+
+            UUID policyId = jdbcTemplate.queryForObject(
+                "select id from " + schema + ".automod_policy_versions where site_id = ? and version = 1",
+                UUID.class,
+                siteId
+            );
+            assertThat(jdbcTemplate.queryForObject(
+                "select jsonb_array_length(blocked_words) from " + schema + ".automod_policy_versions where id = ?",
+                Integer.class,
+                policyId
+            )).isEqualTo(120);
+            assertThat(jdbcTemplate.queryForObject(
+                "select length(blocked_words ->> 0) from " + schema + ".automod_policy_versions where id = ?",
+                Integer.class,
+                policyId
+            )).isEqualTo(80);
+            assertThatThrownBy(() -> jdbcTemplate.update(
+                "update " + schema + ".automod_policy_versions set review_threshold = 44 where id = ?",
+                policyId
+            )).isInstanceOf(DataAccessException.class);
+        } finally {
+            jdbcTemplate.execute("drop schema if exists " + schema + " cascade");
+        }
+    }
+
+    @Test
+    void v15BackfillsAutomodDecisionSnapshotWithoutCopyingCommentText() {
+        String schema = "v15_upgrade_" + UUID.randomUUID().toString().replace("-", "");
+        try {
+            Flyway.configure()
+                .dataSource(dataSource)
+                .schemas(schema)
+                .defaultSchema(schema)
+                .target(MigrationVersion.fromVersion("13"))
+                .load()
+                .migrate();
+
+            UUID ownerId = jdbcTemplate.queryForObject(
+                "insert into " + schema + ".app_users (email, password_hash) values (?, 'hash') returning id",
+                UUID.class,
+                "v15-" + UUID.randomUUID() + "@example.com"
+            );
+            UUID siteId = jdbcTemplate.queryForObject(
+                """
+                    insert into %s.sites (owner_id, name, domain, public_key)
+                    values (?, 'V15 site', ?, ?) returning id
+                    """.formatted(schema),
+                UUID.class,
+                ownerId,
+                UUID.randomUUID() + ".example.com",
+                "key-" + UUID.randomUUID()
+            );
+            UUID pageId = jdbcTemplate.queryForObject(
+                "insert into " + schema + ".pages (site_id, url) values (?, ?) returning id",
+                UUID.class,
+                siteId,
+                "https://v15.example.com/" + UUID.randomUUID()
+            );
+            UUID commentId = jdbcTemplate.queryForObject(
+                """
+                    insert into %s.comments (page_id, author_user_id, body, status)
+                    values (?, ?, 'Текст не должен попасть в событие', 'APPROVED') returning id
+                    """.formatted(schema),
+                UUID.class,
+                pageId,
+                ownerId
+            );
+
+            Flyway.configure()
+                .dataSource(dataSource)
+                .schemas(schema)
+                .defaultSchema(schema)
+                .target(MigrationVersion.fromVersion("14"))
+                .load()
+                .migrate();
+
+            UUID policyId = jdbcTemplate.queryForObject(
+                "select active_policy_version_id from " + schema + ".site_automod_policy_state where site_id = ?",
+                UUID.class,
+                siteId
+            );
+            Instant evaluatedAt = Instant.parse("2026-07-11T10:15:00Z");
+            jdbcTemplate.update(
+                """
+                    update %s.comments
+                    set automod_policy_version_id = ?,
+                        automod_execution_mode = 'LIVE',
+                        automod_score = 12,
+                        automod_decision = 'APPROVE',
+                        automod_signals = '[]'::jsonb,
+                        automod_reason = null,
+                        automod_applied_status = 'APPROVED',
+                        automod_evaluated_at = ?
+                    where id = ?
+                    """.formatted(schema),
+                policyId,
+                evaluatedAt.atOffset(ZoneOffset.UTC),
+                commentId
+            );
+
+            Flyway.configure()
+                .dataSource(dataSource)
+                .schemas(schema)
+                .defaultSchema(schema)
+                .target(MigrationVersion.fromVersion("15"))
+                .load()
+                .migrate();
+
+            assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from " + schema + ".automod_decision_events where comment_id = ?",
+                Integer.class,
+                commentId
+            )).isOne();
+            assertThat(jdbcTemplate.queryForObject(
+                """
+                    select count(*)
+                    from information_schema.columns
+                    where table_schema = ?
+                      and table_name = 'automod_decision_events'
+                      and column_name in ('body', 'content', 'signals', 'reason')
+                    """,
+                Integer.class,
+                schema
+            )).isZero();
+        } finally {
+            jdbcTemplate.execute("drop schema if exists " + schema + " cascade");
+        }
     }
 
     @Test

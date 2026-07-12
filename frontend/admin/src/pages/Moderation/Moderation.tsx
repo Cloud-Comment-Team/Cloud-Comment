@@ -18,11 +18,13 @@ import { getApiErrorMessage } from '../../api/auth'
 import {
   applyBulkModerationAction,
   applyModerationAction,
+  deleteAutoModerationFeedback,
   getComment,
   getModerationCounts,
   listComments,
   undoModerationAction,
   updateCommentFlags,
+  setAutoModerationFeedback,
 } from '../../api/moderation'
 import { listAllSites } from '../../api/sites'
 import { AsyncState } from '../../components/common/AsyncState'
@@ -32,6 +34,8 @@ import { ActionBar, DataRow, Drawer, PageHeader } from '../../components/common/
 import { useRealtimeEvent } from '../../components/realtime/useRealtime'
 import type {
   Comment,
+  AutoModerationFeedback,
+  AutoModerationFeedbackType,
   CommentStatus,
   ModerationAction,
   ModerationCommand,
@@ -40,6 +44,7 @@ import type {
 } from '../../types/api'
 import { formatDateTime } from '../../utils/formatDate'
 import { getAvailableModerationActions } from '../../utils/moderationActions'
+import { decisionLabels, executionModeLabels, signalLabel } from '../../components/automoderation/policyModel'
 
 type QueueView = 'pending' | 'spam' | 'history'
 
@@ -105,8 +110,35 @@ function readSavedFilters(): SavedFilters {
   }
 }
 
+function readInitialFilters(searchParams: URLSearchParams): SavedFilters {
+  const saved = readSavedFilters()
+  const analyticsSource = searchParams.get('source') === 'analytics'
+  if (analyticsSource) {
+    return {
+      ...emptyFilters,
+      siteId: searchParams.get('siteId')?.trim() ?? '',
+      pageUrl: searchParams.get('pageUrl')?.trim() ?? '',
+    }
+  }
+  return {
+    ...saved,
+    siteId: searchParams.get('siteId')?.trim() || saved.siteId,
+    pageUrl: searchParams.get('pageUrl')?.trim() || saved.pageUrl,
+  }
+}
+
 function isQueueView(value: string | null): value is QueueView {
   return value === 'pending' || value === 'spam' || value === 'history'
+}
+
+function isCommentStatus(value: string | null): value is CommentStatus {
+  return value !== null && Object.hasOwn(statusLabels, value)
+}
+
+function queueViewForStatus(status: CommentStatus): QueueView {
+  if (status === 'PENDING') return 'pending'
+  if (status === 'SPAM') return 'spam'
+  return 'history'
 }
 
 function authorName(comment: Comment): string {
@@ -115,9 +147,13 @@ function authorName(comment: Comment): string {
 
 const Moderation = () => {
   const [searchParams, setSearchParams] = useSearchParams()
-  const initialFilters = useMemo(() => readSavedFilters(), [])
+  const [initialFilters] = useState(() => readInitialFilters(searchParams))
   const requestedView = searchParams.get('view')
-  const view: QueueView = isQueueView(requestedView) ? requestedView : 'pending'
+  const requestedStatus = searchParams.get('status')
+  const exactStatus = isCommentStatus(requestedStatus) ? requestedStatus : null
+  const view: QueueView = exactStatus
+    ? queueViewForStatus(exactStatus)
+    : isQueueView(requestedView) ? requestedView : 'pending'
   const selectedCommentId = searchParams.get('comment')
 
   const [sites, setSites] = useState<Site[]>([])
@@ -160,7 +196,8 @@ const Moderation = () => {
         pageUrl: appliedFilters.pageUrl.trim() || undefined,
         search: appliedFilters.search.trim() || undefined,
         favorite: appliedFilters.favorite || undefined,
-        statuses: viewStatuses[view],
+        status: exactStatus ?? undefined,
+        statuses: exactStatus ? undefined : viewStatuses[view],
         sortBy: 'SMART',
         sortOrder: 'DESC',
         page,
@@ -186,7 +223,7 @@ const Moderation = () => {
     return () => {
       cancelled = true
     }
-  }, [appliedFilters, page, reloadKey, view])
+  }, [appliedFilters, exactStatus, page, reloadKey, view])
 
   useEffect(() => {
     if (!selectedCommentId || comments.some((comment) => comment.id === selectedCommentId)) return
@@ -203,13 +240,14 @@ const Moderation = () => {
     }
   }, [comments, selectedCommentId])
 
-  function updateRoute(nextView: QueueView, commentId?: string) {
+  function updateRoute(nextView: QueueView, commentId?: string, preserveStatus = false) {
     const next = new URLSearchParams(searchParams)
     next.set('view', nextView)
+    if (!preserveStatus) next.delete('status')
     if (commentId) next.set('comment', commentId)
     else next.delete('comment')
     setSearchParams(next)
-    if (nextView !== view) {
+    if (nextView !== view || (!preserveStatus && exactStatus)) {
       setPage(1)
       setSelectedIds(new Set())
     }
@@ -272,6 +310,39 @@ const Moderation = () => {
     }
   }
 
+  function updateFeedback(commentId: string, feedback: AutoModerationFeedback | null) {
+    const updateComment = (comment: Comment): Comment => comment.id === commentId && comment.autoModeration
+      ? { ...comment, autoModeration: { ...comment.autoModeration, feedback } }
+      : comment
+    setComments((current) => current.map(updateComment))
+    setDetailComment((current) => current ? updateComment(current) : current)
+  }
+
+  async function saveAutoModerationFeedback(comment: Comment, type: AutoModerationFeedbackType) {
+    setBusy(true)
+    try {
+      updateFeedback(comment.id, await setAutoModerationFeedback(comment.id, type))
+      toast.success('Обратная связь сохранена')
+    } catch (feedbackError) {
+      toast.error(getApiErrorMessage(feedbackError, 'Не удалось сохранить обратную связь.'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function removeAutoModerationFeedback(comment: Comment) {
+    setBusy(true)
+    try {
+      await deleteAutoModerationFeedback(comment.id)
+      updateFeedback(comment.id, null)
+      toast.success('Отметка снята')
+    } catch (feedbackError) {
+      toast.error(getApiErrorMessage(feedbackError, 'Не удалось снять отметку.'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       const target = event.target as HTMLElement
@@ -296,6 +367,14 @@ const Moderation = () => {
     localStorage.setItem(FILTERS_KEY, JSON.stringify(filters))
     setAppliedFilters(filters)
     setPage(1)
+    const next = new URLSearchParams(searchParams)
+    if (filters.siteId) next.set('siteId', filters.siteId)
+    else next.delete('siteId')
+    if (filters.pageUrl.trim()) next.set('pageUrl', filters.pageUrl.trim())
+    else next.delete('pageUrl')
+    next.delete('source')
+    next.delete('comment')
+    setSearchParams(next, { replace: true })
   }
 
   function resetFilters() {
@@ -303,6 +382,13 @@ const Moderation = () => {
     setFilters(emptyFilters)
     setAppliedFilters(emptyFilters)
     setPage(1)
+    const next = new URLSearchParams(searchParams)
+    next.delete('siteId')
+    next.delete('pageUrl')
+    next.delete('status')
+    next.delete('source')
+    next.delete('comment')
+    setSearchParams(next, { replace: true })
   }
 
   function toggleSelection(commentId: string) {
@@ -340,6 +426,17 @@ const Moderation = () => {
           </button>
         ))}
       </nav>
+
+      {exactStatus && (
+        <div className="cc-action-bar mb-4" role="status">
+          <span className="text-sm">
+            Точный фильтр: <strong style={{ color: 'var(--text-h)' }}>{statusLabels[exactStatus]}</strong>
+          </span>
+          <button type="button" className="cc-button-secondary" onClick={() => updateRoute(view)}>
+            Показать весь раздел
+          </button>
+        </div>
+      )}
 
       <form className="cc-filter-bar mb-4" onSubmit={applyFilters}>
         <Filter className="mb-2 h-4 w-4" aria-hidden="true" />
@@ -428,7 +525,7 @@ const Moderation = () => {
                   checked={selectedIds.has(comment.id)}
                   onChange={() => toggleSelection(comment.id)}
                 />
-                <button type="button" className="min-w-0 text-left" onClick={() => updateRoute(view, comment.id)}>
+                <button type="button" className="min-w-0 text-left" onClick={() => updateRoute(view, comment.id, true)}>
                   <span className="flex items-center gap-2">
                     <strong className="truncate" style={{ color: 'var(--text-h)' }}>{authorName(comment)}</strong>
                     {comment.favorite && <Star className="h-3.5 w-3.5" aria-label="В избранном" />}
@@ -438,7 +535,7 @@ const Moderation = () => {
                 </button>
                 <Badge tone={statusTones[comment.status]}>{statusLabels[comment.status]}</Badge>
                 <time className="text-xs" dateTime={comment.createdAt}>{formatDateTime(comment.createdAt)}</time>
-                <button type="button" className="cc-button-secondary !p-1.5" aria-label="Открыть подробности" onClick={() => updateRoute(view, comment.id)}>
+                <button type="button" className="cc-button-secondary !p-1.5" aria-label="Открыть подробности" onClick={() => updateRoute(view, comment.id, true)}>
                   <ChevronRight className="h-4 w-4" aria-hidden="true" />
                 </button>
               </div>
@@ -452,7 +549,7 @@ const Moderation = () => {
         <PaginationControls page={page} totalPages={totalPages} totalItems={totalItems} onPageChange={setPage} />
       </div>
 
-      <Drawer title="Комментарий" open={selectedComment !== null} onClose={() => updateRoute(view)}>
+      <Drawer title="Комментарий" open={selectedComment !== null} onClose={() => updateRoute(view, undefined, true)}>
         {selectedComment && (
           <div className="space-y-5">
             <div className="flex flex-wrap items-center gap-2">
@@ -477,6 +574,58 @@ const Moderation = () => {
               <div className="sm:col-span-2"><dt className="text-xs font-semibold">Страница</dt><dd className="break-all">{selectedComment.pageUrl}</dd></div>
               {selectedComment.moderationReason && <div className="sm:col-span-2"><dt className="text-xs font-semibold">Причина автомодерации</dt><dd>{selectedComment.moderationReason}</dd></div>}
             </dl>
+            {selectedComment.autoModeration ? (
+              <section className="rounded-lg border p-4" aria-labelledby="comment-automoderation-title" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface-muted)' }}>
+                <div className="flex flex-wrap items-center gap-2">
+                  <ShieldAlert className="h-4 w-4" style={{ color: 'var(--accent)' }} aria-hidden="true" />
+                  <h3 id="comment-automoderation-title" className="font-semibold" style={{ color: 'var(--text-h)' }}>Решение автомодерации</h3>
+                  <Badge tone={selectedComment.autoModeration.decision === 'APPROVE' ? 'success' : selectedComment.autoModeration.decision === 'REVIEW' ? 'warning' : 'danger'}>
+                    {decisionLabels[selectedComment.autoModeration.decision]}
+                  </Badge>
+                </div>
+                <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-3">
+                  <div><dt className="text-xs" style={{ color: 'var(--text)' }}>Версия</dt><dd className="font-semibold">{selectedComment.autoModeration.policyVersion}</dd></div>
+                  <div><dt className="text-xs" style={{ color: 'var(--text)' }}>Режим</dt><dd className="font-semibold">{executionModeLabels[selectedComment.autoModeration.executionMode]}</dd></div>
+                  <div><dt className="text-xs" style={{ color: 'var(--text)' }}>Score</dt><dd className="font-semibold">{selectedComment.autoModeration.score}</dd></div>
+                </dl>
+                {selectedComment.autoModeration.reason && <p className="mt-3 text-sm" style={{ color: 'var(--text-h)' }}>{selectedComment.autoModeration.reason}</p>}
+                {selectedComment.autoModeration.signals.length > 0 && (
+                  <ul className="mt-3 space-y-2">
+                    {selectedComment.autoModeration.signals.map((signal, index) => (
+                      <li key={`${signal.code}-${index}`} className="rounded-md border px-3 py-2 text-sm" style={{ borderColor: 'var(--border)' }}>
+                        <strong style={{ color: 'var(--text-h)' }}>+{signal.score} {signalLabel(signal.code)}</strong>
+                        {signal.message && <span className="block" style={{ color: 'var(--text)' }}>{signal.message}</span>}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <div className="mt-4 border-t pt-4" style={{ borderColor: 'var(--border)' }}>
+                  <p className="text-xs leading-5" style={{ color: 'var(--text)' }}>Отметка помогает измерять качество политики. Текст комментария в обратную связь не копируется.</p>
+                  {selectedComment.autoModeration.feedback ? (
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <Badge tone="accent">{selectedComment.autoModeration.feedback.type === 'FALSE_POSITIVE' ? 'Ложное срабатывание' : 'Пропущенный нежелательный комментарий'}</Badge>
+                      <button type="button" className="cc-button-secondary" disabled={busy} onClick={() => void removeAutoModerationFeedback(selectedComment)}>Снять отметку</button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="cc-button-secondary mt-3"
+                      disabled={busy}
+                      onClick={() => void saveAutoModerationFeedback(
+                        selectedComment,
+                        selectedComment.autoModeration?.decision === 'APPROVE' ? 'FALSE_NEGATIVE' : 'FALSE_POSITIVE',
+                      )}
+                    >
+                      {selectedComment.autoModeration.decision === 'APPROVE' ? 'Это нежелательный комментарий' : 'Это допустимый комментарий'}
+                    </button>
+                  )}
+                </div>
+              </section>
+            ) : (
+              <section className="rounded-lg border p-4 text-sm" aria-label="Решение автомодерации" style={{ borderColor: 'var(--border)', color: 'var(--text)' }}>
+                Автомодерация не применялась к этому комментарию.
+              </section>
+            )}
             <label className="block text-sm font-semibold">
               Причина действия
               <textarea className="cc-field mt-1 min-h-20 text-sm" maxLength={1000} value={reason} onChange={(event) => setReason(event.target.value)} />

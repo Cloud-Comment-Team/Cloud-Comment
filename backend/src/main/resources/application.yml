@@ -29,7 +29,7 @@ cloud-comment:
       password: ${CLOUD_COMMENT_MAIL_SMTP_PASSWORD:}
       starttls: ${CLOUD_COMMENT_MAIL_SMTP_STARTTLS:true}
   privacy:
-    privacy-policy-version: ${CLOUD_COMMENT_PRIVACY_POLICY_VERSION:2026-07-01}
+    privacy-policy-version: ${CLOUD_COMMENT_PRIVACY_POLICY_VERSION:2026-07-12}
     terms-version: ${CLOUD_COMMENT_TERMS_VERSION:2026-07-01}
     privacy-policy-url: ${CLOUD_COMMENT_PRIVACY_POLICY_URL:/legal/privacy-policy.html}
     terms-url: ${CLOUD_COMMENT_TERMS_URL:/legal/terms.html}
@@ -38,6 +38,10 @@ cloud-comment:
     session-retention-days: ${CLOUD_COMMENT_SESSION_RETENTION_DAYS:30}
     deletion-request-retention-days: ${CLOUD_COMMENT_DELETION_REQUEST_RETENTION_DAYS:30}
     retention-cleanup-cron: ${CLOUD_COMMENT_RETENTION_CLEANUP_CRON:0 0 3 * * *}
+  notifications:
+    retention-cleanup-cron: ${CLOUD_COMMENT_NOTIFICATION_RETENTION_CLEANUP_CRON:0 30 3 * * *}
+  installation-health:
+    retention-cleanup-cron: ${CLOUD_COMMENT_INSTALLATION_HEALTH_CLEANUP_CRON:0 45 3 * * *}
   demo:
     seed:
       enabled: ${CLOUD_COMMENT_DEMO_SEED_ENABLED:false}
