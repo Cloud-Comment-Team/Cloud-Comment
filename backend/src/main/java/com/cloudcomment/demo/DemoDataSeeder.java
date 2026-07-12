@@ -7,7 +7,7 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -28,19 +28,21 @@ class DemoDataSeeder implements ApplicationRunner {
     private final JdbcTemplate jdbcTemplate;
     private final PasswordEncoder passwordEncoder;
     private final DemoDataProperties properties;
+    private final TransactionTemplate transactionTemplate;
 
     @Override
-    @Transactional
     public void run(ApplicationArguments args) {
         if (!properties.enabled()) {
             return;
         }
 
-        UUID ownerId = upsertOwner();
-        upsertSite(ownerId);
-        upsertAllowedOrigins();
-        upsertPage();
-        upsertComments(ownerId);
+        transactionTemplate.executeWithoutResult(status -> {
+            UUID ownerId = upsertOwner();
+            upsertSite(ownerId);
+            upsertAllowedOrigins();
+            upsertPage();
+            upsertComments(ownerId);
+        });
     }
 
     private UUID upsertOwner() {

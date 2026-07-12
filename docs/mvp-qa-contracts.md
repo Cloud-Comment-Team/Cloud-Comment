@@ -33,7 +33,7 @@ Admin frontend использует `apiClient` с `baseURL = VITE_CLOUD_COMMENT
 
 ## Realtime-уведомления
 
-Админка открывает `WebSocket /api/realtime/ws?token=<bearer-token>`. Browser WebSocket API не позволяет надежно передать `Authorization`, поэтому token передается query-параметром и валидируется backend-ом до принятия сессии.
+Админка сначала вызывает защищённый `POST /api/realtime/tickets`, затем открывает `WebSocket /api/realtime/ws?ticket=<one-time-ticket>`. Ticket привязан к владельцу, живёт не более 60 секунд и атомарно поглощается при handshake; bearer token в URI не попадает.
 
 Админка держит одно WebSocket-соединение на авторизованную сессию и раздает события внутренним подписчикам: notification center, очередь модерации, общий dashboard и аналитика конкретного сайта.
 
