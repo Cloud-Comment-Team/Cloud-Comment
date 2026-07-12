@@ -22,6 +22,7 @@ import { API_BASE_URL } from '../../config/env'
 import type { AutoModerationStrictness, ModerationMode, WidgetCornerRadius, WidgetTheme } from '../../types/api'
 import { normalizeDomainInput, parseAllowedOriginsInput } from '../../utils/origins'
 import { moderationModeLabels } from '../../utils/moderationModeLabels'
+import { DEFAULT_WIDGET_STYLE } from '../../utils/widgetStyle'
 
 interface SiteFormValues {
   name: string
@@ -176,6 +177,7 @@ const SiteCreate = () => {
         moderationMode: values.moderationMode,
         allowedOrigins,
         widgetStyle: {
+          ...DEFAULT_WIDGET_STYLE,
           theme: values.widgetTheme,
           accentColor: values.widgetAccentColor,
           cornerRadius: values.widgetCornerRadius,

@@ -418,6 +418,9 @@ class SiteControllerTests {
         );
         Site updatedSite = site(currentUser.id(), siteId, widgetStyle, autoModeration);
         when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(siteService.getSite(currentUser, siteId)).thenReturn(
+            site(currentUser.id(), siteId, WidgetStyle.defaultStyle(), AutoModerationSettings.defaultSettings())
+        );
         when(siteService.updateSite(
             currentUser,
             siteId,
@@ -451,6 +454,29 @@ class SiteControllerTests {
             .andExpect(jsonPath("$.widgetStyle.cornerRadius", is("SMALL")))
             .andExpect(jsonPath("$.autoModeration.enabled", is(false)))
             .andExpect(jsonPath("$.autoModeration.holdLinks", is(false)));
+    }
+
+    @Test
+    void updateSiteRejectsMarkupInWidgetLabels() throws Exception {
+        AuthenticatedUser currentUser = currentUser();
+        UUID siteId = UUID.randomUUID();
+        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+
+        mockMvc.perform(patch("/api/sites/{siteId}", siteId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "widgetStyle": {
+                        "headerTitle": "<img src=x>"
+                      }
+                    }
+                    """))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code", is("VALIDATION_FAILED")))
+            .andExpect(jsonPath("$.error.fields").isNotEmpty());
+
+        verifyNoInteractions(siteService);
     }
 
     @Test

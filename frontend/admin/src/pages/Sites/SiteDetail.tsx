@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Check, Copy, Globe, Palette, Power, ShieldCheck, Sparkles, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -16,11 +16,12 @@ import type {
   EmbedCode,
   ModerationMode,
   Site,
-  WidgetCornerRadius,
-  WidgetTheme,
+  CommentReactionType,
+  WidgetStyle,
 } from '../../types/api'
 import { formatOriginsInput, normalizeDomainInput, parseAllowedOriginsInput } from '../../utils/origins'
 import { moderationModeLabels } from '../../utils/moderationModeLabels'
+import { DEFAULT_WIDGET_STYLE, isWidgetAccentAccessible } from '../../utils/widgetStyle'
 
 function parseBlockedWords(value: string): string[] {
   return Array.from(
@@ -66,6 +67,13 @@ const automodStatusTones: Record<CommentStatus, 'success' | 'warning' | 'danger'
   SPAM: 'danger',
 }
 
+const reactionLabels: Record<CommentReactionType, string> = {
+  LIKE: 'Нравится',
+  LOVE: 'Любовь',
+  LAUGH: 'Смешно',
+  WOW: 'Удивление',
+}
+
 const SiteDetail = () => {
   const navigate = useNavigate()
   const { siteId = '' } = useParams()
@@ -77,9 +85,8 @@ const SiteDetail = () => {
   const [name, setName] = useState('')
   const [domain, setDomain] = useState('')
   const [moderationMode, setModerationMode] = useState<ModerationMode>('PRE_MODERATION')
-  const [widgetTheme, setWidgetTheme] = useState<WidgetTheme>('AUTO')
-  const [widgetAccentColor, setWidgetAccentColor] = useState('#0f766e')
-  const [widgetCornerRadius, setWidgetCornerRadius] = useState<WidgetCornerRadius>('MEDIUM')
+  const [widgetStyle, setWidgetStyle] = useState<WidgetStyle>(DEFAULT_WIDGET_STYLE)
+  const previewRef = useRef<HTMLIFrameElement>(null)
   const [autoModeration, setAutoModeration] = useState<AutoModerationSettings>({
     enabled: true,
     strictness: 'BALANCED',
@@ -96,9 +103,14 @@ const SiteDetail = () => {
   const [originsInput, setOriginsInput] = useState('')
   const [deleteConfirmationVisible, setDeleteConfirmationVisible] = useState(false)
   const [deleteConfirmation, setDeleteConfirmation] = useState('')
-  const safeWidgetAccentColor = /^#[0-9a-fA-F]{6}$/.test(widgetAccentColor)
-    ? widgetAccentColor
+  const safeWidgetAccentColor = /^#[0-9a-fA-F]{6}$/.test(widgetStyle.accentColor)
+    ? widgetStyle.accentColor
     : '#0f766e'
+  const widgetColorAccessible = isWidgetAccentAccessible(widgetStyle.accentColor)
+  const widgetStyleDirty = site ? JSON.stringify(widgetStyle) !== JSON.stringify(site.widgetStyle) : false
+  const updateWidgetStyle = <K extends keyof WidgetStyle>(key: K, value: WidgetStyle[K]) => {
+    setWidgetStyle((current) => ({ ...current, [key]: value }))
+  }
   const updateAutoModeration = (patch: Partial<AutoModerationSettings>) => {
     setAutoModeration((current) => ({ ...current, ...patch }))
   }
@@ -120,9 +132,7 @@ const SiteDetail = () => {
         setName(loadedSite.name)
         setDomain(loadedSite.domain)
         setModerationMode(loadedSite.moderationMode)
-        setWidgetTheme(loadedSite.widgetStyle.theme)
-        setWidgetAccentColor(loadedSite.widgetStyle.accentColor)
-        setWidgetCornerRadius(loadedSite.widgetStyle.cornerRadius)
+        setWidgetStyle(loadedSite.widgetStyle)
         setAutoModeration(loadedSite.autoModeration)
         setAutoModerationBlockedWords(formatBlockedWords(loadedSite.autoModeration.blockedWords))
         setAutoModerationPreview(null)
@@ -146,6 +156,10 @@ const SiteDetail = () => {
     }
   }, [siteId])
 
+  useEffect(() => {
+    previewRef.current?.contentWindow?.postMessage({ type: 'cloud-comment-preview', style: widgetStyle }, '*')
+  }, [widgetStyle])
+
   async function handleSaveSettings() {
     if (!site) {
       return
@@ -165,20 +179,21 @@ const SiteDetail = () => {
         return
       }
 
-      if (!/^#[0-9a-fA-F]{6}$/.test(widgetAccentColor)) {
+      if (!/^#[0-9a-fA-F]{6}$/.test(widgetStyle.accentColor)) {
         toast.error('Цвет виджета должен быть в формате #RRGGBB')
         return
       }
+      if (!widgetColorAccessible) {
+        toast.error('Акцент должен иметь контраст не ниже 3:1 и на светлой, и на тёмной поверхности.')
+        return
+      }
 
+      setSite({ ...site, widgetStyle })
       await updateSite(site.id, {
         name: name.trim(),
         domain: normalizedDomain,
         moderationMode,
-        widgetStyle: {
-          theme: widgetTheme,
-          accentColor: widgetAccentColor,
-          cornerRadius: widgetCornerRadius,
-        },
+        widgetStyle,
         autoModeration: {
           ...autoModeration,
           strictness: autoModeration.enabled ? autoModeration.strictness : 'OFF',
@@ -190,14 +205,13 @@ const SiteDetail = () => {
       setName(siteWithOrigins.name)
       setDomain(siteWithOrigins.domain)
       setModerationMode(siteWithOrigins.moderationMode)
-      setWidgetTheme(siteWithOrigins.widgetStyle.theme)
-      setWidgetAccentColor(siteWithOrigins.widgetStyle.accentColor)
-      setWidgetCornerRadius(siteWithOrigins.widgetStyle.cornerRadius)
+      setWidgetStyle(siteWithOrigins.widgetStyle)
       setAutoModeration(siteWithOrigins.autoModeration)
       setAutoModerationBlockedWords(formatBlockedWords(siteWithOrigins.autoModeration.blockedWords))
       setOriginsInput(formatOriginsInput(siteWithOrigins.allowedOrigins))
       toast.success('Настройки сайта сохранены')
     } catch (saveError) {
+      setSite(site)
       toast.error(getApiErrorMessage(saveError, 'Не удалось сохранить настройки.'))
     } finally {
       setSaving(false)
@@ -241,9 +255,7 @@ const SiteDetail = () => {
       setName(updatedSite.name)
       setDomain(updatedSite.domain)
       setModerationMode(updatedSite.moderationMode)
-      setWidgetTheme(updatedSite.widgetStyle.theme)
-      setWidgetAccentColor(updatedSite.widgetStyle.accentColor)
-      setWidgetCornerRadius(updatedSite.widgetStyle.cornerRadius)
+      setWidgetStyle(updatedSite.widgetStyle)
       setAutoModeration(updatedSite.autoModeration)
       setAutoModerationBlockedWords(formatBlockedWords(updatedSite.autoModeration.blockedWords))
       setOriginsInput(formatOriginsInput(updatedSite.allowedOrigins))
@@ -594,8 +606,8 @@ const SiteDetail = () => {
                     </span>
                     <select
                       className="cc-field"
-                      value={widgetTheme}
-                      onChange={(event) => setWidgetTheme(event.target.value as WidgetTheme)}
+                      value={widgetStyle.theme}
+                      onChange={(event) => updateWidgetStyle('theme', event.target.value as WidgetStyle['theme'])}
                     >
                       <option value="AUTO">Авто</option>
                       <option value="LIGHT">Светлая</option>
@@ -612,13 +624,13 @@ const SiteDetail = () => {
                         className="h-12 w-14 shrink-0 rounded-lg border bg-transparent p-1"
                         style={{ borderColor: 'var(--border)' }}
                         value={safeWidgetAccentColor}
-                        onChange={(event) => setWidgetAccentColor(event.target.value)}
+                        onChange={(event) => updateWidgetStyle('accentColor', event.target.value)}
                         aria-label="Акцентный цвет виджета"
                       />
                       <input
                         className="cc-field"
-                        value={widgetAccentColor}
-                        onChange={(event) => setWidgetAccentColor(event.target.value)}
+                        value={widgetStyle.accentColor}
+                        onChange={(event) => updateWidgetStyle('accentColor', event.target.value)}
                         aria-label="HEX акцентного цвета виджета"
                       />
                     </div>
@@ -629,8 +641,8 @@ const SiteDetail = () => {
                     </span>
                     <select
                       className="cc-field"
-                      value={widgetCornerRadius}
-                      onChange={(event) => setWidgetCornerRadius(event.target.value as WidgetCornerRadius)}
+                      value={widgetStyle.cornerRadius}
+                      onChange={(event) => updateWidgetStyle('cornerRadius', event.target.value as WidgetStyle['cornerRadius'])}
                     >
                       <option value="SMALL">Строже</option>
                       <option value="MEDIUM">Мягко</option>
@@ -641,7 +653,7 @@ const SiteDetail = () => {
                     className="flex items-center gap-3 rounded-lg border px-4 py-3 md:col-span-3"
                     style={{
                       borderColor: safeWidgetAccentColor,
-                      borderRadius: widgetCornerRadius === 'SMALL' ? 6 : widgetCornerRadius === 'LARGE' ? 20 : 12,
+                      borderRadius: widgetStyle.cornerRadius === 'SMALL' ? 6 : widgetStyle.cornerRadius === 'LARGE' ? 20 : 12,
                       backgroundColor: `${safeWidgetAccentColor}18`,
                       color: 'var(--text-h)',
                     }}
@@ -655,6 +667,87 @@ const SiteDetail = () => {
                     <span className="min-w-0 text-sm font-semibold">
                       Виджет будет использовать этот стиль на публичной странице и в демо.
                     </span>
+                  </div>
+
+                  <label className="block">
+                    <span className="mb-2 block text-sm font-medium" style={{ color: 'var(--text-h)' }}>Плотность</span>
+                    <select className="cc-field" value={widgetStyle.density} onChange={(event) => updateWidgetStyle('density', event.target.value as WidgetStyle['density'])}>
+                      <option value="COMFORTABLE">Комфортная</option><option value="COMPACT">Компактная</option>
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="mb-2 block text-sm font-medium" style={{ color: 'var(--text-h)' }}>Ширина содержимого</span>
+                    <select className="cc-field" value={widgetStyle.contentWidth} onChange={(event) => updateWidgetStyle('contentWidth', event.target.value as WidgetStyle['contentWidth'])}>
+                      <option value="READABLE">Читаемая</option><option value="WIDE">Широкая</option><option value="FULL">На всю ширину</option>
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="mb-2 block text-sm font-medium" style={{ color: 'var(--text-h)' }}>Выравнивание</span>
+                    <select className="cc-field" value={widgetStyle.alignment} onChange={(event) => updateWidgetStyle('alignment', event.target.value as WidgetStyle['alignment'])}>
+                      <option value="CENTER">По центру</option><option value="LEFT">По левому краю</option>
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="mb-2 block text-sm font-medium" style={{ color: 'var(--text-h)' }}>Размер текста</span>
+                    <select className="cc-field" value={widgetStyle.fontScale} onChange={(event) => updateWidgetStyle('fontScale', event.target.value as WidgetStyle['fontScale'])}>
+                      <option value="SMALL">Мелкий</option><option value="MEDIUM">Средний</option><option value="LARGE">Крупный</option>
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="mb-2 block text-sm font-medium" style={{ color: 'var(--text-h)' }}>Шрифт</span>
+                    <select className="cc-field" value={widgetStyle.fontFamily} onChange={(event) => updateWidgetStyle('fontFamily', event.target.value as WidgetStyle['fontFamily'])}>
+                      <option value="INHERIT">Как на сайте</option><option value="SYSTEM">Системный</option><option value="SERIF">С засечками</option><option value="MONO">Моноширинный</option>
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="mb-2 block text-sm font-medium" style={{ color: 'var(--text-h)' }}>Глубина</span>
+                    <select className="cc-field" value={widgetStyle.elevation} onChange={(event) => updateWidgetStyle('elevation', event.target.value as WidgetStyle['elevation'])}>
+                      <option value="BORDER">Рамка</option><option value="SHADOW">Тень</option><option value="NONE">Без обводки</option>
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="mb-2 block text-sm font-medium" style={{ color: 'var(--text-h)' }}>Аватары</span>
+                    <select className="cc-field" value={widgetStyle.avatarStyle} onChange={(event) => updateWidgetStyle('avatarStyle', event.target.value as WidgetStyle['avatarStyle'])}>
+                      <option value="INITIALS">Инициалы</option><option value="HIDDEN">Скрыть</option>
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="mb-2 block text-sm font-medium" style={{ color: 'var(--text-h)' }}>Язык</span>
+                    <select className="cc-field" value={widgetStyle.locale} onChange={(event) => updateWidgetStyle('locale', event.target.value as WidgetStyle['locale'])}>
+                      <option value="RU">Русский</option><option value="EN">English</option>
+                    </select>
+                  </label>
+
+                  <div className="grid gap-3 rounded-lg border p-4 md:col-span-3 md:grid-cols-2" style={{ borderColor: 'var(--border)' }}>
+                    <label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" checked={widgetStyle.showHeader} onChange={(event) => updateWidgetStyle('showHeader', event.target.checked)} />Показывать заголовок</label>
+                    <label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" checked={widgetStyle.showSort} onChange={(event) => updateWidgetStyle('showSort', event.target.checked)} />Показывать сортировку</label>
+                    <label className="block"><span className="mb-2 block text-sm font-medium">Заголовок</span><input className="cc-field" maxLength={160} value={widgetStyle.headerTitle} onChange={(event) => updateWidgetStyle('headerTitle', event.target.value)} /></label>
+                    <label className="block"><span className="mb-2 block text-sm font-medium">Название области комментариев</span><input className="cc-field" maxLength={160} value={widgetStyle.commentsTitle} onChange={(event) => updateWidgetStyle('commentsTitle', event.target.value)} /></label>
+                    <label className="block"><span className="mb-2 block text-sm font-medium">Подсказка редактора</span><input className="cc-field" maxLength={160} value={widgetStyle.composerPlaceholder} onChange={(event) => updateWidgetStyle('composerPlaceholder', event.target.value)} /></label>
+                    <label className="block"><span className="mb-2 block text-sm font-medium">Положение редактора</span><select className="cc-field" value={widgetStyle.composerPosition} onChange={(event) => updateWidgetStyle('composerPosition', event.target.value as WidgetStyle['composerPosition'])}><option value="BOTTOM">Снизу</option><option value="TOP">Сверху</option></select></label>
+                    <label className="block"><span className="mb-2 block text-sm font-medium">Сортировка по умолчанию</span><select className="cc-field" value={widgetStyle.defaultSort} onChange={(event) => updateWidgetStyle('defaultSort', event.target.value as WidgetStyle['defaultSort'])}><option value="PINNED_FIRST">Закреплённые сначала</option><option value="NEWEST">Сначала новые</option><option value="OLDEST">Сначала старые</option><option value="TOP_REACTIONS">По реакциям</option></select></label>
+                    <label className="block md:col-span-2"><span className="mb-2 block text-sm font-medium">Пустое состояние</span><input className="cc-field" maxLength={160} value={widgetStyle.emptyMessage} onChange={(event) => updateWidgetStyle('emptyMessage', event.target.value)} /></label>
+                    <fieldset className="md:col-span-2"><legend className="mb-2 text-sm font-medium">Доступные реакции</legend><div className="flex flex-wrap gap-4">{(Object.keys(reactionLabels) as CommentReactionType[]).map((reaction) => <label key={reaction} className="inline-flex items-center gap-2 text-sm"><input type="checkbox" checked={widgetStyle.enabledReactions.includes(reaction)} onChange={(event) => updateWidgetStyle('enabledReactions', event.target.checked ? [...widgetStyle.enabledReactions, reaction] : widgetStyle.enabledReactions.filter((item) => item !== reaction))} />{reactionLabels[reaction]}</label>)}</div></fieldset>
+                  </div>
+
+                  <div className="md:col-span-3">
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
+                      <span className="text-sm font-semibold" style={{ color: 'var(--text-h)' }}>Живой предварительный просмотр</span>
+                      <div className="flex items-center gap-3">
+                        {widgetStyleDirty && <Badge tone="warning">Есть несохранённые изменения</Badge>}
+                        <button type="button" className="cc-button-secondary" onClick={() => setWidgetStyle(DEFAULT_WIDGET_STYLE)}>Сбросить оформление</button>
+                      </div>
+                    </div>
+                    {!widgetColorAccessible && <p className="mb-3 text-sm" style={{ color: 'var(--danger)' }}>Цвет недостаточно контрастен для светлой или тёмной темы. Сохранение недоступно.</p>}
+                    <iframe
+                      ref={previewRef}
+                      title="Предварительный просмотр виджета"
+                      src="/widget-preview.html"
+                      sandbox="allow-scripts"
+                      className="h-[560px] w-full rounded-lg border bg-white"
+                      style={{ borderColor: 'var(--border)' }}
+                      onLoad={() => previewRef.current?.contentWindow?.postMessage({ type: 'cloud-comment-preview', style: widgetStyle }, '*')}
+                    />
                   </div>
                 </div>
                 <label className="block md:col-span-2">
@@ -671,7 +764,7 @@ const SiteDetail = () => {
               <button
                 type="button"
                 onClick={() => void handleSaveSettings()}
-                disabled={saving}
+                disabled={saving || !widgetColorAccessible}
                 className="cc-button-primary mt-4"
               >
                 <Check className="h-4 w-4" aria-hidden="true" />

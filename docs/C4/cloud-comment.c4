@@ -215,7 +215,7 @@ model {
 
       pageModule = component 'Page module' 'Определение страницы сайта и разделение обсуждений по URL'
 
-      widgetConfigModule = component 'Widget config module' 'Публичная конфигурация виджета и настройка темы/акцента для конкретного сайта'
+      widgetConfigModule = component 'Widget config module' 'Версионированная безопасная конфигурация оформления виджета; синхронизирует JSONB V2 с legacy-полями'
 
       commentModule = component 'Comment module' 'Создание, получение, сортировка, pin, редактирование, soft-delete, реакции и хранение комментариев'
 

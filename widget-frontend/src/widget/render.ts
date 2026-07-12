@@ -102,7 +102,10 @@ export function renderWidget(
       return;
     }
 
-    shell.replaceChildren(renderHeader(options, state), renderBody(state, options));
+    const content = [renderHeader(options, state), renderBody(state, options)].filter(
+      (element): element is HTMLElement => element !== null
+    );
+    shell.replaceChildren(...content);
   }
 
   async function loadInitialData(): Promise<void> {
@@ -111,14 +114,15 @@ export function renderWidget(
     render();
 
     try {
-      const [config, comments, consentRequirements] = await Promise.all([
-        api.getConfig(),
+      const config = await api.getConfig();
+      state.config = config;
+      state.sort = config.style.defaultSort;
+      applyWidgetStyle(shell, config.style);
+      themeController.setConfiguredTheme(config.style.theme);
+      const [comments, consentRequirements] = await Promise.all([
         api.listComments(state.sort, state.token),
         api.getConsentRequirements()
       ]);
-      state.config = config;
-      applyWidgetStyle(shell, config.style);
-      themeController.setConfiguredTheme(config.style.theme);
       state.comments = comments.items;
       state.consentRequirements = consentRequirements;
       if (state.token) {
@@ -654,6 +658,14 @@ function applyWidgetStyle(shell: HTMLElement, style: WidgetStyle): void {
   shell.style.setProperty("--cc-custom-accent", style.accentColor);
   shell.style.setProperty("--cc-custom-accent-contrast", readableTextColor(style.accentColor));
   shell.dataset.radius = style.cornerRadius.toLowerCase();
+  shell.dataset.density = style.density.toLowerCase();
+  shell.dataset.elevation = style.elevation.toLowerCase();
+  shell.dataset.fontFamily = style.fontFamily.toLowerCase();
+  shell.dataset.fontScale = style.fontScale.toLowerCase();
+  shell.dataset.alignment = style.alignment.toLowerCase();
+  shell.dataset.contentWidth = style.contentWidth.toLowerCase();
+  shell.lang = style.locale.toLowerCase();
+  shell.setAttribute("aria-label", `${style.commentsTitle} CloudComment`);
 }
 
 function resolveWidgetTheme(theme: WidgetTheme, configuredTheme: WidgetStyleTheme): ResolvedWidgetTheme {
@@ -714,7 +726,11 @@ function normalizeThemeName(value: string | undefined): ResolvedWidgetTheme | nu
 function renderHeader(
   options: Required<CloudCommentWidgetOptions>,
   state: WidgetState
-): HTMLElement {
+): HTMLElement | null {
+  const style = state.config?.style;
+  if (style && !style.showHeader) {
+    return null;
+  }
   const header = document.createElement("header");
   header.className = "cloud-comment__header";
 
@@ -726,7 +742,7 @@ function renderHeader(
 
   const title = document.createElement("h2");
   title.className = "cloud-comment__title";
-  title.textContent = "Комментарии";
+  title.textContent = style?.headerTitle ?? "Комментарии";
 
   titleBlock.append(eyebrow, title);
 
@@ -750,13 +766,25 @@ function renderBody(state: WidgetState, options: Required<CloudCommentWidgetOpti
     body.append(renderMessage(state.notice, "notice"));
   }
 
+  const style = state.config?.style;
+  const form = renderCommentForm(state);
+  if (style?.composerPosition === "TOP") {
+    body.append(form);
+  }
+
   if (state.loading) {
     body.append(renderMessage("Загружаем комментарии...", "muted"));
   } else {
-    body.append(renderCommentSort(state.sort), renderCommentList(state.comments, state));
+    if (style?.showSort ?? true) {
+      body.append(renderCommentSort(state.sort));
+    }
+    body.append(renderCommentList(state.comments, state));
   }
 
-  body.append(renderCommentForm(state), renderAccountSection(state, options), renderAuthSection(state, options));
+  if (style?.composerPosition !== "TOP") {
+    body.append(form);
+  }
+  body.append(renderAccountSection(state, options), renderAuthSection(state, options));
   return body;
 }
 
@@ -795,7 +823,7 @@ function renderCommentList(comments: PublicComment[], state: WidgetState): HTMLE
   if (comments.length === 0) {
     const empty = document.createElement("p");
     empty.className = "cloud-comment__empty";
-    empty.textContent = "Пока нет комментариев. Будьте первым, кто начнет обсуждение.";
+    empty.textContent = state.config?.style.emptyMessage ?? "Пока нет комментариев. Будьте первым, кто начнет обсуждение.";
     list.append(empty);
     return list;
   }
@@ -828,7 +856,10 @@ function renderComment(comment: PublicComment, state: WidgetState, depth: number
   date.dateTime = comment.createdAt;
   date.textContent = formatDate(comment.createdAt);
 
-  header.append(avatar, author, date);
+  if (state.config?.style.avatarStyle !== "HIDDEN") {
+    header.append(avatar);
+  }
+  header.append(author, date);
 
   if (comment.status !== "APPROVED") {
     const status = document.createElement("span");
@@ -983,7 +1014,8 @@ function renderReactionBar(comment: PublicComment, state: WidgetState): HTMLElem
   const bar = document.createElement("div");
   bar.className = "cloud-comment__reactions";
 
-  for (const reaction of normalizeReactions(comment.reactions)) {
+  const enabled = new Set(state.config?.style.enabledReactions ?? ["LIKE", "LOVE", "LAUGH", "WOW"]);
+  for (const reaction of normalizeReactions(comment.reactions).filter((item) => enabled.has(item.type))) {
     const button = document.createElement("button");
     button.className = reaction.reactedByCurrentUser
       ? "cloud-comment__reaction cloud-comment__reaction--active"
@@ -1035,7 +1067,9 @@ function renderCommentForm(state: WidgetState): HTMLElement {
   const textarea = document.createElement("textarea");
   textarea.className = "cloud-comment__textarea";
   textarea.name = "comment";
-  textarea.placeholder = state.token ? "Напишите комментарий" : "Войдите, чтобы написать комментарий";
+  textarea.placeholder = state.token
+    ? state.config?.style.composerPlaceholder ?? "Напишите комментарий"
+    : "Войдите, чтобы написать комментарий";
   textarea.setAttribute("aria-label", "Написать комментарий");
   if (state.replyingTo) {
     textarea.placeholder = "Напишите ответ";
@@ -1523,10 +1557,10 @@ function getPageLabel(pageUrl: string): string {
 
 function getStoredAuthToken(): string | null {
   return (
-    readStorage(window.localStorage, WIDGET_AUTH_TOKEN_KEY) ??
-    readStorage(window.sessionStorage, WIDGET_AUTH_TOKEN_KEY) ??
-    readStorage(window.localStorage, ADMIN_AUTH_TOKEN_KEY) ??
-    readStorage(window.sessionStorage, ADMIN_AUTH_TOKEN_KEY)
+    readStorage("localStorage", WIDGET_AUTH_TOKEN_KEY) ??
+    readStorage("sessionStorage", WIDGET_AUTH_TOKEN_KEY) ??
+    readStorage("localStorage", ADMIN_AUTH_TOKEN_KEY) ??
+    readStorage("sessionStorage", ADMIN_AUTH_TOKEN_KEY)
   );
 }
 
@@ -1549,9 +1583,9 @@ function removeStoredAuthToken(): void {
   }
 }
 
-function readStorage(storage: Storage, key: string): string | null {
+function readStorage(storageName: "localStorage" | "sessionStorage", key: string): string | null {
   try {
-    return storage.getItem(key);
+    return window[storageName].getItem(key);
   } catch {
     return null;
   }

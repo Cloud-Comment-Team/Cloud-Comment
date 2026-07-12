@@ -15,6 +15,7 @@ import com.cloudcomment.site.domain.WidgetCornerRadius;
 import com.cloudcomment.site.domain.WidgetStyle;
 import com.cloudcomment.site.domain.WidgetTheme;
 import lombok.RequiredArgsConstructor;
+import tools.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -43,6 +44,7 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
 
     private final JdbcTemplate jdbcTemplate;
     private final NamedParameterJdbcTemplate namedParameterJdbcTemplate;
+    private final ObjectMapper objectMapper;
 
     @Override
     public Optional<WidgetSite> findActiveSite(UUID siteId) {
@@ -53,6 +55,7 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
                        widget_theme,
                        widget_accent_color,
                        widget_corner_radius,
+                       widget_style_config,
                        automod_enabled,
                        automod_strictness,
                        automod_blocked_words,
@@ -65,11 +68,7 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
             (resultSet, rowNumber) -> new WidgetSite(
                 resultSet.getObject("id", UUID.class),
                 ModerationMode.valueOf(resultSet.getString("moderation_mode")),
-                new WidgetStyle(
-                    WidgetTheme.valueOf(resultSet.getString("widget_theme")),
-                    resultSet.getString("widget_accent_color"),
-                    WidgetCornerRadius.valueOf(resultSet.getString("widget_corner_radius"))
-                ),
+                deserializeWidgetStyle(resultSet),
                 new AutoModerationSettings(
                     resultSet.getBoolean("automod_enabled"),
                     AutoModerationStrictness.valueOf(resultSet.getString("automod_strictness")),
@@ -82,6 +81,22 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
             siteId
         );
         return sites.stream().findFirst();
+    }
+
+    private WidgetStyle deserializeWidgetStyle(ResultSet resultSet) throws SQLException {
+        String json = resultSet.getString("widget_style_config");
+        if (json != null && !json.isBlank()) {
+            try {
+                return objectMapper.readValue(json, WidgetStyle.class);
+            } catch (RuntimeException exception) {
+                throw new SQLException("failed to deserialize widget style", exception);
+            }
+        }
+        return new WidgetStyle(
+            WidgetTheme.valueOf(resultSet.getString("widget_theme")),
+            resultSet.getString("widget_accent_color"),
+            WidgetCornerRadius.valueOf(resultSet.getString("widget_corner_radius"))
+        );
     }
 
     @Override
