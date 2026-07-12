@@ -152,6 +152,8 @@ Widget register uses the same request body as admin register (see below).
 
 #### `GET /api/privacy/consent-requirements`
 
+The endpoint is intentionally readable cross-origin with `Access-Control-Allow-Origin: *`: embedded widgets need the same public document versions before registration, no credentials are accepted by this request, and no private account data is returned. `OPTIONS` preflight for `GET` is public as well.
+
 Response `200`:
 
 ```json
