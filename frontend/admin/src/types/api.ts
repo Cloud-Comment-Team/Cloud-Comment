@@ -3,13 +3,42 @@ export type ModerationMode = 'PRE_MODERATION' | 'POST_MODERATION' | 'DISABLED'
 export type WidgetTheme = 'AUTO' | 'LIGHT' | 'DARK'
 
 export type WidgetCornerRadius = 'SMALL' | 'MEDIUM' | 'LARGE'
+export type WidgetDensity = 'COMFORTABLE' | 'COMPACT'
+export type WidgetContentWidth = 'READABLE' | 'WIDE' | 'FULL'
+export type WidgetAlignment = 'LEFT' | 'CENTER'
+export type WidgetFontScale = 'SMALL' | 'MEDIUM' | 'LARGE'
+export type WidgetFontFamily = 'INHERIT' | 'SYSTEM' | 'SERIF' | 'MONO'
+export type WidgetComposerPosition = 'TOP' | 'BOTTOM'
+export type WidgetAvatarStyle = 'INITIALS' | 'HIDDEN'
+export type WidgetElevation = 'BORDER' | 'SHADOW' | 'NONE'
+export type WidgetLocale = 'RU' | 'EN'
+export type CommentReactionType = 'LIKE' | 'LOVE' | 'LAUGH' | 'WOW'
+export type PublicCommentSort = 'PINNED_FIRST' | 'NEWEST' | 'OLDEST' | 'TOP_REACTIONS'
 
 export type AutoModerationStrictness = 'OFF' | 'RELAXED' | 'BALANCED' | 'STRICT'
 
 export interface WidgetStyle {
+  version: number
   theme: WidgetTheme
   accentColor: string
   cornerRadius: WidgetCornerRadius
+  density: WidgetDensity
+  contentWidth: WidgetContentWidth
+  alignment: WidgetAlignment
+  fontScale: WidgetFontScale
+  fontFamily: WidgetFontFamily
+  showHeader: boolean
+  headerTitle: string
+  composerPosition: WidgetComposerPosition
+  defaultSort: PublicCommentSort
+  showSort: boolean
+  enabledReactions: CommentReactionType[]
+  avatarStyle: WidgetAvatarStyle
+  elevation: WidgetElevation
+  locale: WidgetLocale
+  commentsTitle: string
+  composerPlaceholder: string
+  emptyMessage: string
 }
 
 export interface AutoModerationSettings {

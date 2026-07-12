@@ -76,6 +76,46 @@ export const widgetStyles = `
   animation: cloud-comment-enter 220ms ease-out both;
 }
 
+.cloud-comment[data-content-width="readable"] {
+  max-width: 720px;
+}
+
+.cloud-comment[data-content-width="wide"] {
+  max-width: 960px;
+}
+
+.cloud-comment[data-alignment="center"] {
+  margin-inline: auto;
+}
+
+.cloud-comment[data-alignment="left"] {
+  margin-inline: 0 auto;
+}
+
+.cloud-comment[data-font-scale="small"] { font-size: 0.9rem; }
+.cloud-comment[data-font-scale="medium"] { font-size: 1rem; }
+.cloud-comment[data-font-scale="large"] { font-size: 1.1rem; }
+.cloud-comment[data-font-family="system"] { font-family: ui-sans-serif, system-ui, sans-serif; }
+.cloud-comment[data-font-family="serif"] { font-family: ui-serif, Georgia, serif; }
+.cloud-comment[data-font-family="mono"] { font-family: ui-monospace, Consolas, monospace; }
+
+.cloud-comment[data-elevation="border"] { box-shadow: none; }
+.cloud-comment[data-elevation="shadow"] { box-shadow: var(--cc-shadow); }
+.cloud-comment[data-elevation="none"] { border-color: transparent; box-shadow: none; }
+
+.cloud-comment[data-density="compact"] .cloud-comment__header {
+  padding: 14px 16px 12px;
+}
+
+.cloud-comment[data-density="compact"] .cloud-comment__body {
+  gap: 12px;
+  padding: 14px 16px 16px;
+}
+
+.cloud-comment[data-density="compact"] .cloud-comment__list {
+  gap: 8px;
+}
+
 .cloud-comment[data-radius="small"] {
   --cc-radius: 6px;
 }

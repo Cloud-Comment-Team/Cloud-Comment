@@ -6,6 +6,7 @@ import com.cloudcomment.comment.domain.CommentStatus;
 import com.cloudcomment.comment.domain.CommentView;
 import com.cloudcomment.comment.domain.PublicCommentSort;
 import com.cloudcomment.site.domain.ModerationMode;
+import com.cloudcomment.site.domain.WidgetDensity;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -41,6 +42,8 @@ class JdbcPublicCommentRepositoryIntegrationTests {
         UUID visitorId = insertUser("visitor", "Visitor Name");
         UUID siteId = insertSite(ownerId, "example.com", "https://example.com", ModerationMode.PRE_MODERATION, true);
         UUID inactiveSiteId = insertSite(ownerId, "inactive.example.com", "https://inactive.example.com", ModerationMode.POST_MODERATION, false);
+        jdbcTemplate.update("update sites set widget_style_config = widget_style_config || ?::jsonb where id = ?",
+            "{\"density\":\"COMPACT\",\"headerTitle\":\"Отзывы\"}", siteId);
         String pageUrl = "https://example.com/blog/post-1";
 
         assertThat(repository.findActiveSite(siteId))
@@ -48,6 +51,8 @@ class JdbcPublicCommentRepositoryIntegrationTests {
                 assertThat(site.id()).isEqualTo(siteId);
                 assertThat(site.moderationMode()).isEqualTo(ModerationMode.PRE_MODERATION);
                 assertThat(site.widgetStyle().accentColor()).isEqualTo("#0f766e");
+                assertThat(site.widgetStyle().density()).isEqualTo(WidgetDensity.COMPACT);
+                assertThat(site.widgetStyle().headerTitle()).isEqualTo("Отзывы");
                 assertThat(site.autoModeration().enabled()).isTrue();
             });
         assertThat(repository.findActiveSite(inactiveSiteId)).isEmpty();
