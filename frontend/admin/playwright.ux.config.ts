@@ -4,7 +4,7 @@ const baseURL = process.env.E2E_BASE_URL ?? 'http://127.0.0.1:4173'
 
 export default defineConfig({
   testDir: './e2e/ux',
-  snapshotPathTemplate: '{testDir}/__screenshots__/{testFilePath}/{projectName}/{arg}{ext}',
+  snapshotPathTemplate: '{testDir}/__screenshots__/{testFilePath}/{platform}/{projectName}/{arg}{ext}',
   fullyParallel: false,
   retries: process.env.CI ? 1 : 0,
   workers: 1,
