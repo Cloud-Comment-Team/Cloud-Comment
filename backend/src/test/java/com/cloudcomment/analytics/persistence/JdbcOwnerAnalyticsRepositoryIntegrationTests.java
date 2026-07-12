@@ -1,8 +1,8 @@
 package com.cloudcomment.analytics.persistence;
 
+import com.cloudcomment.automoderation.persistence.AutoModerationPolicyRepository;
 import com.cloudcomment.analytics.domain.AnalyticsBucket;
 import com.cloudcomment.analytics.domain.CommentTimePoint;
-import com.cloudcomment.analytics.domain.ModerationStatusCount;
 import com.cloudcomment.analytics.domain.ReactionTypeCount;
 import com.cloudcomment.analytics.domain.TopPageAnalytics;
 import org.junit.jupiter.api.Test;
@@ -35,6 +35,9 @@ class JdbcOwnerAnalyticsRepositoryIntegrationTests {
 
     @Autowired
     private OwnerAnalyticsRepository ownerAnalyticsRepository;
+
+    @Autowired
+    private AutoModerationPolicyRepository autoModerationPolicyRepository;
 
     @Test
     void summarizesOwnerAnalyticsWithIsolationReactionsRepliesAndSoftDelete() {
@@ -110,6 +113,22 @@ class JdbcOwnerAnalyticsRepositoryIntegrationTests {
         );
         insertReaction(approvedId, commenterB, "LIKE", Instant.parse("2026-07-02T12:00:00Z"));
         insertReaction(spamId, commenterB, "LOVE", Instant.parse("2026-07-03T12:00:00Z"));
+        insertAutomodDecision(approvedId, ownerSiteId, "LIVE", Instant.parse("2026-07-02T13:00:00Z"));
+        insertAutomodDecision(spamId, ownerSiteId, "SHADOW", Instant.parse("2026-07-03T13:00:00Z"));
+        insertAutomodDecision(approvedId, ownerSiteId, "LIVE", to);
+        insertAutomodDecision(
+            jdbcTemplate.queryForObject(
+                "select id from comments where page_id = ? and body = 'Foreign comment'",
+                UUID.class,
+                foreignPageId
+            ),
+            foreignSiteId,
+            "LIVE",
+            Instant.parse("2026-07-03T13:00:00Z")
+        );
+        insertModerationAction(approvedId, commenterB, "APPROVE", Instant.parse("2026-07-02T14:00:00Z"));
+        insertModerationAction(spamId, commenterB, "UNDO", Instant.parse("2026-07-03T14:00:00Z"));
+        insertModerationAction(approvedId, commenterB, "HIDE", to);
 
         var summary = ownerAnalyticsRepository.summarize(ownerId, null, from, to);
         assertThat(summary.sites()).isEqualTo(2);
@@ -127,15 +146,26 @@ class JdbcOwnerAnalyticsRepositoryIntegrationTests {
         assertThat(siteSummary.pages()).isEqualTo(1);
         assertThat(siteSummary.comments()).isEqualTo(3);
 
-        assertThat(ownerAnalyticsRepository.findModerationFunnel(ownerId, null, from, to))
-            .extracting(ModerationStatusCount::status)
-            .contains("APPROVED", "PENDING", "SPAM");
         assertThat(ownerAnalyticsRepository.findReactionDistribution(ownerId, null, from, to))
             .extracting(ReactionTypeCount::type)
             .containsExactlyInAnyOrder("LIKE", "LOVE");
-        assertThat(ownerAnalyticsRepository.findCommentsOverTime(ownerId, null, from, to, AnalyticsBucket.DAY))
+        assertThat(ownerAnalyticsRepository.findCommentsOverTime(ownerId, null, from, to, AnalyticsBucket.DAY, "UTC"))
             .extracting(CommentTimePoint::bucket)
             .contains(LocalDate.parse("2026-07-01"), LocalDate.parse("2026-07-02"), LocalDate.parse("2026-07-03"));
+
+        var workload = ownerAnalyticsRepository.findWorkload(ownerId, null, from, to);
+        assertThat(workload.requiringDecision()).isEqualTo(2);
+        assertThat(workload.oldestPendingAt()).isEqualTo(Instant.parse("2026-07-02T10:00:00Z"));
+        assertThat(workload.automaticDecisions()).isEqualTo(1);
+        assertThat(workload.manualDecisions()).isEqualTo(1);
+        assertThat(workload.undoActions()).isEqualTo(1);
+
+        var previousActivity = ownerAnalyticsRepository.findPeriodActivity(ownerId, null, from, to);
+        assertThat(previousActivity.comments()).isEqualTo(4);
+        assertThat(previousActivity.reactions()).isEqualTo(2);
+        assertThat(previousActivity.automaticDecisions()).isEqualTo(1);
+        assertThat(previousActivity.manualDecisions()).isEqualTo(1);
+        assertThat(previousActivity.undoActions()).isEqualTo(1);
 
         TopPageAnalytics topPage = ownerAnalyticsRepository.findTopPages(ownerId, null, from, to, 5).getFirst();
         assertThat(topPage.pageId()).isEqualTo(pageId);
@@ -145,6 +175,42 @@ class JdbcOwnerAnalyticsRepositoryIntegrationTests {
         assertThat(ownerAnalyticsRepository.findActiveCommenters(ownerId, null, from, to, 5))
             .extracting(commenter -> commenter.email())
             .contains(commenterEmail("commenter-a"), commenterEmail("commenter-b"));
+    }
+
+    @Test
+    void bucketsCommentsByOwnerTimeZoneAndKeepsOwnerIsolation() {
+        UUID ownerId = insertUser("timezone-owner", "Timezone Owner");
+        UUID otherOwnerId = insertUser("timezone-other", "Other Owner");
+        UUID siteId = insertSite(ownerId, "timezone-site");
+        UUID foreignSiteId = insertSite(otherOwnerId, "timezone-foreign");
+        UUID pageId = insertPage(siteId, "https://timezone.example.com/post");
+        UUID foreignPageId = insertPage(foreignSiteId, "https://timezone-foreign.example.com/post");
+        UUID authorId = insertUser("timezone-author", "Author");
+        Instant createdAt = Instant.parse("2026-07-01T22:30:00Z");
+        insertComment(pageId, null, authorId, "Moscow day", "APPROVED", createdAt);
+        insertComment(foreignPageId, null, authorId, "Foreign day", "APPROVED", createdAt);
+
+        var utc = ownerAnalyticsRepository.findCommentsOverTime(
+            ownerId,
+            null,
+            Instant.parse("2026-07-01T00:00:00Z"),
+            Instant.parse("2026-07-03T00:00:00Z"),
+            AnalyticsBucket.DAY,
+            "UTC"
+        );
+        var moscow = ownerAnalyticsRepository.findCommentsOverTime(
+            ownerId,
+            null,
+            Instant.parse("2026-07-01T00:00:00Z"),
+            Instant.parse("2026-07-03T00:00:00Z"),
+            AnalyticsBucket.DAY,
+            "Europe/Moscow"
+        );
+
+        assertThat(utc).singleElement().extracting(CommentTimePoint::bucket, CommentTimePoint::total)
+            .containsExactly(LocalDate.parse("2026-07-01"), 1L);
+        assertThat(moscow).singleElement().extracting(CommentTimePoint::bucket, CommentTimePoint::total)
+            .containsExactly(LocalDate.parse("2026-07-02"), 1L);
     }
 
     private UUID insertUser(String label, String displayName) {
@@ -248,6 +314,50 @@ class JdbcOwnerAnalyticsRepositoryIntegrationTests {
             reactionType,
             timestamp,
             timestamp
+        );
+    }
+
+    private void insertAutomodDecision(
+        UUID commentId,
+        UUID siteId,
+        String executionMode,
+        Instant evaluatedAt
+    ) {
+        autoModerationPolicyRepository.initializeFromLegacy(siteId);
+        UUID policyId = jdbcTemplate.queryForObject(
+            "select active_policy_version_id from site_automod_policy_state where site_id = ?",
+            UUID.class,
+            siteId
+        );
+        jdbcTemplate.update(
+            """
+                insert into automod_decision_events (
+                    comment_id, policy_version_id, execution_mode, decision, applied_status, evaluated_at
+                ) values (?, ?, ?, 'APPROVE', 'APPROVED', ?)
+                """,
+            commentId,
+            policyId,
+            executionMode,
+            evaluatedAt.atOffset(ZoneOffset.UTC)
+        );
+    }
+
+    private void insertModerationAction(
+        UUID commentId,
+        UUID moderatorId,
+        String action,
+        Instant createdAt
+    ) {
+        jdbcTemplate.update(
+            """
+                insert into moderation_actions (
+                    comment_id, moderator_id, action, from_status, to_status, created_at
+                ) values (?, ?, ?, 'PENDING', 'APPROVED', ?)
+                """,
+            commentId,
+            moderatorId,
+            action,
+            createdAt.atOffset(ZoneOffset.UTC)
         );
     }
 

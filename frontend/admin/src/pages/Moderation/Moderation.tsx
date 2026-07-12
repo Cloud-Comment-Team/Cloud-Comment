@@ -110,8 +110,35 @@ function readSavedFilters(): SavedFilters {
   }
 }
 
+function readInitialFilters(searchParams: URLSearchParams): SavedFilters {
+  const saved = readSavedFilters()
+  const analyticsSource = searchParams.get('source') === 'analytics'
+  if (analyticsSource) {
+    return {
+      ...emptyFilters,
+      siteId: searchParams.get('siteId')?.trim() ?? '',
+      pageUrl: searchParams.get('pageUrl')?.trim() ?? '',
+    }
+  }
+  return {
+    ...saved,
+    siteId: searchParams.get('siteId')?.trim() || saved.siteId,
+    pageUrl: searchParams.get('pageUrl')?.trim() || saved.pageUrl,
+  }
+}
+
 function isQueueView(value: string | null): value is QueueView {
   return value === 'pending' || value === 'spam' || value === 'history'
+}
+
+function isCommentStatus(value: string | null): value is CommentStatus {
+  return value !== null && Object.hasOwn(statusLabels, value)
+}
+
+function queueViewForStatus(status: CommentStatus): QueueView {
+  if (status === 'PENDING') return 'pending'
+  if (status === 'SPAM') return 'spam'
+  return 'history'
 }
 
 function authorName(comment: Comment): string {
@@ -120,9 +147,13 @@ function authorName(comment: Comment): string {
 
 const Moderation = () => {
   const [searchParams, setSearchParams] = useSearchParams()
-  const initialFilters = useMemo(() => readSavedFilters(), [])
+  const [initialFilters] = useState(() => readInitialFilters(searchParams))
   const requestedView = searchParams.get('view')
-  const view: QueueView = isQueueView(requestedView) ? requestedView : 'pending'
+  const requestedStatus = searchParams.get('status')
+  const exactStatus = isCommentStatus(requestedStatus) ? requestedStatus : null
+  const view: QueueView = exactStatus
+    ? queueViewForStatus(exactStatus)
+    : isQueueView(requestedView) ? requestedView : 'pending'
   const selectedCommentId = searchParams.get('comment')
 
   const [sites, setSites] = useState<Site[]>([])
@@ -165,7 +196,8 @@ const Moderation = () => {
         pageUrl: appliedFilters.pageUrl.trim() || undefined,
         search: appliedFilters.search.trim() || undefined,
         favorite: appliedFilters.favorite || undefined,
-        statuses: viewStatuses[view],
+        status: exactStatus ?? undefined,
+        statuses: exactStatus ? undefined : viewStatuses[view],
         sortBy: 'SMART',
         sortOrder: 'DESC',
         page,
@@ -191,7 +223,7 @@ const Moderation = () => {
     return () => {
       cancelled = true
     }
-  }, [appliedFilters, page, reloadKey, view])
+  }, [appliedFilters, exactStatus, page, reloadKey, view])
 
   useEffect(() => {
     if (!selectedCommentId || comments.some((comment) => comment.id === selectedCommentId)) return
@@ -208,13 +240,14 @@ const Moderation = () => {
     }
   }, [comments, selectedCommentId])
 
-  function updateRoute(nextView: QueueView, commentId?: string) {
+  function updateRoute(nextView: QueueView, commentId?: string, preserveStatus = false) {
     const next = new URLSearchParams(searchParams)
     next.set('view', nextView)
+    if (!preserveStatus) next.delete('status')
     if (commentId) next.set('comment', commentId)
     else next.delete('comment')
     setSearchParams(next)
-    if (nextView !== view) {
+    if (nextView !== view || (!preserveStatus && exactStatus)) {
       setPage(1)
       setSelectedIds(new Set())
     }
@@ -334,6 +367,14 @@ const Moderation = () => {
     localStorage.setItem(FILTERS_KEY, JSON.stringify(filters))
     setAppliedFilters(filters)
     setPage(1)
+    const next = new URLSearchParams(searchParams)
+    if (filters.siteId) next.set('siteId', filters.siteId)
+    else next.delete('siteId')
+    if (filters.pageUrl.trim()) next.set('pageUrl', filters.pageUrl.trim())
+    else next.delete('pageUrl')
+    next.delete('source')
+    next.delete('comment')
+    setSearchParams(next, { replace: true })
   }
 
   function resetFilters() {
@@ -341,6 +382,13 @@ const Moderation = () => {
     setFilters(emptyFilters)
     setAppliedFilters(emptyFilters)
     setPage(1)
+    const next = new URLSearchParams(searchParams)
+    next.delete('siteId')
+    next.delete('pageUrl')
+    next.delete('status')
+    next.delete('source')
+    next.delete('comment')
+    setSearchParams(next, { replace: true })
   }
 
   function toggleSelection(commentId: string) {
@@ -378,6 +426,17 @@ const Moderation = () => {
           </button>
         ))}
       </nav>
+
+      {exactStatus && (
+        <div className="cc-action-bar mb-4" role="status">
+          <span className="text-sm">
+            Точный фильтр: <strong style={{ color: 'var(--text-h)' }}>{statusLabels[exactStatus]}</strong>
+          </span>
+          <button type="button" className="cc-button-secondary" onClick={() => updateRoute(view)}>
+            Показать весь раздел
+          </button>
+        </div>
+      )}
 
       <form className="cc-filter-bar mb-4" onSubmit={applyFilters}>
         <Filter className="mb-2 h-4 w-4" aria-hidden="true" />
@@ -466,7 +525,7 @@ const Moderation = () => {
                   checked={selectedIds.has(comment.id)}
                   onChange={() => toggleSelection(comment.id)}
                 />
-                <button type="button" className="min-w-0 text-left" onClick={() => updateRoute(view, comment.id)}>
+                <button type="button" className="min-w-0 text-left" onClick={() => updateRoute(view, comment.id, true)}>
                   <span className="flex items-center gap-2">
                     <strong className="truncate" style={{ color: 'var(--text-h)' }}>{authorName(comment)}</strong>
                     {comment.favorite && <Star className="h-3.5 w-3.5" aria-label="В избранном" />}
@@ -476,7 +535,7 @@ const Moderation = () => {
                 </button>
                 <Badge tone={statusTones[comment.status]}>{statusLabels[comment.status]}</Badge>
                 <time className="text-xs" dateTime={comment.createdAt}>{formatDateTime(comment.createdAt)}</time>
-                <button type="button" className="cc-button-secondary !p-1.5" aria-label="Открыть подробности" onClick={() => updateRoute(view, comment.id)}>
+                <button type="button" className="cc-button-secondary !p-1.5" aria-label="Открыть подробности" onClick={() => updateRoute(view, comment.id, true)}>
                   <ChevronRight className="h-4 w-4" aria-hidden="true" />
                 </button>
               </div>
@@ -490,7 +549,7 @@ const Moderation = () => {
         <PaginationControls page={page} totalPages={totalPages} totalItems={totalItems} onPageChange={setPage} />
       </div>
 
-      <Drawer title="Комментарий" open={selectedComment !== null} onClose={() => updateRoute(view)}>
+      <Drawer title="Комментарий" open={selectedComment !== null} onClose={() => updateRoute(view, undefined, true)}>
         {selectedComment && (
           <div className="space-y-5">
             <div className="flex flex-wrap items-center gap-2">

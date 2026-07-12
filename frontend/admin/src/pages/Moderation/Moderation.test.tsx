@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Comment } from '../../types/api'
@@ -20,6 +20,11 @@ const moderationApi = vi.hoisted(() => ({
 vi.mock('../../api/moderation', () => moderationApi)
 vi.mock('../../api/sites', () => ({ listAllSites: vi.fn().mockResolvedValue([]) }))
 vi.mock('../../components/realtime/useRealtime', () => ({ useRealtimeEvent: vi.fn() }))
+
+function CurrentLocation() {
+  const location = useLocation()
+  return <output data-testid="current-location">{location.pathname}{location.search}</output>
+}
 
 const comments: Comment[] = [
   {
@@ -117,6 +122,89 @@ describe('страница модерации', () => {
       sortBy: 'SMART',
     }))
     expect(screen.getByText('Требуют решения: 2')).toBeInTheDocument()
+  })
+
+  it('применяет фильтры сайта и страницы из прямой ссылки', async () => {
+    const pageUrl = 'https://example.com/article?a=1'
+    render(
+      <MemoryRouter initialEntries={[`/moderation?view=pending&status=PENDING&siteId=${comments[0].siteId}&pageUrl=${encodeURIComponent(pageUrl)}`]}>
+        <Moderation />
+        <CurrentLocation />
+      </MemoryRouter>,
+    )
+
+    await screen.findByText('Первый комментарий')
+    expect(moderationApi.listComments).toHaveBeenCalledWith(expect.objectContaining({
+      siteId: comments[0].siteId,
+      pageUrl,
+      status: 'PENDING',
+      statuses: undefined,
+    }))
+    expect(screen.getByText('Точный фильтр:')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /^Спам \(1\)$/ }))
+    await waitFor(() => expect(moderationApi.listComments).toHaveBeenCalledWith(expect.objectContaining({
+      status: undefined,
+      statuses: ['SPAM'],
+    })))
+    expect(screen.getByTestId('current-location')).toHaveTextContent(
+      `/moderation?view=spam&siteId=${comments[0].siteId}&pageUrl=${encodeURIComponent(pageUrl)}`,
+    )
+  })
+
+  it.each([
+    {
+      name: 'глобальная ссылка очищает все сохранённые фильтры',
+      href: '/moderation?view=pending&source=analytics&status=PENDING',
+      expectedSiteId: undefined,
+    },
+    {
+      name: 'ссылка сайта сохраняет только сайт и очищает старую страницу',
+      href: `/moderation?view=pending&source=analytics&status=PENDING&siteId=${comments[0].siteId}`,
+      expectedSiteId: comments[0].siteId,
+    },
+  ])('$name', async ({ href, expectedSiteId }) => {
+    localStorage.setItem('cloud-comment:moderation-filters:v2', JSON.stringify({
+      siteId: '00000000-0000-0000-0000-000000000099',
+      pageUrl: 'https://saved.example.test/old-page',
+      search: 'скрывающий запрос',
+      favorite: true,
+    }))
+
+    render(<MemoryRouter initialEntries={[href]}><Moderation /></MemoryRouter>)
+
+    await screen.findByText('Первый комментарий')
+    expect(moderationApi.listComments).toHaveBeenCalledWith({
+      siteId: expectedSiteId,
+      pageUrl: undefined,
+      search: undefined,
+      favorite: undefined,
+      status: 'PENDING',
+      statuses: undefined,
+      sortBy: 'SMART',
+      sortOrder: 'DESC',
+      page: 1,
+      pageSize: 30,
+    })
+  })
+
+  it('после ручного применения фильтров перестаёт считать аналитическую ссылку авторитетной', async () => {
+    render(
+      <MemoryRouter initialEntries={['/moderation?view=pending&source=analytics&status=PENDING']}>
+        <Moderation />
+        <CurrentLocation />
+      </MemoryRouter>,
+    )
+
+    await screen.findByText('Первый комментарий')
+    fireEvent.change(screen.getByLabelText('Поиск'), { target: { value: 'важный текст' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Применить' }))
+
+    await waitFor(() => expect(moderationApi.listComments).toHaveBeenLastCalledWith(expect.objectContaining({
+      search: 'важный текст',
+      status: 'PENDING',
+    })))
+    expect(screen.getByTestId('current-location')).toHaveTextContent('/moderation?view=pending&status=PENDING')
   })
 
   it('применяет одно массовое действие к выбранным строкам', async () => {

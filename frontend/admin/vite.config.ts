@@ -27,6 +27,9 @@ function widgetPreviewBundle(): Plugin {
 export default defineConfig({
   envDir: '../..',
   plugins: [react(), widgetPreviewBundle()],
+  build: {
+    manifest: true,
+  },
   server: {
     proxy: {
       '/api': {

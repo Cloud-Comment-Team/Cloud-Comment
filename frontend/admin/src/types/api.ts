@@ -328,6 +328,8 @@ export interface UpdateCommentFlagsRequest {
 
 export type AnalyticsRange = '7d' | '30d' | '90d' | 'all'
 
+export type AnalyticsBucketGranularity = 'DAY' | 'WEEK' | 'MONTH'
+
 export interface AnalyticsSummary {
   sites: number
   pages: number
@@ -352,6 +354,31 @@ export interface CommentTimePoint {
 export interface ModerationStatusCount {
   status: CommentStatus
   count: number
+}
+
+export interface AnalyticsMetricComparison {
+  current: number
+  previous: number
+  absoluteChange: number
+  percentageChange: number | null
+}
+
+export interface AnalyticsComparison {
+  previousFrom: string
+  previousTo: string
+  comments: AnalyticsMetricComparison
+  reactions: AnalyticsMetricComparison
+  automaticDecisions: AnalyticsMetricComparison
+  manualDecisions: AnalyticsMetricComparison
+  undoActions: AnalyticsMetricComparison
+}
+
+export interface AnalyticsWorkload {
+  requiringDecision: number
+  oldestPendingAt: string | null
+  automaticDecisions: number
+  manualDecisions: number
+  undoActions: number
 }
 
 export interface ReactionTypeCount {
@@ -387,10 +414,16 @@ export interface ActiveCommenter {
 export interface OwnerAnalytics {
   range: AnalyticsRange
   siteId: string | null
+  timeZone: string
+  bucketGranularity: AnalyticsBucketGranularity
   from: string | null
   to: string
   summary: AnalyticsSummary
+  comparison: AnalyticsComparison | null
+  workload: AnalyticsWorkload
   commentsOverTime: CommentTimePoint[]
+  moderationDistribution: ModerationStatusCount[]
+  /** @deprecated Совместимый псевдоним на один релиз. */
   moderationFunnel: ModerationStatusCount[]
   reactionDistribution: ReactionTypeCount[]
   topPages: TopPageAnalytics[]
