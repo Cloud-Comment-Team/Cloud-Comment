@@ -7,6 +7,7 @@ import com.cloudcomment.comment.domain.CommentReactionSummary;
 import com.cloudcomment.comment.domain.CommentReactionType;
 import com.cloudcomment.comment.domain.CommentStatus;
 import com.cloudcomment.comment.domain.CommentView;
+import com.cloudcomment.comment.domain.PublicCommentSort;
 import com.cloudcomment.site.domain.AutoModerationSettings;
 import com.cloudcomment.site.domain.AutoModerationStrictness;
 import com.cloudcomment.site.domain.ModerationMode;
@@ -142,7 +143,7 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
 
     @Override
     public CommentPage findApprovedComments(UUID siteId, UUID pageId, int page, int pageSize) {
-        return findApprovedComments(siteId, pageId, page, pageSize, Optional.empty());
+        return findApprovedComments(siteId, pageId, page, pageSize, PublicCommentSort.PINNED_FIRST, Optional.empty());
     }
 
     @Override
@@ -151,6 +152,7 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
         UUID pageId,
         int page,
         int pageSize,
+        PublicCommentSort sort,
         Optional<UUID> viewerUserId
     ) {
         long offset = ((long) page - 1) * pageSize;
@@ -165,21 +167,34 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
                        coalesce(c.author_name, nullif(u.display_name, ''), c.author_email, u.email) as author_name,
                        c.body,
                        c.status,
+                       c.is_pinned,
+                       c.is_favorite,
                        c.created_at,
                        c.updated_at,
                        c.edited_at
                 from comments c
                 join pages p on p.id = c.page_id
                 left join app_users u on u.id = c.author_user_id
+                left join (
+                    select coalesce(visible_comments.parent_id, visible_comments.id) as root_id,
+                           count(*) as reaction_count
+                    from comments visible_comments
+                    join comment_reactions cr on cr.comment_id = visible_comments.id
+                    where visible_comments.page_id = ?
+                      and visible_comments.status = 'APPROVED'
+                      and visible_comments.deleted_at is null
+                    group by coalesce(visible_comments.parent_id, visible_comments.id)
+                ) thread_reactions on thread_reactions.root_id = c.id
                 where p.site_id = ?
                   and c.page_id = ?
                   and c.status = 'APPROVED'
                   and c.parent_id is null
                   and c.deleted_at is null
-                order by c.created_at asc, c.id asc
+                """ + publicOrderBy(sort) + """
                 limit ? offset ?
                 """,
             this::mapCommentRow,
+            pageId,
             siteId,
             pageId,
             pageSize,
@@ -284,6 +299,8 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
                           author_name,
                           body,
                           status,
+                          is_pinned,
+                          is_favorite,
                           created_at,
                           updated_at,
                           edited_at
@@ -360,6 +377,8 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
                           c.author_name,
                           c.body,
                           c.status,
+                          c.is_pinned,
+                          c.is_favorite,
                           c.created_at,
                           c.updated_at,
                           c.edited_at
@@ -461,6 +480,8 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
                        coalesce(c.author_name, nullif(u.display_name, ''), c.author_email, u.email) as author_name,
                        c.body,
                        c.status,
+                       c.is_pinned,
+                       c.is_favorite,
                        c.created_at,
                        c.updated_at,
                        c.edited_at
@@ -517,6 +538,8 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
             row.createdAt(),
             row.updatedAt(),
             row.editedAt(),
+            row.pinned(),
+            row.favorite(),
             viewerUserId.filter(userId -> userId.equals(row.authorUserId())).isPresent(),
             reactions,
             replies
@@ -606,10 +629,26 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
             resultSet.getString("author_name"),
             resultSet.getString("body"),
             CommentStatus.valueOf(resultSet.getString("status")),
+            resultSet.getBoolean("is_pinned"),
+            resultSet.getBoolean("is_favorite"),
             toInstant(resultSet, "created_at"),
             toInstant(resultSet, "updated_at"),
             toNullableInstant(resultSet, "edited_at")
         );
+    }
+
+    private String publicOrderBy(PublicCommentSort sort) {
+        PublicCommentSort effectiveSort = sort != null ? sort : PublicCommentSort.PINNED_FIRST;
+        return switch (effectiveSort) {
+            case PINNED_FIRST, OLDEST -> " order by c.is_pinned desc, c.created_at asc, c.id asc";
+            case NEWEST -> " order by c.is_pinned desc, c.created_at desc, c.id desc";
+            case TOP_REACTIONS -> """
+                 order by c.is_pinned desc,
+                          coalesce(thread_reactions.reaction_count, 0) desc,
+                          c.created_at asc,
+                          c.id asc
+                """;
+        };
     }
 
     private Instant toInstant(ResultSet resultSet, String column) throws SQLException {
@@ -645,6 +684,8 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
         String authorName,
         String body,
         CommentStatus status,
+        boolean pinned,
+        boolean favorite,
         Instant createdAt,
         Instant updatedAt,
         Instant editedAt

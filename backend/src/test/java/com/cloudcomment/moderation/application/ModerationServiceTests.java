@@ -49,6 +49,7 @@ class ModerationServiceTests {
                 null,
                 null,
                 null,
+                null,
                 CommentSortField.CREATED_AT,
                 SortOrder.DESC
             ),
@@ -66,6 +67,7 @@ class ModerationServiceTests {
             new ModerationCommentFilters(
                 null,
                 foreignPageId,
+                null,
                 null,
                 null,
                 null,
@@ -94,6 +96,7 @@ class ModerationServiceTests {
             null,
             null,
             " spam ",
+            null,
             CommentSortField.CREATED_AT,
             SortOrder.DESC
         );
@@ -105,6 +108,7 @@ class ModerationServiceTests {
             null,
             null,
             "spam",
+            null,
             CommentSortField.CREATED_AT,
             SortOrder.DESC
         );
@@ -131,6 +135,7 @@ class ModerationServiceTests {
                 null,
                 TIMESTAMP.plusSeconds(1),
                 TIMESTAMP,
+                null,
                 null,
                 CommentSortField.CREATED_AT,
                 SortOrder.DESC
@@ -251,6 +256,49 @@ class ModerationServiceTests {
         assertTargetStatus(ModerationActionType.RESTORE, CommentStatus.APPROVED);
     }
 
+    @Test
+    void updateFlagsPinsApprovedRootComment() {
+        CapturingCommentRepository commentRepository = new CapturingCommentRepository();
+        commentRepository.comment = comment(commentRepository.comment.id(), CommentStatus.APPROVED);
+        ModerationService service = service(commentRepository, true);
+
+        Comment result = service.updateFlags(currentUser(), commentRepository.comment.id(), true, true);
+
+        assertThat(result.pinned()).isTrue();
+        assertThat(result.favorite()).isTrue();
+        assertThat(commentRepository.updatedPinned).isTrue();
+        assertThat(commentRepository.updatedFavorite).isTrue();
+    }
+
+    @Test
+    void updateFlagsRejectsPinnedReply() {
+        CapturingCommentRepository commentRepository = new CapturingCommentRepository();
+        commentRepository.comment = new Comment(
+            commentRepository.comment.id(),
+            UUID.randomUUID(),
+            UUID.randomUUID(),
+            "https://example.com/page",
+            UUID.randomUUID(),
+            null,
+            new CommentAuthor(UUID.randomUUID(), "author@example.com", "Author"),
+            "Reply body",
+            CommentStatus.APPROVED,
+            null,
+            false,
+            false,
+            ModerationPriority.LOW,
+            40,
+            List.of(),
+            TIMESTAMP,
+            TIMESTAMP
+        );
+        ModerationService service = service(commentRepository, true);
+
+        assertThatThrownBy(() -> service.updateFlags(currentUser(), commentRepository.comment.id(), true, null))
+            .isInstanceOf(ApplicationException.class)
+            .hasMessageContaining("Only root comments can be pinned");
+    }
+
     private void assertTargetStatus(ModerationActionType actionType, CommentStatus expectedStatus) {
         CapturingCommentRepository commentRepository = new CapturingCommentRepository();
         CapturingModerationActionRepository actionRepository = new CapturingModerationActionRepository();
@@ -294,6 +342,8 @@ class ModerationServiceTests {
             "Comment body",
             status,
             null,
+            false,
+            false,
             ModerationPriority.LOW,
             40,
             List.of(),
@@ -315,9 +365,11 @@ class ModerationServiceTests {
             "Comment body",
             CommentStatus.PENDING,
             null,
+            false,
+            false,
             ModerationPriority.MEDIUM,
             500,
-            List.of("Ожидает решения модератора"),
+            List.of("РћР¶РёРґР°РµС‚ СЂРµС€РµРЅРёСЏ РјРѕРґРµСЂР°С‚РѕСЂР°"),
             TIMESTAMP,
             TIMESTAMP
         );
@@ -329,6 +381,8 @@ class ModerationServiceTests {
         private CommentStatus expectedStatus;
         private CommentStatus updatedStatus;
         private String updatedReason;
+        private Boolean updatedPinned;
+        private Boolean updatedFavorite;
         private boolean failUpdates;
 
         @Override
@@ -365,6 +419,33 @@ class ModerationServiceTests {
                 return Optional.empty();
             }
             comment = comment(commentId, newStatus);
+            return Optional.of(comment);
+        }
+
+        @Override
+        public Optional<Comment> updateFlags(UUID commentId, Boolean pinned, Boolean favorite) {
+            updatedCommentId = commentId;
+            updatedPinned = pinned;
+            updatedFavorite = favorite;
+            comment = new Comment(
+                comment.id(),
+                comment.siteId(),
+                comment.pageId(),
+                comment.pageUrl(),
+                comment.parentId(),
+                comment.parent(),
+                comment.author(),
+                comment.body(),
+                comment.status(),
+                comment.moderationReason(),
+                pinned != null ? pinned : comment.pinned(),
+                favorite != null ? favorite : comment.favorite(),
+                comment.priority(),
+                comment.priorityScore(),
+                comment.priorityReasons(),
+                comment.createdAt(),
+                comment.updatedAt()
+            );
             return Optional.of(comment);
         }
     }

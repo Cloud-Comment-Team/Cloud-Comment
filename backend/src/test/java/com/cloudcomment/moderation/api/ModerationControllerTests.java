@@ -81,6 +81,7 @@ class ModerationControllerTests {
                 null,
                 null,
                 null,
+                null,
                 CommentSortField.SMART,
                 SortOrder.DESC
             )),
@@ -101,7 +102,7 @@ class ModerationControllerTests {
             .andExpect(jsonPath("$.items[0].moderationReason", is(comment.moderationReason())))
             .andExpect(jsonPath("$.items[0].priority", is("HIGH")))
             .andExpect(jsonPath("$.items[0].priorityScore", is(680)))
-            .andExpect(jsonPath("$.items[0].priorityReasons[0]", is("Ожидает решения модератора")))
+            .andExpect(jsonPath("$.items[0].priorityReasons[0]", is("РћР¶РёРґР°РµС‚ СЂРµС€РµРЅРёСЏ РјРѕРґРµСЂР°С‚РѕСЂР°")))
             .andExpect(jsonPath("$.items[0].replies", empty()))
             .andExpect(jsonPath("$.page", is(1)))
             .andExpect(jsonPath("$.pageSize", is(20)))
@@ -117,6 +118,7 @@ class ModerationControllerTests {
         when(moderationService.listComments(
             eq(currentUser),
             eq(new ModerationCommentFilters(
+                null,
                 null,
                 null,
                 null,
@@ -156,6 +158,7 @@ class ModerationControllerTests {
                 Instant.parse("2026-06-28T00:00:00Z"),
                 Instant.parse("2026-06-28T23:59:59Z"),
                 "widget",
+                null,
                 CommentSortField.SMART,
                 SortOrder.DESC
             )),
@@ -185,6 +188,7 @@ class ModerationControllerTests {
                 Instant.parse("2026-06-28T00:00:00Z"),
                 Instant.parse("2026-06-28T23:59:59Z"),
                 "widget",
+                null,
                 CommentSortField.SMART,
                 SortOrder.DESC
             )),
@@ -241,7 +245,7 @@ class ModerationControllerTests {
             .andExpect(jsonPath("$.status", is("PENDING")))
             .andExpect(jsonPath("$.moderationReason", is(comment.moderationReason())))
             .andExpect(jsonPath("$.priority", is("HIGH")))
-            .andExpect(jsonPath("$.priorityReasons[0]", is("Ожидает решения модератора")));
+            .andExpect(jsonPath("$.priorityReasons[0]", is("РћР¶РёРґР°РµС‚ СЂРµС€РµРЅРёСЏ РјРѕРґРµСЂР°С‚РѕСЂР°")));
     }
 
     @Test
@@ -332,10 +336,12 @@ class ModerationControllerTests {
             new CommentAuthor(ownerId, "author@example.com", "Author"),
             "Comment body",
             CommentStatus.PENDING,
-            "Автомодерация: Спам-маркер: казино / азартные игры",
+            "РђРІС‚РѕРјРѕРґРµСЂР°С†РёСЏ: РЎРїР°Рј-РјР°СЂРєРµСЂ: РєР°Р·РёРЅРѕ / Р°Р·Р°СЂС‚РЅС‹Рµ РёРіСЂС‹",
+            false,
+            false,
             ModerationPriority.HIGH,
             680,
-            List.of("Ожидает решения модератора", "Есть объяснение автомодерации"),
+            List.of("РћР¶РёРґР°РµС‚ СЂРµС€РµРЅРёСЏ РјРѕРґРµСЂР°С‚РѕСЂР°", "Р•СЃС‚СЊ РѕР±СЉСЏСЃРЅРµРЅРёРµ Р°РІС‚РѕРјРѕРґРµСЂР°С†РёРё"),
             TIMESTAMP,
             TIMESTAMP
         );
@@ -359,10 +365,12 @@ class ModerationControllerTests {
             new CommentAuthor(ownerId, "reply@example.com", "Reply Author"),
             "Reply body",
             CommentStatus.PENDING,
-            "Автомодерация: Токсичный маркер: оскорбление",
+            "РђРІС‚РѕРјРѕРґРµСЂР°С†РёСЏ: РўРѕРєСЃРёС‡РЅС‹Р№ РјР°СЂРєРµСЂ: РѕСЃРєРѕСЂР±Р»РµРЅРёРµ",
+            false,
+            false,
             ModerationPriority.HIGH,
             715,
-            List.of("Ожидает решения модератора", "Есть объяснение автомодерации", "Ответ внутри обсуждения"),
+            List.of("РћР¶РёРґР°РµС‚ СЂРµС€РµРЅРёСЏ РјРѕРґРµСЂР°С‚РѕСЂР°", "Р•СЃС‚СЊ РѕР±СЉСЏСЃРЅРµРЅРёРµ Р°РІС‚РѕРјРѕРґРµСЂР°С†РёРё", "РћС‚РІРµС‚ РІРЅСѓС‚СЂРё РѕР±СЃСѓР¶РґРµРЅРёСЏ"),
             TIMESTAMP,
             TIMESTAMP
         );

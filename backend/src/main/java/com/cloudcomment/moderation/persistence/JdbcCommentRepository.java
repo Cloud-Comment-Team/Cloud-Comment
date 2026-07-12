@@ -48,6 +48,8 @@ class JdbcCommentRepository implements CommentRepository {
             coalesce(u.display_name, c.author_name) as author_display_name,
             c.body,
             c.status,
+            c.is_pinned,
+            c.is_favorite,
             c.created_at,
             c.updated_at,
             pc.author_user_id as parent_author_user_id,
@@ -155,6 +157,28 @@ class JdbcCommentRepository implements CommentRepository {
         return findById(commentId);
     }
 
+    @Override
+    @Transactional
+    public Optional<Comment> updateFlags(UUID commentId, Boolean pinned, Boolean favorite) {
+        int updated = jdbcTemplate.update(
+            """
+                update comments
+                set is_pinned = coalesce(?, is_pinned),
+                    is_favorite = coalesce(?, is_favorite),
+                    updated_at = now()
+                where id = ?
+                  and deleted_at is null
+                """,
+            pinned,
+            favorite,
+            commentId
+        );
+        if (updated == 0) {
+            return Optional.empty();
+        }
+        return findById(commentId);
+    }
+
     private FilterQuery buildFilterQuery(UUID ownerId, ModerationCommentFilters filters) {
         StringBuilder where = new StringBuilder(" where s.owner_id = ? and c.deleted_at is null");
         List<Object> params = new ArrayList<>();
@@ -188,6 +212,10 @@ class JdbcCommentRepository implements CommentRepository {
             where.append(" and c.body ilike ?");
             params.add("%" + filters.search().trim() + "%");
         }
+        if (filters.favorite() != null) {
+            where.append(" and c.is_favorite = ?");
+            params.add(filters.favorite());
+        }
 
         return new FilterQuery(where.toString(), params);
     }
@@ -200,6 +228,8 @@ class JdbcCommentRepository implements CommentRepository {
             case CREATED_AT -> "c.created_at";
             case UPDATED_AT -> "c.updated_at";
             case STATUS -> "c.status";
+            case PINNED -> "c.is_pinned";
+            case FAVORITE -> "c.is_favorite";
         };
         if (sortBy == CommentSortField.SMART) {
             return " order by " + column + " " + sortOrder.name()
@@ -232,6 +262,8 @@ class JdbcCommentRepository implements CommentRepository {
             resultSet.getString("body"),
             CommentStatus.valueOf(resultSet.getString("status")),
             resultSet.getString("moderation_reason"),
+            resultSet.getBoolean("is_pinned"),
+            resultSet.getBoolean("is_favorite"),
             ModerationPriority.fromScore(resultSet.getInt("smart_priority_score")),
             resultSet.getInt("smart_priority_score"),
             priorityReasons(resultSet),

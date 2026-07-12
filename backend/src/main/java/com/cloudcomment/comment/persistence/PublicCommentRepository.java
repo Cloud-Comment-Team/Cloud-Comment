@@ -6,6 +6,7 @@ import com.cloudcomment.comment.domain.CommentReactionSummary;
 import com.cloudcomment.comment.domain.CommentReactionType;
 import com.cloudcomment.comment.domain.CommentStatus;
 import com.cloudcomment.comment.domain.CommentView;
+import com.cloudcomment.comment.domain.PublicCommentSort;
 
 import java.util.List;
 import java.util.Optional;
@@ -28,6 +29,17 @@ public interface PublicCommentRepository {
         UUID pageId,
         int page,
         int pageSize,
+        Optional<UUID> viewerUserId
+    ) {
+        return findApprovedComments(siteId, pageId, page, pageSize, PublicCommentSort.PINNED_FIRST, viewerUserId);
+    }
+
+    default CommentPage findApprovedComments(
+        UUID siteId,
+        UUID pageId,
+        int page,
+        int pageSize,
+        PublicCommentSort sort,
         Optional<UUID> viewerUserId
     ) {
         return findApprovedComments(siteId, pageId, page, pageSize);

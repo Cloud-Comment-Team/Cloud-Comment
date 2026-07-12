@@ -15,6 +15,7 @@ public record ModerationCommentFilters(
     Instant createdFrom,
     Instant createdTo,
     String search,
+    Boolean favorite,
     CommentSortField sortBy,
     SortOrder sortOrder
 ) {

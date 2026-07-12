@@ -15,6 +15,8 @@ public record Comment(
     String body,
     CommentStatus status,
     String moderationReason,
+    boolean pinned,
+    boolean favorite,
     ModerationPriority priority,
     int priorityScore,
     List<String> priorityReasons,

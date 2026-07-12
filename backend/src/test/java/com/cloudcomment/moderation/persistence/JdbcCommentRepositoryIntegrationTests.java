@@ -67,6 +67,7 @@ class JdbcCommentRepositoryIntegrationTests {
                 null,
                 null,
                 null,
+                null,
                 CommentSortField.CREATED_AT,
                 SortOrder.ASC
             ),
@@ -83,6 +84,7 @@ class JdbcCommentRepositoryIntegrationTests {
                 null,
                 null,
                 CommentStatus.APPROVED,
+                null,
                 null,
                 null,
                 null,
@@ -104,6 +106,7 @@ class JdbcCommentRepositoryIntegrationTests {
                 null,
                 null,
                 null,
+                null,
                 CommentSortField.CREATED_AT,
                 SortOrder.ASC
             ),
@@ -117,6 +120,7 @@ class JdbcCommentRepositoryIntegrationTests {
             new ModerationCommentFilters(
                 null,
                 ownerPageId,
+                null,
                 null,
                 null,
                 null,
@@ -140,6 +144,7 @@ class JdbcCommentRepositoryIntegrationTests {
                 Instant.parse("2026-06-28T10:30:00Z"),
                 Instant.parse("2026-06-28T11:30:00Z"),
                 null,
+                null,
                 CommentSortField.CREATED_AT,
                 SortOrder.ASC
             ),
@@ -158,6 +163,7 @@ class JdbcCommentRepositoryIntegrationTests {
                 null,
                 null,
                 "widget",
+                null,
                 CommentSortField.CREATED_AT,
                 SortOrder.ASC
             ),
@@ -170,6 +176,7 @@ class JdbcCommentRepositoryIntegrationTests {
             ownerId,
             new ModerationCommentFilters(
                 ownerSiteId,
+                null,
                 null,
                 null,
                 null,
@@ -191,6 +198,7 @@ class JdbcCommentRepositoryIntegrationTests {
             ownerId,
             new ModerationCommentFilters(
                 ownerSiteId,
+                null,
                 null,
                 null,
                 null,
@@ -285,14 +293,14 @@ class JdbcCommentRepositoryIntegrationTests {
             null,
             "Suspicious comment",
             "SPAM",
-            "Автомодерация: Спам-маркер: казино / азартные игры",
+            "РђРІС‚РѕРјРѕРґРµСЂР°С†РёСЏ: РЎРїР°Рј-РјР°СЂРєРµСЂ: РєР°Р·РёРЅРѕ / Р°Р·Р°СЂС‚РЅС‹Рµ РёРіСЂС‹",
             Instant.parse("2026-06-28T11:00:00Z")
         );
 
         Comment comment = commentRepository.findById(commentId).orElseThrow();
 
         assertThat(comment.moderationReason())
-            .isEqualTo("Автомодерация: Спам-маркер: казино / азартные игры");
+            .isEqualTo("РђРІС‚РѕРјРѕРґРµСЂР°С†РёСЏ: РЎРїР°Рј-РјР°СЂРєРµСЂ: РєР°Р·РёРЅРѕ / Р°Р·Р°СЂС‚РЅС‹Рµ РёРіСЂС‹");
     }
 
     @Test
@@ -318,7 +326,7 @@ class JdbcCommentRepositoryIntegrationTests {
             null,
             "Suspicious telegram contact",
             "SPAM",
-            "Автомодерация: контакт или ссылка",
+            "РђРІС‚РѕРјРѕРґРµСЂР°С†РёСЏ: РєРѕРЅС‚Р°РєС‚ РёР»Рё СЃСЃС‹Р»РєР°",
             Instant.parse("2026-06-28T12:00:00Z")
         );
         UUID riskyPendingId = insertComment(
@@ -326,7 +334,7 @@ class JdbcCommentRepositoryIntegrationTests {
             null,
             "Go to https://casino.example and write @fast_money",
             "PENDING",
-            "Автомодерация: спам и ссылки",
+            "РђРІС‚РѕРјРѕРґРµСЂР°С†РёСЏ: СЃРїР°Рј Рё СЃСЃС‹Р»РєРё",
             Instant.parse("2026-06-28T13:00:00Z")
         );
 
@@ -334,6 +342,7 @@ class JdbcCommentRepositoryIntegrationTests {
             ownerId,
             new ModerationCommentFilters(
                 siteId,
+                null,
                 null,
                 null,
                 null,
@@ -351,7 +360,7 @@ class JdbcCommentRepositoryIntegrationTests {
             .containsExactly(riskyPendingId, spamId, pendingId, approvedId);
         assertThat(result.items().getFirst().priority()).isEqualTo(ModerationPriority.URGENT);
         assertThat(result.items().getFirst().priorityReasons())
-            .contains("Ожидает решения модератора", "Есть объяснение автомодерации", "Содержит ссылку или контакт");
+            .contains("РћР¶РёРґР°РµС‚ СЂРµС€РµРЅРёСЏ РјРѕРґРµСЂР°С‚РѕСЂР°", "Р•СЃС‚СЊ РѕР±СЉСЏСЃРЅРµРЅРёРµ Р°РІС‚РѕРјРѕРґРµСЂР°С†РёРё", "РЎРѕРґРµСЂР¶РёС‚ СЃСЃС‹Р»РєСѓ РёР»Рё РєРѕРЅС‚Р°РєС‚");
     }
 
     private UUID insertUser(String label) {
