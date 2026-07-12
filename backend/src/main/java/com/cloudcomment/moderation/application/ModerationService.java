@@ -46,6 +46,26 @@ public class ModerationService {
     }
 
     @Transactional
+    public Comment updateFlags(
+        AuthenticatedUser currentUser,
+        UUID commentId,
+        Boolean pinned,
+        Boolean favorite
+    ) {
+        if (pinned == null && favorite == null) {
+            throw new ApplicationException(ApiErrorCode.BAD_REQUEST, "At least one flag must be provided");
+        }
+
+        resourceOwnershipService.assertCommentOwnedBy(currentUser, commentId);
+        Comment comment = commentRepository.findById(commentId).orElseThrow(this::notFound);
+        if (Boolean.TRUE.equals(pinned)) {
+            assertCanPin(comment);
+        }
+
+        return commentRepository.updateFlags(commentId, pinned, favorite).orElseThrow(this::notFound);
+    }
+
+    @Transactional
     public ModerationAction applyAction(
         AuthenticatedUser currentUser,
         UUID commentId,
@@ -103,6 +123,7 @@ public class ModerationService {
             filters.createdFrom(),
             filters.createdTo(),
             normalizeNullable(filters.search()),
+            filters.favorite(),
             filters.sortBy(),
             filters.sortOrder()
         );
@@ -125,6 +146,15 @@ public class ModerationService {
             case MARK_SPAM -> CommentStatus.SPAM;
             case RESTORE -> CommentStatus.APPROVED;
         };
+    }
+
+    private void assertCanPin(Comment comment) {
+        if (comment.parentId() != null) {
+            throw new ApplicationException(ApiErrorCode.BAD_REQUEST, "Only root comments can be pinned");
+        }
+        if (comment.status() != CommentStatus.APPROVED) {
+            throw new ApplicationException(ApiErrorCode.BAD_REQUEST, "Only approved comments can be pinned");
+        }
     }
 
     private ApplicationException concurrentStatusChange(UUID commentId, CommentStatus targetStatus) {

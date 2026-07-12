@@ -20,4 +20,6 @@ public interface CommentRepository {
         CommentStatus newStatus,
         String moderationReason
     );
+
+    Optional<Comment> updateFlags(UUID commentId, Boolean pinned, Boolean favorite);
 }

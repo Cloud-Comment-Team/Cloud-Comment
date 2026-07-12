@@ -239,9 +239,10 @@ Response `204`, body отсутствует.
 | `/api/analytics/owner` | `GET` | Owner-scoped analytics for dashboard and site detail |
 | `/api/moderation/comments` | `GET` | List comments for moderation queue (paginated) |
 | `/api/moderation/comments/{commentId}` | `GET` | Get comment details |
+| `/api/moderation/comments/{commentId}/flags` | `PATCH` | Update owner-scoped pin/favorite flags |
 | `/api/moderation/comments/{commentId}/actions` | `POST` | Apply moderation action |
 
-`GET /api/moderation/comments` supports optional filters `siteId`, `pageId`, `pageUrl`, `status`, `createdFrom`, `createdTo`, `search`, `page`, `pageSize`, `sortBy`, `sortOrder`. Default sort is `sortBy=SMART&sortOrder=DESC`.
+`GET /api/moderation/comments` supports optional filters `siteId`, `pageId`, `pageUrl`, `status`, `createdFrom`, `createdTo`, `search`, `favorite`, `page`, `pageSize`, `sortBy`, `sortOrder`. `sortBy` additionally accepts `PINNED` and `FAVORITE`. Default sort is `sortBy=SMART&sortOrder=DESC`.
 
 #### `GET /api/analytics/owner`
 
@@ -534,6 +535,7 @@ Request для реакции:
 - Bad/missing/disallowed origin, inactive/missing site и parent comment не с этой страницы возвращают `404 NOT_FOUND` с `Resource not found`.
 - Публичный список возвращает только `APPROVED`; `PENDING`, `REJECTED`, `HIDDEN`, `SPAM` не видны в виджете.
 - Approved replies are returned inside the root comment `replies` array. The widget exposes reply creation only from root comments and renders replies one level deep.
+- Public list accepts `sort=PINNED_FIRST|NEWEST|OLDEST|TOP_REACTIONS`. Approved pinned roots always come first; reaction sorting counts reactions on the root and approved replies. Public responses expose `pinned`, but never the internal `favorite` flag.
 - Авторизованный visitor видит в public list флаг `ownedByCurrentUser` для своих комментариев; виджет использует его, чтобы показать edit/delete controls только владельцу.
 - Редактирование заново проходит автомодерацию сайта: чистый текст может остаться/стать `APPROVED`, сомнительный попасть в `PENDING`, а явно запрещенный — в `SPAM`.
 - Удаление комментария автором soft-delete'ит запись: комментарий исчезает из public list и moderation queue, но база сохраняет факт удаления для целостности истории.
@@ -709,6 +711,8 @@ Response:
 `moderationReason` nullable. Когда автомодерация усиливает решение до `PENDING` или `SPAM`, backend сохраняет короткую объяснимую причину для владельца сайта. Пользователь виджета не получает внутренние spam-сигналы: `SPAM`-отправка показывается нейтрально как "отправлено на проверку".
 
 Ответы очереди модерации дополнительно содержат `priority`, `priorityScore` и `priorityReasons`. По умолчанию `GET /api/moderation/comments` сортируется как `sortBy=SMART&sortOrder=DESC`: backend поднимает выше комментарии с нерешенным статусом, причиной автомодерации, ссылками/контактами, длинным текстом, контекстом ответа и большим временем ожидания.
+
+Moderation responses contain `pinned` and `favorite`. `PATCH /api/moderation/comments/{commentId}/flags` accepts nullable partial fields `{ "pinned": true, "favorite": true }`; at least one field is required. Only approved root comments can be pinned, while any owned comment can be marked favorite. Foreign and missing comment ids are masked as `404 NOT_FOUND`.
 
 Moderation responses additionally include `parent` for reply comments. It contains the parent comment id, author summary, content, status, and creation time so the moderation card can show reply context.
 

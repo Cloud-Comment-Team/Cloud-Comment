@@ -7,6 +7,7 @@ import com.cloudcomment.comment.application.CommentPage;
 import com.cloudcomment.comment.application.PublicCommentService;
 import com.cloudcomment.comment.application.PublicWidgetConfig;
 import com.cloudcomment.comment.domain.CommentView;
+import com.cloudcomment.comment.domain.PublicCommentSort;
 import com.cloudcomment.shared.error.ApplicationException;
 import com.cloudcomment.shared.web.PaginatedResponse;
 import com.cloudcomment.shared.web.security.CurrentUser;
@@ -65,6 +66,7 @@ class PublicCommentController {
         @PathVariable UUID siteId,
         HttpServletRequest request,
         @RequestParam @NotBlank @Size(max = 2048) @ValidPageUrl String pageUrl,
+        @RequestParam(defaultValue = "PINNED_FIRST") PublicCommentSort sort,
         @RequestParam(defaultValue = "1") @Min(1) @Max(100_000) int page,
         @RequestParam(defaultValue = "20") @Min(1) @Max(100) int pageSize
     ) {
@@ -75,6 +77,7 @@ class PublicCommentController {
             pageUrl,
             page,
             pageSize,
+            sort,
             resolveOptionalViewer(request)
         );
         return PaginatedResponse.of(

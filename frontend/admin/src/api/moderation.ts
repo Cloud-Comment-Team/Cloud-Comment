@@ -4,6 +4,7 @@ import type {
   ModerationAction,
   ModerationActionRequest,
   PaginatedResponse,
+  UpdateCommentFlagsRequest,
 } from '../types/api'
 import { apiClient } from './client'
 
@@ -23,6 +24,11 @@ export async function applyModerationAction(
   request: ModerationActionRequest,
 ): Promise<ModerationAction> {
   const response = await apiClient.post<ModerationAction>(`/moderation/comments/${commentId}/actions`, request)
+  return response.data
+}
+
+export async function updateCommentFlags(commentId: string, request: UpdateCommentFlagsRequest): Promise<Comment> {
+  const response = await apiClient.patch<Comment>(`/moderation/comments/${commentId}/flags`, request)
   return response.data
 }
 

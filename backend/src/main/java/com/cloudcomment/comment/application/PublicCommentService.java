@@ -7,6 +7,7 @@ import com.cloudcomment.comment.domain.CommentReactionType;
 import com.cloudcomment.comment.domain.CommentStatus;
 import com.cloudcomment.comment.domain.CommentView;
 import com.cloudcomment.comment.domain.PageUrlRules;
+import com.cloudcomment.comment.domain.PublicCommentSort;
 import com.cloudcomment.comment.persistence.PublicCommentRepository;
 import com.cloudcomment.shared.error.ApiErrorCode;
 import com.cloudcomment.shared.error.ApplicationException;
@@ -61,9 +62,21 @@ public class PublicCommentService {
         String origin,
         String pageUrl,
         int page,
+        int pageSize,
+        Optional<UUID> viewerUserId
+    ) {
+        return listComments(siteId, origin, pageUrl, page, pageSize, PublicCommentSort.PINNED_FIRST, viewerUserId);
+    }
+
+    @Transactional(readOnly = true)
+    public CommentPage listComments(
+        UUID siteId,
+        String origin,
+        String pageUrl,
+        int page,
         int pageSize
     ) {
-        return listComments(siteId, origin, pageUrl, page, pageSize, Optional.empty());
+        return listComments(siteId, origin, pageUrl, page, pageSize, PublicCommentSort.PINNED_FIRST, Optional.empty());
     }
 
     @Transactional(readOnly = true)
@@ -73,6 +86,7 @@ public class PublicCommentService {
         String pageUrl,
         int page,
         int pageSize,
+        PublicCommentSort sort,
         Optional<UUID> viewerUserId
     ) {
         WidgetSiteAccess access = domainPolicyService.validate(siteId, origin);
@@ -88,6 +102,7 @@ public class PublicCommentService {
             pageId.orElseThrow(),
             page,
             pageSize,
+            sort,
             viewerUserId
         );
     }

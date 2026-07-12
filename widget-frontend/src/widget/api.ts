@@ -6,6 +6,7 @@ import type {
   LoginResponse,
   PaginatedResponse,
   PublicComment,
+  PublicCommentSort,
   PublicWidgetConfig
 } from "./types";
 
@@ -46,7 +47,7 @@ export type RegisterPayload = {
 export type WidgetApiClient = {
   getConfig: () => Promise<PublicWidgetConfig>;
   getConsentRequirements: () => Promise<ConsentRequirements>;
-  listComments: (token?: string | null) => Promise<PaginatedResponse<PublicComment>>;
+  listComments: (sort: PublicCommentSort, token?: string | null) => Promise<PaginatedResponse<PublicComment>>;
   createComment: (content: string, parentId: string | null, token: string) => Promise<PublicComment>;
   updateComment: (commentId: string, content: string, token: string) => Promise<PublicComment>;
   deleteComment: (commentId: string, token: string) => Promise<void>;
@@ -99,9 +100,10 @@ export function createWidgetApiClient(
   return {
     getConfig: () => request<PublicWidgetConfig>(`${siteBasePath}/config`),
     getConsentRequirements: () => request<ConsentRequirements>("/privacy/consent-requirements"),
-    listComments: (token) => {
+    listComments: (sort, token) => {
       const params = new URLSearchParams({
         pageUrl,
+        sort,
         page: "1",
         pageSize: "20"
       });

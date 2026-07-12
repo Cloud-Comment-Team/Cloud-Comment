@@ -117,6 +117,8 @@ export interface Comment {
   content: string
   status: CommentStatus
   moderationReason: string | null
+  pinned: boolean
+  favorite: boolean
   priority: ModerationPriority
   priorityScore: number
   priorityReasons: string[]
@@ -152,10 +154,16 @@ export interface ListCommentsParams {
   createdFrom?: string
   createdTo?: string
   search?: string
-  sortBy?: 'SMART' | 'CREATED_AT' | 'UPDATED_AT' | 'STATUS'
+  favorite?: boolean
+  sortBy?: 'SMART' | 'CREATED_AT' | 'UPDATED_AT' | 'STATUS' | 'PINNED' | 'FAVORITE'
   sortOrder?: 'ASC' | 'DESC'
   page?: number
   pageSize?: number
+}
+
+export interface UpdateCommentFlagsRequest {
+  pinned?: boolean
+  favorite?: boolean
 }
 
 export type AnalyticsRange = '7d' | '30d' | '90d' | 'all'

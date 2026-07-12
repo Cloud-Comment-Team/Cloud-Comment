@@ -9,6 +9,7 @@ import type {
   ConsentRequirements,
   LoginResponse,
   PublicComment,
+  PublicCommentSort,
   PublicWidgetConfig,
   WidgetStyle,
   WidgetStyleTheme,
@@ -38,6 +39,7 @@ type WidgetState = {
   deletingCommentId: string | null;
   confirmingCommentDeleteId: string | null;
   comments: PublicComment[];
+  sort: PublicCommentSort;
   config: PublicWidgetConfig | null;
   consentRequirements: ConsentRequirements | null;
   token: string | null;
@@ -80,6 +82,7 @@ export function renderWidget(
     deletingCommentId: null,
     confirmingCommentDeleteId: null,
     comments: [],
+    sort: "PINNED_FIRST",
     config: null,
     consentRequirements: null,
     token: getStoredAuthToken(),
@@ -110,7 +113,7 @@ export function renderWidget(
     try {
       const [config, comments, consentRequirements] = await Promise.all([
         api.getConfig(),
-        api.listComments(state.token),
+        api.listComments(state.sort, state.token),
         api.getConsentRequirements()
       ]);
       state.config = config;
@@ -160,7 +163,7 @@ export function renderWidget(
       state.token = loginResponse.token;
       state.userEmail = loginResponse.user.email;
       storeAuthToken(loginResponse.token);
-      state.comments = (await api.listComments(loginResponse.token)).items;
+      state.comments = (await api.listComments(state.sort, loginResponse.token)).items;
       state.notice = "Вы вошли и можете оставить комментарий.";
       state.accountError = null;
       state.deleteConfirming = false;
@@ -297,7 +300,7 @@ export function renderWidget(
     try {
       const createdComment = await api.createComment(content, parentId, state.token);
       submittedStatus = createdComment.status;
-      const refreshedComments = await api.listComments(state.token);
+      const refreshedComments = await api.listComments(state.sort, state.token);
       state.comments = parentId
         ? mergeCreatedReply(createdComment, refreshedComments.items, parentId, state.comments)
         : mergeCreatedComment(createdComment, refreshedComments.items);
@@ -412,6 +415,34 @@ export function renderWidget(
       render();
     }
   }
+
+  async function changeSort(sort: PublicCommentSort): Promise<void> {
+    if (sort === state.sort) {
+      return;
+    }
+    state.sort = sort;
+    state.loading = true;
+    state.error = null;
+    render();
+    try {
+      state.comments = (await api.listComments(state.sort, state.token)).items;
+    } catch (error) {
+      state.error = getErrorMessage(error);
+    } finally {
+      state.loading = false;
+      render();
+    }
+  }
+
+  shell.addEventListener("change", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLSelectElement) || target.dataset.commentSort !== "true") {
+      return;
+    }
+    if (isPublicCommentSort(target.value)) {
+      void changeSort(target.value);
+    }
+  });
 
   shell.addEventListener("submit", (event) => {
     const form = event.target;
@@ -722,11 +753,39 @@ function renderBody(state: WidgetState, options: Required<CloudCommentWidgetOpti
   if (state.loading) {
     body.append(renderMessage("Загружаем комментарии...", "muted"));
   } else {
-    body.append(renderCommentList(state.comments, state));
+    body.append(renderCommentSort(state.sort), renderCommentList(state.comments, state));
   }
 
   body.append(renderCommentForm(state), renderAccountSection(state, options), renderAuthSection(state));
   return body;
+}
+
+function renderCommentSort(sort: PublicCommentSort): HTMLElement {
+  const control = document.createElement("label");
+  control.className = "cloud-comment__sort";
+
+  const label = document.createElement("span");
+  label.textContent = "Сортировка";
+
+  const select = document.createElement("select");
+  select.dataset.commentSort = "true";
+  select.setAttribute("aria-label", "Сортировка комментариев");
+  const options: Array<[PublicCommentSort, string]> = [
+    ["PINNED_FIRST", "Закреплённые сначала"],
+    ["NEWEST", "Сначала новые"],
+    ["OLDEST", "Сначала старые"],
+    ["TOP_REACTIONS", "По реакциям"]
+  ];
+  for (const [value, text] of options) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = text;
+    option.selected = value === sort;
+    select.append(option);
+  }
+
+  control.append(label, select);
+  return control;
 }
 
 function renderCommentList(comments: PublicComment[], state: WidgetState): HTMLElement {
@@ -776,6 +835,13 @@ function renderComment(comment: PublicComment, state: WidgetState, depth: number
     status.className = "cloud-comment__status";
     status.textContent = getStatusLabel(comment.status);
     header.append(status);
+  }
+
+  if (depth === 0 && comment.pinned) {
+    const pinned = document.createElement("span");
+    pinned.className = "cloud-comment__pinned";
+    pinned.textContent = "Закреплён";
+    header.append(pinned);
   }
 
   const content = document.createElement("p");
@@ -1368,6 +1434,10 @@ function reactionLabel(type: CommentReactionType): string {
 
 function isCommentReactionType(value: string | undefined): value is CommentReactionType {
   return value === "LIKE" || value === "LOVE" || value === "LAUGH" || value === "WOW";
+}
+
+function isPublicCommentSort(value: string): value is PublicCommentSort {
+  return ["PINNED_FIRST", "NEWEST", "OLDEST", "TOP_REACTIONS"].includes(value);
 }
 
 function toCloudCommentUrl(href: string, apiBaseUrl: string): string {
