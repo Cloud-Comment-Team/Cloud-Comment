@@ -149,4 +149,17 @@ describe('постоянный центр уведомлений', () => {
     expect(screen.getByText('Непрочитанных: 0')).toBeInTheDocument()
     await waitFor(() => expect(notificationApi.markAllNotificationsRead).toHaveBeenCalledOnce())
   })
+
+  it('синхронно возвращает фокус на кнопку после закрытия по Escape', async () => {
+    renderNotifications()
+    const trigger = screen.getByRole('button', { name: 'Уведомления' })
+    trigger.focus()
+    fireEvent.click(trigger)
+    expect(await screen.findByRole('dialog', { name: 'Центр уведомлений' })).toBeInTheDocument()
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+
+    expect(screen.queryByRole('dialog', { name: 'Центр уведомлений' })).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
+  })
 })
