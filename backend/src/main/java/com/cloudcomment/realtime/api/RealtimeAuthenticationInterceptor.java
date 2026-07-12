@@ -1,8 +1,7 @@
 package com.cloudcomment.realtime.api;
 
 import com.cloudcomment.auth.application.AuthenticatedUser;
-import com.cloudcomment.auth.application.CurrentUserService;
-import com.cloudcomment.shared.error.ApplicationException;
+import com.cloudcomment.realtime.application.RealtimeTicketService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.server.ServerHttpRequest;
@@ -21,7 +20,7 @@ class RealtimeAuthenticationInterceptor implements HandshakeInterceptor {
 
     static final String CURRENT_USER_ATTRIBUTE = "cloudCommentCurrentUser";
 
-    private final CurrentUserService currentUserService;
+    private final RealtimeTicketService ticketService;
 
     @Override
     public boolean beforeHandshake(
@@ -30,20 +29,13 @@ class RealtimeAuthenticationInterceptor implements HandshakeInterceptor {
         WebSocketHandler wsHandler,
         Map<String, Object> attributes
     ) {
-        String token = resolveToken(request);
-        if (token == null || token.isBlank()) {
-            response.setStatusCode(HttpStatus.UNAUTHORIZED);
-            return false;
-        }
-
-        try {
-            AuthenticatedUser user = currentUserService.getCurrentUser(token);
+        return ticketService.consume(resolveTicket(request)).map(user -> {
             attributes.put(CURRENT_USER_ATTRIBUTE, user);
             return true;
-        } catch (ApplicationException exception) {
+        }).orElseGet(() -> {
             response.setStatusCode(HttpStatus.UNAUTHORIZED);
             return false;
-        }
+        });
     }
 
     @Override
@@ -55,11 +47,11 @@ class RealtimeAuthenticationInterceptor implements HandshakeInterceptor {
     ) {
     }
 
-    private String resolveToken(ServerHttpRequest request) {
+    private String resolveTicket(ServerHttpRequest request) {
         List<String> values = UriComponentsBuilder.fromUri(request.getURI())
             .build()
             .getQueryParams()
-            .get("token");
+            .get("ticket");
         if (values == null || values.isEmpty()) {
             return null;
         }

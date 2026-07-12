@@ -62,14 +62,16 @@ public class RealtimeMessagingService {
     }
 
     private void send(WebSocketSession session, UUID userId, TextMessage message) {
-        if (!session.isOpen()) {
-            unregister(userId, session);
-            return;
-        }
-        try {
-            session.sendMessage(message);
-        } catch (IOException exception) {
-            unregister(userId, session);
+        synchronized (session) {
+            if (!session.isOpen()) {
+                unregister(userId, session);
+                return;
+            }
+            try {
+                session.sendMessage(message);
+            } catch (IOException exception) {
+                unregister(userId, session);
+            }
         }
     }
 }

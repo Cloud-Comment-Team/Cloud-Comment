@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { Bell, BellRing, Circle, ExternalLink, WifiOff, X } from 'lucide-react'
 
+import { createRealtimeTicket } from '../../api/realtime'
 import { getRealtimeWebSocketUrl } from '../../config/env'
 import { useAuthStore } from '../../store'
 import type { CommentStatus, NewCommentNotification, RealtimeEnvelope } from '../../types/api'
@@ -31,7 +32,6 @@ export function RealtimeNotifications() {
   const [unreadCount, setUnreadCount] = useState(0)
   const [isOpen, setIsOpen] = useState(false)
   const reconnectTimerRef = useRef<number | null>(null)
-  const shouldReconnectRef = useRef(true)
 
   const latestNotifications = useMemo(() => notifications.slice(0, 6), [notifications])
 
@@ -42,7 +42,7 @@ export function RealtimeNotifications() {
 
     let websocket: WebSocket | null = null
     let reconnectAttempt = 0
-    shouldReconnectRef.current = true
+    let disposed = false
 
     const clearReconnectTimer = () => {
       if (reconnectTimerRef.current) {
@@ -72,10 +72,29 @@ export function RealtimeNotifications() {
       toast.success(`Новый комментарий: ${notification.siteName}`)
     }
 
-    const connect = () => {
+    const scheduleReconnect = () => {
+      if (disposed) {
+        return
+      }
+      reconnectAttempt += 1
+      const delay = Math.min(1000 * 2 ** reconnectAttempt, 10000)
+      reconnectTimerRef.current = window.setTimeout(() => void connect(), delay)
+    }
+
+    const connect = async () => {
       clearReconnectTimer()
       setConnectionStatus('connecting')
-      websocket = new WebSocket(getRealtimeWebSocketUrl(token))
+      try {
+        const { ticket } = await createRealtimeTicket()
+        if (disposed) {
+          return
+        }
+        websocket = new WebSocket(getRealtimeWebSocketUrl(ticket))
+      } catch {
+        setConnectionStatus('disconnected')
+        scheduleReconnect()
+        return
+      }
 
       websocket.addEventListener('open', () => {
         reconnectAttempt = 0
@@ -88,13 +107,7 @@ export function RealtimeNotifications() {
 
       websocket.addEventListener('close', () => {
         setConnectionStatus('disconnected')
-        if (!shouldReconnectRef.current) {
-          return
-        }
-
-        reconnectAttempt += 1
-        const delay = Math.min(1000 * 2 ** reconnectAttempt, 10000)
-        reconnectTimerRef.current = window.setTimeout(connect, delay)
+        scheduleReconnect()
       })
 
       websocket.addEventListener('error', () => {
@@ -102,10 +115,10 @@ export function RealtimeNotifications() {
       })
     }
 
-    connect()
+    void connect()
 
     return () => {
-      shouldReconnectRef.current = false
+      disposed = true
       clearReconnectTimer()
       websocket?.close()
     }
