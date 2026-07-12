@@ -20,6 +20,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -48,6 +49,7 @@ class ModerationController {
         @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant createdFrom,
         @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant createdTo,
         @RequestParam(required = false) String search,
+        @RequestParam(required = false) Boolean favorite,
         @RequestParam(defaultValue = "SMART") CommentSortField sortBy,
         @RequestParam(defaultValue = "DESC") SortOrder sortOrder,
         @RequestParam(defaultValue = "1") @Min(1) @Max(100_000) int page,
@@ -61,6 +63,7 @@ class ModerationController {
             createdFrom,
             createdTo,
             search,
+            favorite,
             sortBy,
             sortOrder
         );
@@ -79,6 +82,16 @@ class ModerationController {
         @PathVariable UUID commentId
     ) {
         Comment comment = moderationService.getComment(currentUser, commentId);
+        return CommentResponse.from(comment);
+    }
+
+    @PatchMapping("/comments/{commentId}/flags")
+    CommentResponse updateFlags(
+        @CurrentUser AuthenticatedUser currentUser,
+        @PathVariable UUID commentId,
+        @RequestBody UpdateCommentFlagsRequest request
+    ) {
+        Comment comment = moderationService.updateFlags(currentUser, commentId, request.pinned(), request.favorite());
         return CommentResponse.from(comment);
     }
 

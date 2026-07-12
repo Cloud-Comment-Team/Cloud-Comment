@@ -4,5 +4,7 @@ public enum CommentSortField {
     SMART,
     CREATED_AT,
     UPDATED_AT,
-    STATUS
+    STATUS,
+    PINNED,
+    FAVORITE
 }

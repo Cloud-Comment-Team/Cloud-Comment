@@ -37,6 +37,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -74,6 +75,7 @@ class ModerationControllerTests {
         when(moderationService.listComments(
             eq(currentUser),
             eq(new ModerationCommentFilters(
+                null,
                 null,
                 null,
                 null,
@@ -124,6 +126,7 @@ class ModerationControllerTests {
                 null,
                 null,
                 null,
+                null,
                 CommentSortField.SMART,
                 SortOrder.DESC
             )),
@@ -156,6 +159,7 @@ class ModerationControllerTests {
                 Instant.parse("2026-06-28T00:00:00Z"),
                 Instant.parse("2026-06-28T23:59:59Z"),
                 "widget",
+                null,
                 CommentSortField.SMART,
                 SortOrder.DESC
             )),
@@ -185,6 +189,7 @@ class ModerationControllerTests {
                 Instant.parse("2026-06-28T00:00:00Z"),
                 Instant.parse("2026-06-28T23:59:59Z"),
                 "widget",
+                null,
                 CommentSortField.SMART,
                 SortOrder.DESC
             )),
@@ -262,6 +267,29 @@ class ModerationControllerTests {
     }
 
     @Test
+    void updateFlagsReturnsOwnerScopedCommentFlags() throws Exception {
+        AuthenticatedUser currentUser = currentUser();
+        Comment original = comment(currentUser.id());
+        Comment updated = new Comment(
+            original.id(), original.siteId(), original.pageId(), original.pageUrl(), original.parentId(), original.parent(),
+            original.author(), original.body(), CommentStatus.APPROVED, original.moderationReason(), true, true,
+            original.priority(), original.priorityScore(), original.priorityReasons(), original.createdAt(), original.updatedAt()
+        );
+        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(moderationService.updateFlags(currentUser, original.id(), true, true)).thenReturn(updated);
+
+        mockMvc.perform(patch("/api/moderation/comments/{commentId}/flags", original.id())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"pinned": true, "favorite": true}
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.pinned", is(true)))
+            .andExpect(jsonPath("$.favorite", is(true)));
+    }
+
+    @Test
     void applyActionReturnsCreatedModerationAction() throws Exception {
         AuthenticatedUser currentUser = currentUser();
         UUID commentId = UUID.randomUUID();
@@ -333,6 +361,8 @@ class ModerationControllerTests {
             "Comment body",
             CommentStatus.PENDING,
             "Автомодерация: Спам-маркер: казино / азартные игры",
+            false,
+            false,
             ModerationPriority.HIGH,
             680,
             List.of("Ожидает решения модератора", "Есть объяснение автомодерации"),
@@ -360,6 +390,8 @@ class ModerationControllerTests {
             "Reply body",
             CommentStatus.PENDING,
             "Автомодерация: Токсичный маркер: оскорбление",
+            false,
+            false,
             ModerationPriority.HIGH,
             715,
             List.of("Ожидает решения модератора", "Есть объяснение автомодерации", "Ответ внутри обсуждения"),
