@@ -9,13 +9,16 @@ import type {
   AnalyticsRange,
   CommentStatus,
   CommentTimePoint,
+  ModerationActionNotification,
   ModerationStatusCount,
+  NewCommentNotification,
   OwnerAnalytics,
   ReactionTypeCount,
   TopPageAnalytics,
 } from '../../types/api'
 import { AsyncState } from '../common/AsyncState'
 import { Badge } from '../common/Badge'
+import { useRealtimeEvent } from '../realtime/useRealtime'
 
 interface OwnerAnalyticsPanelProps {
   siteId?: string
@@ -65,6 +68,24 @@ export function OwnerAnalyticsPanel({ siteId, compact = false }: OwnerAnalyticsP
   const [analytics, setAnalytics] = useState<OwnerAnalytics | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
+
+  useRealtimeEvent((event) => {
+    if (event.type === 'comment.created') {
+      const payload: NewCommentNotification = event.payload
+      if (!siteId || payload.siteId === siteId) {
+        setReloadKey((current) => current + 1)
+      }
+      return
+    }
+
+    if (event.type === 'comment.moderation_action_applied') {
+      const payload: ModerationActionNotification = event.payload
+      if (!siteId || payload.siteId === siteId) {
+        setReloadKey((current) => current + 1)
+      }
+    }
+  })
 
   useEffect(() => {
     let cancelled = false
@@ -94,7 +115,7 @@ export function OwnerAnalyticsPanel({ siteId, compact = false }: OwnerAnalyticsP
     return () => {
       cancelled = true
     }
-  }, [range, siteId])
+  }, [range, reloadKey, siteId])
 
   return (
     <section className="space-y-5">

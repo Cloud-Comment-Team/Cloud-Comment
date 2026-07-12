@@ -247,3 +247,19 @@ export interface NewCommentNotification {
   status: CommentStatus
   createdAt: string
 }
+
+export interface ModerationActionNotification {
+  siteId: string
+  pageId: string
+  commentId: string
+  action: ModerationActionType
+  fromStatus: CommentStatus
+  toStatus: CommentStatus
+  reason: string | null
+  moderatorId: string
+  createdAt: string
+}
+
+export type RealtimeEvent =
+  | (RealtimeEnvelope<NewCommentNotification> & { type: 'comment.created' })
+  | (RealtimeEnvelope<ModerationActionNotification> & { type: 'comment.moderation_action_applied' })

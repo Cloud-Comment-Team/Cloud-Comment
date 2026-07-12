@@ -6,6 +6,7 @@ import { Toaster } from 'react-hot-toast'
 import Header from './Header'
 import Sidebar from './Sidebar'
 import { RealtimeNotifications } from '../notifications/RealtimeNotifications'
+import { RealtimeProvider } from '../realtime/RealtimeProvider'
 import { useAuthStore } from '../../store'
 import { PageTransition, RouteFlowOverlay } from './RouteTransition'
 import {
@@ -96,41 +97,43 @@ const Layout = () => {
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: 'var(--bg)' }}>
-      <Toaster
-        position="top-right"
-        toastOptions={{
-          style: {
-            background: 'var(--surface)',
-            border: '1px solid var(--border)',
-            color: 'var(--text-h)',
-          },
-        }}
-      />
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} onNavigationIntent={captureNavigationIntent} />
-      <div className="flex min-h-screen flex-col lg:pl-64">
-        <Header onMenuClick={() => setSidebarOpen(true)} />
-        <RealtimeNotifications key={token ?? 'guest'} />
-        <main className="flex-1 px-4 py-5 md:px-6 lg:px-8 lg:py-7">
-          <div ref={mainRef} className="mx-auto grid w-full max-w-7xl">
-            <AnimatePresence initial={false} mode="popLayout">
-              <PageTransition
-                key={location.pathname}
-                locationKey={location.pathname}
-                direction={direction}
-                reducedMotion={reducedMotion}
-              >
-                {outlet}
-              </PageTransition>
-            </AnimatePresence>
-          </div>
-        </main>
-      </div>
-      <RouteFlowOverlay
-        intent={navigationIntent}
-        bounds={mainBounds}
-        locationKey={location.key}
-        reducedMotion={reducedMotion}
-      />
+      <RealtimeProvider key={token ?? 'guest'}>
+        <Toaster
+          position="top-right"
+          toastOptions={{
+            style: {
+              background: 'var(--surface)',
+              border: '1px solid var(--border)',
+              color: 'var(--text-h)',
+            },
+          }}
+        />
+        <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} onNavigationIntent={captureNavigationIntent} />
+        <div className="flex min-h-screen flex-col lg:pl-64">
+          <Header onMenuClick={() => setSidebarOpen(true)} />
+          <RealtimeNotifications />
+          <main className="flex-1 px-4 py-5 md:px-6 lg:px-8 lg:py-7">
+            <div ref={mainRef} className="mx-auto grid w-full max-w-7xl">
+              <AnimatePresence initial={false} mode="popLayout">
+                <PageTransition
+                  key={location.pathname}
+                  locationKey={location.pathname}
+                  direction={direction}
+                  reducedMotion={reducedMotion}
+                >
+                  {outlet}
+                </PageTransition>
+              </AnimatePresence>
+            </div>
+          </main>
+        </div>
+        <RouteFlowOverlay
+          intent={navigationIntent}
+          bounds={mainBounds}
+          locationKey={location.key}
+          reducedMotion={reducedMotion}
+        />
+      </RealtimeProvider>
     </div>
   )
 }
