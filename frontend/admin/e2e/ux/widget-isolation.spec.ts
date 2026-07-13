@@ -142,7 +142,7 @@ async function setupWidgetServer(page: Page, options: WidgetServerOptions = {}):
           theme: 'LIGHT',
           accentColor: '#0f766e',
           cornerRadius: 'MEDIUM',
-          showSort: options.paginateComments ?? false,
+          showSort: true,
           defaultSort: 'PINNED_FIRST',
         },
       })
