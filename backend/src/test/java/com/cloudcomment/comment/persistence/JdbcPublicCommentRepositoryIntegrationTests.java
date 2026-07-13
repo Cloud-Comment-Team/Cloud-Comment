@@ -5,6 +5,7 @@ import com.cloudcomment.automoderation.domain.AutoModerationExecutionMode;
 import com.cloudcomment.automoderation.domain.AutoModerationSnapshot;
 import com.cloudcomment.automoderation.persistence.AutoModerationPolicyRepository;
 import com.cloudcomment.comment.application.CommentPage;
+import com.cloudcomment.comment.application.CommentPermalinkLocation;
 import com.cloudcomment.comment.domain.CommentReactionType;
 import com.cloudcomment.comment.domain.CommentStatus;
 import com.cloudcomment.comment.domain.CommentView;
@@ -509,6 +510,54 @@ class JdbcPublicCommentRepositoryIntegrationTests {
             .containsExactly(pinned.id(), older.id(), newer.id());
         assertThat(repository.findApprovedComments(siteId, pageId, 1, 20, PublicCommentSort.NEWEST, Optional.empty()).items().getFirst().pinned())
             .isTrue();
+    }
+
+    @Test
+    void locatesRootAndReplyPagesWithoutExposingHiddenComments() {
+        UUID ownerId = insertUser("permalink-owner", "Permalink Owner");
+        UUID visitorId = insertUser("permalink-visitor", "Permalink Visitor");
+        UUID siteId = insertSite(ownerId, "permalink.example.com", "https://permalink.example.com", ModerationMode.POST_MODERATION, true);
+        UUID pageId = repository.findOrCreatePage(siteId, "https://permalink.example.com/article");
+
+        CommentView targetRoot = null;
+        for (int index = 0; index < 21; index++) {
+            CommentView root = repository.createComment(
+                siteId, pageId, null, visitorId, "Visitor", "visitor@example.com",
+                "Root " + index, CommentStatus.APPROVED
+            );
+            jdbcTemplate.update(
+                "update comments set created_at = ? where id = ?",
+                OffsetDateTime.parse("2026-02-%02dT00:00:00Z".formatted(index + 1)),
+                root.id()
+            );
+            targetRoot = root;
+        }
+        CommentView targetReply = null;
+        for (int index = 0; index < 21; index++) {
+            CommentView reply = repository.createComment(
+                siteId, pageId, targetRoot.id(), visitorId, "Visitor", "visitor@example.com",
+                "Reply " + index, CommentStatus.APPROVED
+            );
+            jdbcTemplate.update(
+                "update comments set created_at = ? where id = ?",
+                OffsetDateTime.parse("2026-03-%02dT00:00:00Z".formatted(index + 1)),
+                reply.id()
+            );
+            targetReply = reply;
+        }
+        CommentView hidden = repository.createComment(
+            siteId, pageId, null, visitorId, "Visitor", "visitor@example.com", "Hidden", CommentStatus.HIDDEN
+        );
+
+        assertThat(repository.findApprovedCommentLocation(
+            siteId, pageId, targetRoot.id(), 20, PublicCommentSort.OLDEST, Optional.empty()
+        )).contains(new CommentPermalinkLocation(targetRoot.id(), targetRoot.id(), 2, null));
+        assertThat(repository.findApprovedCommentLocation(
+            siteId, pageId, targetReply.id(), 20, PublicCommentSort.OLDEST, Optional.empty()
+        )).contains(new CommentPermalinkLocation(targetReply.id(), targetRoot.id(), 2, 2));
+        assertThat(repository.findApprovedCommentLocation(
+            siteId, pageId, hidden.id(), 20, PublicCommentSort.OLDEST, Optional.empty()
+        )).isEmpty();
     }
 
     private UUID insertUser(String label, String displayName) {

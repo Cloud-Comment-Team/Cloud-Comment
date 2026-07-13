@@ -49,6 +49,7 @@ export type RenderWidgetOptions = {
   siteId: string;
   apiBaseUrl: string;
   pageUrl: string;
+  initialCommentId?: string | null;
   target: string | HTMLElement;
   theme: WidgetTheme;
   contextToken?: string;
@@ -209,8 +210,12 @@ export function renderWidget(
       commentsRequest = captureSessionRequest();
       const request = commentsRequest;
       const queryEpoch = ++commentsQueryEpoch;
+      const permalink = options.initialCommentId
+        ? await api.locateComment(options.initialCommentId, state.sort, ROOT_PAGE_SIZE, request.token)
+          .catch(() => null)
+        : null;
       const [comments, consentRequirements] = await Promise.all([
-        api.listComments(state.sort, 1, ROOT_PAGE_SIZE, request.token).catch((error: unknown) => {
+        api.listComments(state.sort, permalink?.rootPage ?? 1, ROOT_PAGE_SIZE, request.token).catch((error: unknown) => {
           if (isUnauthorized(error)) {
             listUnauthorizedHandled = true;
             if (expireAuthenticatedSession(request)) {
@@ -224,6 +229,21 @@ export function renderWidget(
       ]);
       if (isCurrentSessionRequest(request) && queryEpoch === commentsQueryEpoch) {
         replaceComments(comments);
+        if (permalink?.replyPage) {
+          const replies = await api.listReplies(
+            permalink.rootCommentId,
+            permalink.replyPage,
+            ROOT_PAGE_SIZE,
+            request.token
+          );
+          state.comments = updateRepliesInTree(
+            state.comments,
+            permalink.rootCommentId,
+            replies.items,
+            replies.totalItems
+          );
+          state.replyPages = { ...state.replyPages, [permalink.rootCommentId]: permalink.replyPage };
+        }
       }
       state.consentRequirements = consentRequirements;
       if (state.token) {
@@ -237,7 +257,44 @@ export function renderWidget(
       if (!commentsRequest || isCurrentSessionRequest(commentsRequest)) {
         state.loading = false;
         render();
+        if (options.initialCommentId) {
+          focusComment(options.initialCommentId);
+        }
       }
+    }
+  }
+
+  function focusComment(commentId: string): void {
+    window.requestAnimationFrame(() => {
+      const target = shell.querySelector<HTMLElement>(`#${commentAnchor(commentId)}`);
+      target?.focus({ preventScroll: true });
+      const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+      const behavior = reduceMotion ? "auto" : "smooth";
+      target?.scrollIntoView({ behavior, block: "center" });
+    });
+  }
+
+  async function shareComment(commentId: string): Promise<void> {
+    const url = permalinkUrl(options.pageUrl, commentId);
+    try {
+      if (typeof navigator.share === "function") {
+        await navigator.share({ title: "CloudComment", url });
+      } else {
+        await copyPermalink(url);
+      }
+      state.notice = "Ссылка на комментарий готова.";
+      render();
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return;
+      }
+      try {
+        await copyPermalink(url);
+        state.notice = "Ссылка на комментарий скопирована.";
+      } catch {
+        state.error = "Не удалось скопировать ссылку на комментарий.";
+      }
+      render();
     }
   }
 
@@ -1063,6 +1120,11 @@ export function renderWidget(
       return;
     }
 
+    if (button.dataset.shareComment) {
+      void shareComment(button.dataset.shareComment);
+      return;
+    }
+
     if (button.dataset.commentAction === "edit" && button.dataset.commentId) {
       const comment = findComment(state.comments, button.dataset.commentId);
       if (comment?.ownedByCurrentUser) {
@@ -1500,6 +1562,8 @@ function renderCommentList(comments: PublicComment[], state: WidgetState): HTMLE
 function renderComment(comment: PublicComment, state: WidgetState, depth: number): HTMLElement {
   const article = document.createElement("article");
   article.className = "cloud-comment__comment";
+  article.id = commentAnchor(comment.id);
+  article.tabIndex = -1;
   const isEditing = state.editingComment?.id === comment.id;
 
   const header = document.createElement("header");
@@ -1555,6 +1619,15 @@ function renderComment(comment: PublicComment, state: WidgetState, depth: number
     replyButton.textContent = state.replyingTo?.id === comment.id ? "Отвечаем" : "Ответить";
     replyButton.disabled = state.submitting;
     footer.append(replyButton);
+  }
+
+  if (!isEditing && comment.status === "APPROVED") {
+    const shareButton = document.createElement("button");
+    shareButton.className = "cloud-comment__reply-button";
+    shareButton.type = "button";
+    shareButton.dataset.shareComment = comment.id;
+    shareButton.textContent = "Поделиться";
+    footer.append(shareButton);
   }
 
   if (!isEditing && comment.ownedByCurrentUser) {
@@ -2290,6 +2363,35 @@ function toCloudCommentUrl(href: string, apiBaseUrl: string): string {
   }
 }
 
+function commentAnchor(commentId: string): string {
+  return `cloud-comment-${commentId}`;
+}
+
+function permalinkUrl(pageUrl: string, commentId: string): string {
+  const url = new URL(pageUrl);
+  url.hash = commentAnchor(commentId);
+  return url.href;
+}
+
+async function copyPermalink(value: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+  const input = document.createElement("textarea");
+  input.value = value;
+  input.setAttribute("readonly", "");
+  input.style.position = "fixed";
+  input.style.opacity = "0";
+  document.body.append(input);
+  input.select();
+  const copied = document.execCommand("copy");
+  input.remove();
+  if (!copied) {
+    throw new Error("Clipboard is unavailable");
+  }
+}
+
 function downloadJson(fileName: string, value: unknown): void {
   const blob = new Blob([JSON.stringify(value, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -2381,6 +2483,7 @@ const ENGLISH_WIDGET_COPY: Record<string, string> = {
   "Закреплён": "Pinned",
   "Отвечаем": "Replying",
   "Ответить": "Reply",
+  "Поделиться": "Share",
   "Скрыть ответы": "Hide replies",
   "Загружаем ответы...": "Loading replies...",
   "Редактировать": "Edit",
@@ -2441,6 +2544,9 @@ const ENGLISH_WIDGET_COPY: Record<string, string> = {
   "Вы вошли и можете оставить комментарий.": "You are signed in and can leave a comment.",
   "Вы вышли из аккаунта комментатора.": "You are signed out of the commenter account.",
   "Файл с персональными данными подготовлен.": "Your personal data file is ready.",
+  "Ссылка на комментарий готова.": "The comment link is ready.",
+  "Ссылка на комментарий скопирована.": "The comment link was copied.",
+  "Не удалось скопировать ссылку на комментарий.": "Could not copy the comment link.",
   "Напишите комментарий перед отправкой.": "Write a comment before sending.",
   "Комментарий не может быть пустым.": "The comment cannot be empty.",
   "Сессия истекла. Войдите снова.": "Your session has expired. Sign in again.",

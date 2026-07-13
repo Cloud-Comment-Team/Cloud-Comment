@@ -1,5 +1,5 @@
 import { DEFAULT_API_BASE_URL, getFrameBaseUrl } from "./config";
-import { resolvePageUrl } from "./pageUrl";
+import { resolveInitialCommentId, resolvePageUrl } from "./pageUrl";
 import {
   isFramePortMessage,
   WIDGET_PROTOCOL_VERSION,
@@ -26,6 +26,7 @@ type ResolvedLoaderOptions = {
   frameBaseUrl: string;
   apiOrigin: string;
   pageUrl: string;
+  initialCommentId: string | null;
   target: string | HTMLElement;
   theme: WidgetTheme;
 };
@@ -73,6 +74,7 @@ function normalizeOptions(options: CloudCommentWidgetOptions): ResolvedLoaderOpt
     frameBaseUrl: getFrameBaseUrl(apiBaseUrl, options.frameBaseUrl),
     apiOrigin: new URL(apiBaseUrl, window.location.href).origin,
     pageUrl: resolvePageUrl(options.pageUrl, window.location.href),
+    initialCommentId: resolveInitialCommentId(options.pageUrl, window.location.href),
     target: options.target ?? `#${DEFAULT_TARGET_ID}`,
     theme: normalizeTheme(options.theme)
   };
@@ -190,6 +192,7 @@ function init(options: CloudCommentWidgetOptions): CloudCommentWidgetInstance {
       siteId: normalized.siteId,
       apiOrigin: normalized.apiOrigin,
       pageUrl: normalized.pageUrl,
+      initialCommentId: normalized.initialCommentId,
       theme: normalized.theme,
       fontFamily: resolveHostFontFamily(target)
     };

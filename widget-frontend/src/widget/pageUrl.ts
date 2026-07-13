@@ -4,6 +4,7 @@ const MAX_ORIGIN_LENGTH = 255;
 const VALID_PROTOCOLS = new Set(["http:", "https:"]);
 const DOMAIN_PATTERN = /^(?:localhost|(?=.{1,255}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63})$/;
 const IPV4_PATTERN = /^(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
+const COMMENT_FRAGMENT_PATTERN = /^#cloud-comment-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
 
 function escapeInvalidPercents(value: string): string {
   return value.replace(/%(?![0-9a-f]{2})/gi, "%25");
@@ -77,4 +78,12 @@ export function resolvePageUrl(explicitPageUrl: string | undefined, currentPageU
   return canonicalQuery.length === 0
     ? canonicalBase
     : `${canonicalBase}?${canonicalQuery}`;
+}
+
+export function resolveInitialCommentId(explicitPageUrl: string | undefined, currentPageUrl: string): string | null {
+  try {
+    return new URL(explicitPageUrl ?? currentPageUrl).hash.match(COMMENT_FRAGMENT_PATTERN)?.[1]?.toLowerCase() ?? null;
+  } catch {
+    return null;
+  }
 }

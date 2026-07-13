@@ -2,6 +2,7 @@ package com.cloudcomment.comment.persistence;
 
 import com.cloudcomment.automoderation.domain.AutoModerationSnapshot;
 import com.cloudcomment.comment.application.CommentPage;
+import com.cloudcomment.comment.application.CommentPermalinkLocation;
 import com.cloudcomment.comment.application.WidgetSite;
 import com.cloudcomment.comment.domain.CommentAuthor;
 import com.cloudcomment.comment.domain.CommentAuthorKind;
@@ -378,6 +379,120 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
             pageSize,
             totalItemsOrZero(totalItems)
         );
+    }
+
+    @Override
+    public Optional<CommentPermalinkLocation> findApprovedCommentLocation(
+        UUID siteId,
+        UUID pageId,
+        UUID commentId,
+        int pageSize,
+        PublicCommentSort sort,
+        Optional<UUID> viewerUserId
+    ) {
+        UUID viewerId = viewerUserId.orElse(null);
+        Optional<PermalinkTarget> target = jdbcTemplate.query(
+            """
+                select c.id, coalesce(c.parent_id, c.id) as root_id, c.parent_id
+                from comments c
+                join pages p on p.id = c.page_id
+                left join comments root on root.id = c.parent_id and root.page_id = c.page_id
+                where p.site_id = ?
+                  and c.page_id = ?
+                  and c.id = ?
+                  and c.deleted_at is null
+                  and (c.status = 'APPROVED' or (c.status = 'PENDING' and c.author_user_id = ?))
+                  and (
+                    c.parent_id is null
+                    or (
+                      root.deleted_at is null
+                      and (root.status = 'APPROVED' or (root.status = 'PENDING' and root.author_user_id = ?))
+                    )
+                  )
+                """,
+            (resultSet, rowNumber) -> new PermalinkTarget(
+                resultSet.getObject("id", UUID.class),
+                resultSet.getObject("root_id", UUID.class),
+                resultSet.getObject("parent_id", UUID.class)
+            ),
+            siteId,
+            pageId,
+            commentId,
+            viewerId,
+            viewerId
+        ).stream().findFirst();
+        if (target.isEmpty()) {
+            return Optional.empty();
+        }
+
+        PermalinkTarget value = target.orElseThrow();
+        Long rootPosition = jdbcTemplate.queryForObject(
+            """
+                select position
+                from (
+                    select c.id,
+                           row_number() over (""" + publicOrderBy(sort) + """
+                           ) as position
+                    from comments c
+                    left join (
+                        select coalesce(visible_comments.parent_id, visible_comments.id) as root_id,
+                               count(*) as reaction_count
+                        from comments visible_comments
+                        join comment_reactions cr on cr.comment_id = visible_comments.id
+                        where visible_comments.page_id = ?
+                          and visible_comments.status = 'APPROVED'
+                          and visible_comments.deleted_at is null
+                        group by coalesce(visible_comments.parent_id, visible_comments.id)
+                    ) thread_reactions on thread_reactions.root_id = c.id
+                    where c.page_id = ?
+                      and (c.status = 'APPROVED' or (c.status = 'PENDING' and c.author_user_id = ?))
+                      and c.parent_id is null
+                      and c.deleted_at is null
+                ) ranked
+                where id = ?
+                """,
+            Long.class,
+            pageId,
+            pageId,
+            viewerId,
+            value.rootCommentId()
+        );
+        if (rootPosition == null) {
+            return Optional.empty();
+        }
+
+        Integer replyPage = null;
+        if (value.parentId() != null) {
+            Long replyPosition = jdbcTemplate.queryForObject(
+                """
+                    select position
+                    from (
+                        select c.id, row_number() over (order by c.created_at asc, c.id asc) as position
+                        from comments c
+                        where c.page_id = ?
+                          and c.parent_id = ?
+                          and (c.status = 'APPROVED' or (c.status = 'PENDING' and c.author_user_id = ?))
+                          and c.deleted_at is null
+                    ) ranked
+                    where id = ?
+                    """,
+                Long.class,
+                pageId,
+                value.rootCommentId(),
+                viewerId,
+                value.commentId()
+            );
+            if (replyPosition == null) {
+                return Optional.empty();
+            }
+            replyPage = pageForPosition(replyPosition, pageSize);
+        }
+        return Optional.of(new CommentPermalinkLocation(
+            value.commentId(),
+            value.rootCommentId(),
+            pageForPosition(rootPosition, pageSize),
+            replyPage
+        ));
     }
 
     @Override
@@ -962,6 +1077,13 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
 
     private long totalItemsOrZero(Long totalItems) {
         return Objects.requireNonNullElse(totalItems, 0L);
+    }
+
+    private int pageForPosition(long position, int pageSize) {
+        return Math.toIntExact(((position - 1) / pageSize) + 1);
+    }
+
+    private record PermalinkTarget(UUID commentId, UUID rootCommentId, UUID parentId) {
     }
 
     private record CommentRow(

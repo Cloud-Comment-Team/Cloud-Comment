@@ -2,6 +2,7 @@ package com.cloudcomment.comment.persistence;
 
 import com.cloudcomment.automoderation.domain.AutoModerationSnapshot;
 import com.cloudcomment.comment.application.CommentPage;
+import com.cloudcomment.comment.application.CommentPermalinkLocation;
 import com.cloudcomment.comment.application.WidgetSite;
 import com.cloudcomment.comment.domain.CommentReactionSummary;
 import com.cloudcomment.comment.domain.CommentReactionType;
@@ -70,6 +71,17 @@ public interface PublicCommentRepository {
         Optional<UUID> viewerUserId
     ) {
         return new CommentPage(List.of(), page, pageSize, 0);
+    }
+
+    default Optional<CommentPermalinkLocation> findApprovedCommentLocation(
+        UUID siteId,
+        UUID pageId,
+        UUID commentId,
+        int pageSize,
+        PublicCommentSort sort,
+        Optional<UUID> viewerUserId
+    ) {
+        return Optional.empty();
     }
 
     boolean existsApprovedRootCommentOnPage(UUID pageId, UUID commentId);

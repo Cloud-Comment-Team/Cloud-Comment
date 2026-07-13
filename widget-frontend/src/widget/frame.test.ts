@@ -398,6 +398,7 @@ function dispatchConnect(
       siteId,
       apiOrigin: overrides.apiOrigin ?? "https://api.example",
       pageUrl: overrides.pageUrl ?? "https://site.example/article",
+      initialCommentId: null,
       theme: "light",
       fontFamily: '"Host Sans", Arial, sans-serif'
     },

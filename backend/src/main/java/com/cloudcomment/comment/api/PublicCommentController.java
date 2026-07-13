@@ -121,6 +121,28 @@ class PublicCommentController {
         );
     }
 
+    @PublicApi
+    @GetMapping("/comments/{commentId}/permalink")
+    CommentPermalinkResponse locateComment(
+        @PathVariable UUID siteId,
+        @PathVariable UUID commentId,
+        HttpServletRequest request,
+        @RequestParam @NotBlank @Size(max = 2048) @ValidPageUrl String pageUrl,
+        @RequestParam(defaultValue = "PINNED_FIRST") PublicCommentSort sort,
+        @RequestParam(defaultValue = "20") @Min(1) @Max(100) int pageSize
+    ) {
+        requireMatchingContextPage(request, pageUrl);
+        return CommentPermalinkResponse.from(publicCommentService.locateComment(
+            siteId,
+            requestOriginResolver.resolve(request),
+            pageUrl,
+            commentId,
+            pageSize,
+            sort,
+            resolveOptionalViewer(request)
+        ));
+    }
+
     @PostMapping("/pages/comments")
     ResponseEntity<CommentResponse> createComment(
         @CurrentUser AuthenticatedUser currentUser,

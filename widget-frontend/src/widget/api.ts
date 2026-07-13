@@ -3,6 +3,7 @@ import type {
   AuthUser,
   CommentReactionType,
   CommentReactionsResponse,
+  CommentPermalinkLocation,
   LoginResponse,
   PaginatedResponse,
   PublicComment,
@@ -55,6 +56,7 @@ export type WidgetApiClient = {
     token?: string | null
   ) => Promise<PaginatedResponse<PublicComment>>;
   listReplies: (commentId: string, page: number, pageSize: number, token?: string | null) => Promise<PaginatedResponse<PublicComment>>;
+  locateComment: (commentId: string, sort: PublicCommentSort, pageSize: number, token?: string | null) => Promise<CommentPermalinkLocation>;
   createComment: (content: string, parentId: string | null, token: string) => Promise<PublicComment>;
   updateComment: (commentId: string, content: string, token: string) => Promise<PublicComment>;
   deleteComment: (commentId: string, token: string) => Promise<void>;
@@ -135,6 +137,13 @@ export function createWidgetApiClient(
       const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
       return request<PaginatedResponse<PublicComment>>(
         `${siteBasePath}/comments/${encodeURIComponent(commentId)}/replies?${params}`,
+        { headers: token ? { Authorization: `Bearer ${token}` } : undefined }
+      );
+    },
+    locateComment: (commentId, sort, pageSize, token) => {
+      const params = new URLSearchParams({ pageUrl, sort, pageSize: String(pageSize) });
+      return request<CommentPermalinkLocation>(
+        `${siteBasePath}/comments/${encodeURIComponent(commentId)}/permalink?${params}`,
         { headers: token ? { Authorization: `Bearer ${token}` } : undefined }
       );
     },
