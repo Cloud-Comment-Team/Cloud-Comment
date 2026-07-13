@@ -605,7 +605,7 @@ Request для реакции:
 
 - `siteId` берется из path и соответствует `data-site-id` в embed-code.
 - `Origin` обязателен и должен exact-match одну из записей `site_allowed_origins` активного сайта.
-- `pageUrl` должен быть absolute `http/https` URL того же origin, что и request `Origin`.
+- `pageUrl` должен быть absolute `http/https` URL того же origin, что и request `Origin`. До поиска или создания страницы backend удаляет fragment и приватные query-параметры по таблице ниже; поэтому та же политика действует для старых клиентов. Чужой origin проверяется уже у канонического URL и по-прежнему маскируется как `404`.
 - Bad/missing/disallowed origin, inactive/missing site и parent comment не с этой страницы возвращают `404 NOT_FOUND` с `Resource not found`.
 - Публичный список возвращает только `APPROVED`; `PENDING`, `REJECTED`, `HIDDEN`, `SPAM` не видны в виджете.
 - Approved replies are returned inside the root comment `replies` array. The widget exposes reply creation only from root comments and renders replies one level deep.
@@ -617,6 +617,22 @@ Request для реакции:
 - Embedded widget auth uses site-scoped `/api/public/sites/{siteId}/auth/*` aliases, not `/api/auth/*`, so browser CORS preflight is checked against the same domain policy.
 - Самообслуживание аккаунта в виджете использует site-scoped aliases `/api/public/sites/{siteId}/account/*`, а не `/api/account/*`: экспорт персональных данных и запрос удаления работают с external origin без ослабления глобального CORS.
 - Создание комментария требует bearer token; guest-flow в MVP не поддерживается.
+
+Политика канонизации query у widget и backend одинакова:
+
+| Класс | Percent-decoded имя параметра, без учёта регистра | Результат |
+| --- | --- | --- |
+| Tracking prefix | `utm_*` | Удаляется |
+| Tracking exact | `fbclid`, `gclid`, `dclid`, `msclkid`, `yclid`, `twclid`, `ttclid`, `igshid`, `li_fat_id`, `_ga`, `_gl`, `mc_cid`, `mc_eid`, `gbraid`, `wbraid`, `srsltid`, `gad_source`, `gad_campaignid` | Удаляется |
+| Sensitive exact | `access_token`, `id_token`, `refresh_token`, `auth_token`, `authorization`, `api_key`, `apikey`, `jwt`, `password`, `session`, `session_id`, `sessionid`, `token`, `client_secret`, `secret`, `signature`, `sig`, `otp`, `jsessionid`, `phpsessid` | Удаляется без `400` |
+| Sensitive prefix | любое имя с префиксом `x-amz-` или `x-goog-` | Удаляется без `400` |
+| Sensitive suffix | любое имя с суффиксом `_token` | Удаляется без `400` |
+| Ambiguous functional | `code`, `ticket`, `sid` | Сохраняется как часть идентичности обсуждения |
+| Functional/unknown | любое другое имя | Сохраняется как часть идентичности обсуждения |
+
+Имена классифицируются после одного percent-decode, но сохранённые параметры не пересобираются через form/query parser: исходные `%20`, `+`, `%2F`, `%23`, порядок, повторы и пустые сегменты между разделителями `&` остаются без изменений. Malformed `%`, не начинающий пару hex-цифр, перед разбором детерминированно заменяется на `%25`: например, `?q=100%` становится `?q=100%25`, а `?%ZZ=x` — `?%25ZZ=x`; корректные escape-последовательности не меняются. Пустой query и `#fragment` удаляются. `data-page-url`, ручной `pageUrl` и URL текущей страницы проходят один canonicalizer; разные функциональные query остаются разными обсуждениями. Default-порты `https:443` и `http:80` удаляются из origin и идентичности страницы, остальные явные порты сохраняются. Защитный лимит 2048 символов применяется к исходному URL, включая удаляемый fragment, и к результату экранирования malformed `%`.
+
+`code`, `ticket` и `sid` неоднозначны и functional-by-default: разные значения намеренно создают разные идентичности обсуждений. Если OAuth/SSO-интеграция использует один из них как credential, интегратор обязан передать виджету чистый canonical `pageUrl`/`data-page-url` без секрета; CloudComment не может безопасно отличить credential от функционального route state только по имени.
 
 ### Public widget surface (static)
 
@@ -642,7 +658,7 @@ Script attributes:
 
 - `data-site-id` — обязателен для `autoInit()`
 - `data-api-base-url` — optional, default from build config
-- `data-page-url` — optional, default `window.location.href`; перед API-запросом виджет удаляет только fragment, сохраняя query без изменений
+- `data-page-url` — optional, default `window.location.href`; перед API-запросом виджет удаляет fragment и tracking/sensitive query-параметры по public widget policy, сохраняя остальные параметры в исходном виде
 - `data-target` — optional CSS selector or element id
 - `data-theme` — optional `auto | light | dark`; default `auto`, виджет подстраивается под тему страницы
 

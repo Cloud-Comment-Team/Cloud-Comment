@@ -70,6 +70,77 @@ class PublicCommentServiceTests {
     }
 
     @Test
+    void listCommentsCanonicalizesTrackingVariantsFromOldClientsToTheSamePage() {
+        CapturingRepository firstRepository = new CapturingRepository();
+        CapturingRepository secondRepository = new CapturingRepository();
+        UUID siteId = UUID.randomUUID();
+
+        service(firstRepository, ModerationMode.POST_MODERATION).listComments(
+            siteId,
+            "https://example.com",
+            "https://example.com/blog/post-1?tab=comments&utm_source=mail&FBCLID=first#thread",
+            1,
+            20
+        );
+        service(secondRepository, ModerationMode.POST_MODERATION).listComments(
+            siteId,
+            "https://example.com",
+            "https://example.com/blog/post-1?%75tm_source=other&fbclid=second&tab=comments",
+            1,
+            20
+        );
+
+        assertThat(firstRepository.findPageUrl).isEqualTo("https://example.com/blog/post-1?tab=comments");
+        assertThat(secondRepository.findPageUrl).isEqualTo(firstRepository.findPageUrl);
+    }
+
+    @Test
+    void listCommentsKeepsFunctionalQueriesAsSeparatePageThreads() {
+        CapturingRepository recentRepository = new CapturingRepository();
+        CapturingRepository popularRepository = new CapturingRepository();
+        UUID siteId = UUID.randomUUID();
+
+        service(recentRepository, ModerationMode.POST_MODERATION).listComments(
+            siteId, "https://example.com", "https://example.com/feed?filter=recent", 1, 20
+        );
+        service(popularRepository, ModerationMode.POST_MODERATION).listComments(
+            siteId, "https://example.com", "https://example.com/feed?filter=popular", 1, 20
+        );
+
+        assertThat(recentRepository.findPageUrl).isEqualTo("https://example.com/feed?filter=recent");
+        assertThat(popularRepository.findPageUrl).isEqualTo("https://example.com/feed?filter=popular");
+        assertThat(recentRepository.findPageUrl).isNotEqualTo(popularRepository.findPageUrl);
+    }
+
+    @Test
+    void listCommentsKeepsCodeTicketAndSidValuesAsSeparatePageThreads() {
+        CapturingRepository firstRepository = new CapturingRepository();
+        CapturingRepository secondRepository = new CapturingRepository();
+        UUID siteId = UUID.randomUUID();
+
+        service(firstRepository, ModerationMode.POST_MODERATION).listComments(
+            siteId,
+            "https://example.com",
+            "https://example.com/callback?code=flow-a&ticket=thread-a&sid=section-a",
+            1,
+            20
+        );
+        service(secondRepository, ModerationMode.POST_MODERATION).listComments(
+            siteId,
+            "https://example.com",
+            "https://example.com/callback?code=flow-b&ticket=thread-b&sid=section-b",
+            1,
+            20
+        );
+
+        assertThat(firstRepository.findPageUrl)
+            .isEqualTo("https://example.com/callback?code=flow-a&ticket=thread-a&sid=section-a");
+        assertThat(secondRepository.findPageUrl)
+            .isEqualTo("https://example.com/callback?code=flow-b&ticket=thread-b&sid=section-b");
+        assertThat(firstRepository.findPageUrl).isNotEqualTo(secondRepository.findPageUrl);
+    }
+
+    @Test
     void createCommentCreatesPageAndUsesPendingStatusForPreModeration() {
         CapturingRepository repository = new CapturingRepository();
         CapturingEventPublisher eventPublisher = new CapturingEventPublisher();
@@ -81,13 +152,13 @@ class PublicCommentServiceTests {
             user,
             siteId,
             "HTTPS://Example.com",
-            "https://example.com/blog/post-1",
+            "https://example.com/blog/post-1?tab=comments&utm_source=mail&session_id=secret#thread",
             null,
             "  Hello world  "
         );
 
         assertThat(repository.createdSiteId).isEqualTo(siteId);
-        assertThat(repository.createdPageUrl).isEqualTo("https://example.com/blog/post-1");
+        assertThat(repository.createdPageUrl).isEqualTo("https://example.com/blog/post-1?tab=comments");
         assertThat(repository.createdAuthorUserId).isEqualTo(user.id());
         assertThat(repository.createdAuthorEmail).isEqualTo(user.email());
         assertThat(repository.createdParentId).isNull();
@@ -234,7 +305,7 @@ class PublicCommentServiceTests {
             currentUser(),
             UUID.randomUUID(),
             "https://example.com",
-            "https://other.example.com/page",
+            "https://other.example.com/page?access_token=secret&utm_source=mail#comments",
             null,
             "Hello"
         ))
