@@ -15,6 +15,9 @@ import com.cloudcomment.comment.domain.PublicCommentSort;
 import com.cloudcomment.shared.error.ApiErrorCode;
 import com.cloudcomment.shared.error.ApplicationException;
 import com.cloudcomment.site.domain.ModerationMode;
+import com.cloudcomment.widgetcontext.application.ResolvedWidgetContext;
+import com.cloudcomment.widgetcontext.application.WidgetContextService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -33,9 +36,11 @@ import java.util.UUID;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.is;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doThrow;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.head;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -48,13 +53,20 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static com.cloudcomment.support.AdminSecurityTestSupport.adminSession;
 
-@SpringBootTest(properties = "spring.flyway.enabled=false")
+@SpringBootTest(properties = {
+    "spring.flyway.enabled=false",
+    "cloud-comment.embed.api-base-url=https://api.example.net/api",
+    "cloud-comment.embed.widget-base-url=https://widget.example.net"
+})
 @AutoConfigureMockMvc
 class PublicCommentControllerTests {
 
     private static final Instant TIMESTAMP = Instant.parse("2026-06-28T12:00:00Z");
     private static final String ORIGIN = "https://example.com";
+    private static final String FRAME_ORIGIN = "https://widget.example.net";
     private static final String PAGE_URL = "https://example.com/blog/post-1";
+    private static final String CONTEXT_TOKEN = "frame-context-token";
+    private static final UUID CONTEXT_ID = UUID.fromString("481d7d35-faf6-443b-bace-6c541e109513");
 
     @Autowired
     private MockMvc mockMvc;
@@ -67,6 +79,25 @@ class PublicCommentControllerTests {
 
     @MockitoBean
     private DomainPolicyService domainPolicyService;
+
+    @MockitoBean
+    private WidgetContextService widgetContextService;
+
+    @BeforeEach
+    void setUpWidgetContext() {
+        when(widgetContextService.acceptsFrameOrigin(FRAME_ORIGIN)).thenReturn(true);
+        when(widgetContextService.resolve(any(UUID.class), eq(CONTEXT_TOKEN))).thenAnswer(invocation ->
+            new ResolvedWidgetContext(
+                CONTEXT_ID,
+                invocation.getArgument(0),
+                ORIGIN,
+                "a".repeat(64),
+                TIMESTAMP.plusSeconds(7200)
+            )
+        );
+        when(widgetContextService.matchesPage(any(ResolvedWidgetContext.class), eq(PAGE_URL))).thenReturn(true);
+        when(widgetContextService.matchesPageHash("a".repeat(64), PAGE_URL)).thenReturn(true);
+    }
 
     @Test
     void configIsPublicButRequiresAllowedOrigin() throws Exception {
@@ -168,24 +199,26 @@ class PublicCommentControllerTests {
     }
 
     @Test
-    void listCommentsIgnoresInvalidOptionalBearerViewer() throws Exception {
+    void listCommentsRejectsInvalidOptionalBearerInsteadOfDowngradingToAnonymous() throws Exception {
         UUID siteId = UUID.randomUUID();
-        when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
-        when(currentUserService.getCurrentUser(
-            eq("expired-session-token"),
-            eq(com.cloudcomment.auth.domain.SessionAudience.WIDGET)
+        when(currentUserService.getWidgetCurrentUser(
+            "expired-session-token",
+            siteId,
+            ORIGIN
         ))
             .thenThrow(new ApplicationException(ApiErrorCode.INVALID_SESSION, "Invalid or expired session"));
-        when(publicCommentService.listComments(siteId, ORIGIN, PAGE_URL, 1, 20, PublicCommentSort.PINNED_FIRST, Optional.empty(), null))
-            .thenReturn(new CommentPage(List.of(), 1, 20, 0));
 
         mockMvc.perform(get("/api/public/sites/{siteId}/pages/comments", siteId)
-                .header(HttpHeaders.ORIGIN, ORIGIN)
+                .header(HttpHeaders.ORIGIN, FRAME_ORIGIN)
+                .header(WidgetContextService.CONTEXT_HEADER, CONTEXT_TOKEN)
+                .header("X-CloudComment-Page-Url", PAGE_URL)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer expired-session-token")
                 .param("pageUrl", PAGE_URL))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.items", empty()))
-            .andExpect(jsonPath("$.totalItems", is(0)));
+            .andExpect(status().isUnauthorized())
+            .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+            .andExpect(jsonPath("$.error.code", is("INVALID_SESSION")));
+
+        verifyNoInteractions(publicCommentService);
     }
 
     @Test
@@ -243,7 +276,9 @@ class PublicCommentControllerTests {
         when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
 
         mockMvc.perform(post("/api/public/sites/{siteId}/pages/comments", siteId)
-                .header(HttpHeaders.ORIGIN, ORIGIN)
+                .header(HttpHeaders.ORIGIN, FRAME_ORIGIN)
+                .header(WidgetContextService.CONTEXT_HEADER, CONTEXT_TOKEN)
+                .header("X-CloudComment-Page-Url", PAGE_URL)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -266,7 +301,9 @@ class PublicCommentControllerTests {
 
         mockMvc.perform(post("/api/public/sites/{siteId}/pages/comments", siteId)
                 .with(adminSession("admin-session-token"))
-                .header(HttpHeaders.ORIGIN, ORIGIN)
+                .header(HttpHeaders.ORIGIN, FRAME_ORIGIN)
+                .header(WidgetContextService.CONTEXT_HEADER, CONTEXT_TOKEN)
+                .header("X-CloudComment-Page-Url", PAGE_URL)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -288,12 +325,16 @@ class PublicCommentControllerTests {
         AuthenticatedUser currentUser = currentUser();
         CommentView created = comment(siteId, pageId, null, CommentStatus.PENDING);
         when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
-        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.WIDGET))).thenReturn(currentUser);
+        when(currentUserService.getWidgetCurrentUser(
+            "plain-session-token", siteId, ORIGIN
+        )).thenReturn(currentUser);
         when(publicCommentService.createComment(currentUser, siteId, ORIGIN, PAGE_URL, null, "Hello world"))
             .thenReturn(created);
 
         mockMvc.perform(post("/api/public/sites/{siteId}/pages/comments", siteId)
-                .header(HttpHeaders.ORIGIN, ORIGIN)
+                .header(HttpHeaders.ORIGIN, FRAME_ORIGIN)
+                .header(WidgetContextService.CONTEXT_HEADER, CONTEXT_TOKEN)
+                .header("X-CloudComment-Page-Url", PAGE_URL)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
@@ -316,12 +357,16 @@ class PublicCommentControllerTests {
         AuthenticatedUser currentUser = currentUser();
         CommentView created = comment(siteId, pageId, parentId, CommentStatus.PENDING);
         when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
-        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.WIDGET))).thenReturn(currentUser);
+        when(currentUserService.getWidgetCurrentUser(
+            "plain-session-token", siteId, ORIGIN
+        )).thenReturn(currentUser);
         when(publicCommentService.createComment(currentUser, siteId, ORIGIN, PAGE_URL, parentId, "Reply body"))
             .thenReturn(created);
 
         mockMvc.perform(post("/api/public/sites/{siteId}/pages/comments", siteId)
-                .header(HttpHeaders.ORIGIN, ORIGIN)
+                .header(HttpHeaders.ORIGIN, FRAME_ORIGIN)
+                .header(WidgetContextService.CONTEXT_HEADER, CONTEXT_TOKEN)
+                .header("X-CloudComment-Page-Url", PAGE_URL)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
@@ -344,7 +389,9 @@ class PublicCommentControllerTests {
         when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
 
         mockMvc.perform(put("/api/public/sites/{siteId}/comments/{commentId}/reaction", siteId, commentId)
-                .header(HttpHeaders.ORIGIN, ORIGIN)
+                .header(HttpHeaders.ORIGIN, FRAME_ORIGIN)
+                .header(WidgetContextService.CONTEXT_HEADER, CONTEXT_TOKEN)
+                .header("X-CloudComment-Page-Url", PAGE_URL)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -363,7 +410,9 @@ class PublicCommentControllerTests {
         UUID commentId = UUID.randomUUID();
         AuthenticatedUser currentUser = currentUser();
         when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
-        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.WIDGET))).thenReturn(currentUser);
+        when(currentUserService.getWidgetCurrentUser(
+            "plain-session-token", siteId, ORIGIN
+        )).thenReturn(currentUser);
         when(publicCommentService.setReaction(currentUser, siteId, ORIGIN, commentId, CommentReactionType.LOVE))
             .thenReturn(List.of(
                 new CommentReactionSummary(CommentReactionType.LIKE, 2, false),
@@ -371,7 +420,9 @@ class PublicCommentControllerTests {
             ));
 
         mockMvc.perform(put("/api/public/sites/{siteId}/comments/{commentId}/reaction", siteId, commentId)
-                .header(HttpHeaders.ORIGIN, ORIGIN)
+                .header(HttpHeaders.ORIGIN, FRAME_ORIGIN)
+                .header(WidgetContextService.CONTEXT_HEADER, CONTEXT_TOKEN)
+                .header("X-CloudComment-Page-Url", PAGE_URL)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
@@ -394,12 +445,16 @@ class PublicCommentControllerTests {
         UUID commentId = UUID.randomUUID();
         AuthenticatedUser currentUser = currentUser();
         when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
-        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.WIDGET))).thenReturn(currentUser);
+        when(currentUserService.getWidgetCurrentUser(
+            "plain-session-token", siteId, ORIGIN
+        )).thenReturn(currentUser);
         when(publicCommentService.setReaction(currentUser, siteId, ORIGIN, commentId, null))
             .thenReturn(List.of());
 
         mockMvc.perform(put("/api/public/sites/{siteId}/comments/{commentId}/reaction", siteId, commentId)
-                .header(HttpHeaders.ORIGIN, ORIGIN)
+                .header(HttpHeaders.ORIGIN, FRAME_ORIGIN)
+                .header(WidgetContextService.CONTEXT_HEADER, CONTEXT_TOKEN)
+                .header("X-CloudComment-Page-Url", PAGE_URL)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
@@ -418,7 +473,9 @@ class PublicCommentControllerTests {
         when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
 
         mockMvc.perform(patch("/api/public/sites/{siteId}/comments/{commentId}", siteId, commentId)
-                .header(HttpHeaders.ORIGIN, ORIGIN)
+                .header(HttpHeaders.ORIGIN, FRAME_ORIGIN)
+                .header(WidgetContextService.CONTEXT_HEADER, CONTEXT_TOKEN)
+                .header("X-CloudComment-Page-Url", PAGE_URL)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -439,12 +496,16 @@ class PublicCommentControllerTests {
         AuthenticatedUser currentUser = currentUser();
         CommentView updated = comment(siteId, pageId, null, CommentStatus.PENDING, commentId, "Updated body");
         when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
-        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.WIDGET))).thenReturn(currentUser);
+        when(currentUserService.getWidgetCurrentUser(
+            "plain-session-token", siteId, ORIGIN
+        )).thenReturn(currentUser);
         when(publicCommentService.updateOwnComment(currentUser, siteId, ORIGIN, commentId, "Updated body"))
             .thenReturn(updated);
 
         mockMvc.perform(patch("/api/public/sites/{siteId}/comments/{commentId}", siteId, commentId)
-                .header(HttpHeaders.ORIGIN, ORIGIN)
+                .header(HttpHeaders.ORIGIN, FRAME_ORIGIN)
+                .header(WidgetContextService.CONTEXT_HEADER, CONTEXT_TOKEN)
+                .header("X-CloudComment-Page-Url", PAGE_URL)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
@@ -464,10 +525,14 @@ class PublicCommentControllerTests {
         UUID commentId = UUID.randomUUID();
         AuthenticatedUser currentUser = currentUser();
         when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
-        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.WIDGET))).thenReturn(currentUser);
+        when(currentUserService.getWidgetCurrentUser(
+            "plain-session-token", siteId, ORIGIN
+        )).thenReturn(currentUser);
 
         mockMvc.perform(patch("/api/public/sites/{siteId}/comments/{commentId}", siteId, commentId)
-                .header(HttpHeaders.ORIGIN, ORIGIN)
+                .header(HttpHeaders.ORIGIN, FRAME_ORIGIN)
+                .header(WidgetContextService.CONTEXT_HEADER, CONTEXT_TOKEN)
+                .header("X-CloudComment-Page-Url", PAGE_URL)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
@@ -490,7 +555,9 @@ class PublicCommentControllerTests {
         when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
 
         mockMvc.perform(delete("/api/public/sites/{siteId}/comments/{commentId}", siteId, commentId)
-                .header(HttpHeaders.ORIGIN, ORIGIN))
+                .header(HttpHeaders.ORIGIN, FRAME_ORIGIN)
+                .header(WidgetContextService.CONTEXT_HEADER, CONTEXT_TOKEN)
+                .header("X-CloudComment-Page-Url", PAGE_URL))
             .andExpect(status().isUnauthorized())
             .andExpect(jsonPath("$.error.code", is("INVALID_SESSION")));
 
@@ -503,14 +570,209 @@ class PublicCommentControllerTests {
         UUID commentId = UUID.randomUUID();
         AuthenticatedUser currentUser = currentUser();
         when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
-        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.WIDGET))).thenReturn(currentUser);
+        when(currentUserService.getWidgetCurrentUser(
+            "plain-session-token", siteId, ORIGIN
+        )).thenReturn(currentUser);
 
         mockMvc.perform(delete("/api/public/sites/{siteId}/comments/{commentId}", siteId, commentId)
-                .header(HttpHeaders.ORIGIN, ORIGIN)
+                .header(HttpHeaders.ORIGIN, FRAME_ORIGIN)
+                .header(WidgetContextService.CONTEXT_HEADER, CONTEXT_TOKEN)
+                .header("X-CloudComment-Page-Url", PAGE_URL)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
             .andExpect(status().isNoContent());
 
         verify(publicCommentService).deleteOwnComment(currentUser, siteId, ORIGIN, commentId);
+    }
+
+    @Test
+    void contextRequestWithoutPageHeaderIsRejectedBeforeController() throws Exception {
+        UUID siteId = UUID.randomUUID();
+        UUID commentId = UUID.randomUUID();
+
+        mockMvc.perform(get("/api/public/sites/{siteId}/comments/{commentId}/replies", siteId, commentId)
+                .header(HttpHeaders.ORIGIN, FRAME_ORIGIN)
+                .header(WidgetContextService.CONTEXT_HEADER, CONTEXT_TOKEN))
+            .andExpect(status().isUnauthorized())
+            .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+            .andExpect(jsonPath("$.error.code", is("INVALID_WIDGET_CONTEXT")));
+
+        verifyNoInteractions(publicCommentService);
+    }
+
+    @Test
+    void dedicatedUnsafeRequestStillRequiresExplicitOriginEvenOnWidgetHost() throws Exception {
+        UUID siteId = UUID.randomUUID();
+
+        mockMvc.perform(post("/api/public/sites/{siteId}/pages/comments", siteId)
+                .header(HttpHeaders.HOST, "widget.example.net")
+                .header(WidgetContextService.CONTEXT_HEADER, CONTEXT_TOKEN)
+                .header("X-CloudComment-Page-Url", PAGE_URL)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"pageUrl":"%s","content":"Must not be created"}
+                    """.formatted(PAGE_URL)))
+            .andExpect(status().isUnauthorized())
+            .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+            .andExpect(jsonPath("$.error.code", is("INVALID_WIDGET_CONTEXT")));
+
+        verify(widgetContextService).acceptsContextTransport(null, "widget.example.net", false);
+        verifyNoInteractions(currentUserService, publicCommentService);
+    }
+
+    @Test
+    void dedicatedSafeRequestWithoutOriginUsesWidgetHostAndDoesNotEmitCorsHeader() throws Exception {
+        UUID siteId = UUID.randomUUID();
+        when(widgetContextService.acceptsContextTransport(null, "widget.example.net", true)).thenReturn(true);
+        when(publicCommentService.getConfig(siteId, ORIGIN))
+            .thenReturn(new PublicWidgetConfig(siteId, ModerationMode.PRE_MODERATION));
+
+        mockMvc.perform(get("/api/public/sites/{siteId}/config", siteId)
+                .header(HttpHeaders.HOST, "widget.example.net")
+                .header(WidgetContextService.CONTEXT_HEADER, CONTEXT_TOKEN))
+            .andExpect(status().isOk())
+            .andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN))
+            .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+            .andExpect(jsonPath("$.siteId", is(siteId.toString())));
+
+        verify(widgetContextService).acceptsContextTransport(null, "widget.example.net", true);
+        verify(publicCommentService).getConfig(siteId, ORIGIN);
+        verifyNoInteractions(currentUserService);
+    }
+
+    @Test
+    void contextRequestWithDifferentPageHeaderIsRejectedBeforeAuthentication() throws Exception {
+        UUID siteId = UUID.randomUUID();
+        String otherPage = ORIGIN + "/blog/post-2";
+
+        mockMvc.perform(post("/api/public/sites/{siteId}/pages/comments", siteId)
+                .header(HttpHeaders.ORIGIN, FRAME_ORIGIN)
+                .header(WidgetContextService.CONTEXT_HEADER, CONTEXT_TOKEN)
+                .header("X-CloudComment-Page-Url", otherPage)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"pageUrl":"%s","content":"Must not be created"}
+                    """.formatted(PAGE_URL)))
+            .andExpect(status().isUnauthorized())
+            .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+            .andExpect(jsonPath("$.error.code", is("INVALID_WIDGET_CONTEXT")));
+
+        verifyNoInteractions(currentUserService, publicCommentService);
+    }
+
+    @Test
+    void bodyPageDifferentFromValidatedContextIsRejectedAfterAuthentication() throws Exception {
+        UUID siteId = UUID.randomUUID();
+        AuthenticatedUser currentUser = currentUser();
+        String otherPage = ORIGIN + "/blog/post-2";
+        when(currentUserService.getWidgetCurrentUser(
+            "plain-session-token", siteId, ORIGIN
+        )).thenReturn(currentUser);
+
+        mockMvc.perform(post("/api/public/sites/{siteId}/pages/comments", siteId)
+                .header(HttpHeaders.ORIGIN, FRAME_ORIGIN)
+                .header(WidgetContextService.CONTEXT_HEADER, CONTEXT_TOKEN)
+                .header("X-CloudComment-Page-Url", PAGE_URL)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"pageUrl":"%s","content":"Must not be created"}
+                    """.formatted(otherPage)))
+            .andExpect(status().isUnauthorized())
+            .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+            .andExpect(jsonPath("$.error.code", is("INVALID_WIDGET_CONTEXT")));
+
+        verifyNoInteractions(publicCommentService);
+    }
+
+    @Test
+    void repliesRejectKnownCommentFromAnotherContextPage() throws Exception {
+        UUID siteId = UUID.randomUUID();
+        UUID commentId = UUID.randomUUID();
+        rejectCommentFromContextPage(siteId, commentId);
+
+        mockMvc.perform(get("/api/public/sites/{siteId}/comments/{commentId}/replies", siteId, commentId)
+                .header(HttpHeaders.ORIGIN, FRAME_ORIGIN)
+                .header(WidgetContextService.CONTEXT_HEADER, CONTEXT_TOKEN)
+                .header("X-CloudComment-Page-Url", PAGE_URL))
+            .andExpect(status().isUnauthorized())
+            .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+            .andExpect(jsonPath("$.error.code", is("INVALID_WIDGET_CONTEXT")));
+    }
+
+    @Test
+    void reactionRejectsKnownCommentFromAnotherContextPage() throws Exception {
+        UUID siteId = UUID.randomUUID();
+        UUID commentId = UUID.randomUUID();
+        mockAuthenticatedWidgetUser(siteId);
+        rejectCommentFromContextPage(siteId, commentId);
+
+        mockMvc.perform(put("/api/public/sites/{siteId}/comments/{commentId}/reaction", siteId, commentId)
+                .header(HttpHeaders.ORIGIN, FRAME_ORIGIN)
+                .header(WidgetContextService.CONTEXT_HEADER, CONTEXT_TOKEN)
+                .header("X-CloudComment-Page-Url", PAGE_URL)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"type\":\"LIKE\"}"))
+            .andExpect(status().isUnauthorized())
+            .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+            .andExpect(jsonPath("$.error.code", is("INVALID_WIDGET_CONTEXT")));
+    }
+
+    @Test
+    void updateRejectsKnownCommentFromAnotherContextPage() throws Exception {
+        UUID siteId = UUID.randomUUID();
+        UUID commentId = UUID.randomUUID();
+        mockAuthenticatedWidgetUser(siteId);
+        rejectCommentFromContextPage(siteId, commentId);
+
+        mockMvc.perform(patch("/api/public/sites/{siteId}/comments/{commentId}", siteId, commentId)
+                .header(HttpHeaders.ORIGIN, FRAME_ORIGIN)
+                .header(WidgetContextService.CONTEXT_HEADER, CONTEXT_TOKEN)
+                .header("X-CloudComment-Page-Url", PAGE_URL)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"content\":\"Updated body\"}"))
+            .andExpect(status().isUnauthorized())
+            .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+            .andExpect(jsonPath("$.error.code", is("INVALID_WIDGET_CONTEXT")));
+    }
+
+    @Test
+    void deleteRejectsKnownCommentFromAnotherContextPage() throws Exception {
+        UUID siteId = UUID.randomUUID();
+        UUID commentId = UUID.randomUUID();
+        mockAuthenticatedWidgetUser(siteId);
+        rejectCommentFromContextPage(siteId, commentId);
+
+        mockMvc.perform(delete("/api/public/sites/{siteId}/comments/{commentId}", siteId, commentId)
+                .header(HttpHeaders.ORIGIN, FRAME_ORIGIN)
+                .header(WidgetContextService.CONTEXT_HEADER, CONTEXT_TOKEN)
+                .header("X-CloudComment-Page-Url", PAGE_URL)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
+            .andExpect(status().isUnauthorized())
+            .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+            .andExpect(jsonPath("$.error.code", is("INVALID_WIDGET_CONTEXT")));
+    }
+
+    @Test
+    void invalidSiteOrOriginScopedBearerIsRejectedWithoutAnonymousDowngrade() throws Exception {
+        UUID siteId = UUID.randomUUID();
+        UUID commentId = UUID.randomUUID();
+        when(currentUserService.getWidgetCurrentUser(
+            "other-context-token", siteId, ORIGIN
+        )).thenThrow(new ApplicationException(ApiErrorCode.INVALID_SESSION, "Invalid or expired session"));
+
+        mockMvc.perform(put("/api/public/sites/{siteId}/comments/{commentId}/reaction", siteId, commentId)
+                .header(HttpHeaders.ORIGIN, FRAME_ORIGIN)
+                .header(WidgetContextService.CONTEXT_HEADER, CONTEXT_TOKEN)
+                .header("X-CloudComment-Page-Url", PAGE_URL)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer other-context-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"type\":\"LIKE\"}"))
+            .andExpect(status().isUnauthorized())
+            .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+            .andExpect(jsonPath("$.error.code", is("INVALID_SESSION")));
     }
 
     @Test
@@ -534,16 +796,23 @@ class PublicCommentControllerTests {
     @Test
     void preflightForAllowedOriginReturnsCorsHeadersWithoutBearer() throws Exception {
         UUID siteId = UUID.randomUUID();
-        when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
-
         mockMvc.perform(options("/api/public/sites/{siteId}/pages/comments", siteId)
-                .header(HttpHeaders.ORIGIN, ORIGIN)
+                .header(HttpHeaders.ORIGIN, FRAME_ORIGIN)
                 .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "POST")
-                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "Authorization, Content-Type"))
+                .header(
+                    HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS,
+                    "Authorization, Content-Type, X-CloudComment-Widget-Context, X-CloudComment-Page-Url"
+                ))
             .andExpect(status().isNoContent())
-            .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, ORIGIN))
-            .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS, "GET, POST, PUT, OPTIONS"))
-            .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS, "Authorization, Content-Type, Accept"));
+            .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, FRAME_ORIGIN))
+            .andExpect(header().string(
+                HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS,
+                "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+            ))
+            .andExpect(header().string(
+                HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS,
+                "Authorization, Content-Type, Accept, X-CloudComment-Widget-Context, X-CloudComment-Page-Url"
+            ));
 
         verifyNoInteractions(currentUserService, publicCommentService);
         verify(domainPolicyService, org.mockito.Mockito.never())
@@ -557,7 +826,8 @@ class PublicCommentControllerTests {
 
         mockMvc.perform(options("/api/public/sites/{siteId}/pages/comments", siteId)
                 .header(HttpHeaders.ORIGIN, "https://evil.example")
-                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "POST"))
+                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "POST")
+                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, WidgetContextService.CONTEXT_HEADER))
             .andExpect(status().isNotFound())
             .andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN));
 
@@ -590,7 +860,8 @@ class PublicCommentControllerTests {
 
         mockMvc.perform(post("/api/public/sites/{siteId}/config", siteId)
                 .header(HttpHeaders.ORIGIN, rejectedOrigin))
-            .andExpect(status().isNotFound());
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.error.code", is("INVALID_WIDGET_CONTEXT")));
         mockMvc.perform(options("/api/public/sites/{siteId}/config", siteId)
                 .header(HttpHeaders.ORIGIN, rejectedOrigin)
                 .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "DELETE"))
@@ -634,15 +905,27 @@ class PublicCommentControllerTests {
                       "content": "Hello world"
                     }
                     """.formatted(PAGE_URL)))
-            .andExpect(status().isNotFound())
-            .andExpect(jsonPath("$.error.code", is("NOT_FOUND")))
-            .andExpect(jsonPath("$.error.message", is("Resource not found")));
+            .andExpect(status().isUnauthorized())
+            .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+            .andExpect(jsonPath("$.error.code", is("INVALID_WIDGET_CONTEXT")))
+            .andExpect(jsonPath("$.error.message", is("Invalid widget context")));
 
         verifyNoInteractions(currentUserService, publicCommentService);
     }
 
     private AuthenticatedUser currentUser() {
         return new AuthenticatedUser(UUID.randomUUID(), "visitor@example.com", Set.of("COMMENTER"), TIMESTAMP, TIMESTAMP);
+    }
+
+    private void mockAuthenticatedWidgetUser(UUID siteId) {
+        when(currentUserService.getWidgetCurrentUser(
+            "plain-session-token", siteId, ORIGIN
+        )).thenReturn(currentUser());
+    }
+
+    private void rejectCommentFromContextPage(UUID siteId, UUID commentId) {
+        doThrow(new ApplicationException(ApiErrorCode.INVALID_WIDGET_CONTEXT, "Invalid widget context"))
+            .when(publicCommentService).assertCommentBelongsToContextPage(siteId, commentId, PAGE_URL);
     }
 
     private CommentView comment(UUID siteId, UUID pageId, UUID parentId, CommentStatus status) {

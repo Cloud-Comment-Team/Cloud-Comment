@@ -151,6 +151,17 @@ public class PublicCommentService {
         );
     }
 
+    @Transactional(readOnly = true)
+    public void assertCommentBelongsToContextPage(
+        UUID siteId,
+        UUID commentId,
+        String canonicalPageUrl
+    ) {
+        if (!publicCommentRepository.commentBelongsToPage(siteId, commentId, canonicalPageUrl)) {
+            throw new ApplicationException(ApiErrorCode.INVALID_WIDGET_CONTEXT, "Invalid widget context");
+        }
+    }
+
     @Transactional
     public CommentView createComment(
         AuthenticatedUser currentUser,

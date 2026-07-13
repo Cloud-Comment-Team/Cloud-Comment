@@ -186,9 +186,11 @@ model {
     widgetRuntime = widgetApp 'JS-виджет комментариев' 'Встраиваемый виджет, который запускается на внешнем сайте клиента' {
       technology 'TypeScript, React, Vite bundle'
 
-      embedLoader = component 'Embed loader' 'Минимальный JS-скрипт, который загружает виджет на страницу'
+      embedLoader = component 'Embed loader' 'Тонкий host-скрипт без UI и секретов: создаёт sandboxed iframe и передаёт одноразовый bootstrap-ticket через MessageChannel'
 
-      widgetShell = component 'Widget shell' 'Адаптивный container-query интерфейс: постепенная авторизация, профильное меню, страницы ответов и оптимистичные действия'
+      frameBridge = component 'Isolated iframe runtime' 'Создаёт неизвлекаемый P-256 ключ, обменивает подписанный ticket на page-bound context и владеет widget-сессией'
+
+      widgetShell = component 'Widget shell' 'Интерфейс внутри изолированного iframe: постепенная авторизация, профильное меню, страницы ответов и оптимистичные действия'
 
       widgetAuthClient = component 'Widget auth client' 'Работа с авторизацией пользователя внутри виджета'
 
@@ -205,6 +207,8 @@ model {
       adminApiController = component 'Admin API Controller' 'REST API для веб-интерфейса владельца сайта'
 
       publicWidgetController = component 'Public Widget API Controller' 'Публичное API, которым пользуется встраиваемый виджет'
+
+      widgetContextModule = component 'Widget context module' 'Двухминутный site/parent-origin/page bootstrap ticket, ECDSA proof, двухчасовой context и точная привязка widget bearer'
 
       authModule = component 'Auth module' 'Регистрация, вход, проверка токена и текущий пользователь'
 
@@ -318,7 +322,9 @@ model {
 
   cloudComment.adminWebApp.realtimeClient -[websocket]-> cloudComment.backendApi.realtimeGateway 'Получает owner-scoped события comment.created и comment.moderation_action_applied'
 
-  cloudComment.widgetRuntime.embedLoader -[internal]-> cloudComment.widgetRuntime.widgetShell 'Инициализирует виджет на странице'
+  cloudComment.widgetRuntime.embedLoader -[internal]-> cloudComment.widgetRuntime.frameBridge 'Создаёт iframe и передаёт одноразовый ticket по закрытому MessageChannel'
+
+  cloudComment.widgetRuntime.frameBridge -[internal]-> cloudComment.widgetRuntime.widgetShell 'Запускает интерфейс после получения page-bound context'
 
   cloudComment.widgetRuntime.widgetShell -[internal]-> cloudComment.widgetRuntime.widgetAuthClient 'Проверяет авторизацию пользователя'
 
@@ -330,7 +336,9 @@ model {
 
   cloudComment.widgetRuntime.commentForm -[internal]-> cloudComment.widgetRuntime.publicApiClient 'Отправляет создание, редактирование и удаление комментария'
 
-  cloudComment.widgetRuntime.publicApiClient -[http]-> cloudComment.backendApi.publicWidgetController 'Выполняет public API запросы'
+  cloudComment.widgetRuntime.publicApiClient -[http]-> cloudComment.backendApi.publicWidgetController 'Передаёт context, page URL и при необходимости scoped bearer'
+
+  cloudComment.widgetRuntime.frameBridge -[http]-> cloudComment.backendApi.widgetContextModule 'Получает ticket и атомарно обменивает ECDSA proof на context'
 
   cloudComment.backendApi.adminApiController -[internal]-> cloudComment.backendApi.authModule 'Проверяет HttpOnly cookie-сессию audience ADMIN и CSRF для изменений'
 
@@ -356,6 +364,8 @@ model {
 
   cloudComment.backendApi.publicWidgetController -[internal]-> cloudComment.backendApi.domainPolicyModule 'Проверяет разрешенный домен'
 
+  cloudComment.backendApi.publicWidgetController -[internal]-> cloudComment.backendApi.widgetContextModule 'Проверяет page context и независимый bearer одного site/origin'
+
   cloudComment.backendApi.publicWidgetController -[internal]-> cloudComment.backendApi.widgetConfigModule 'Отдает публичную конфигурацию виджета'
 
   cloudComment.backendApi.publicWidgetController -[internal]-> cloudComment.backendApi.pageModule 'Определяет страницу обсуждения'
@@ -370,7 +380,9 @@ model {
 
   cloudComment.backendApi.realtimeGateway -[internal]-> cloudComment.backendApi.authModule 'Выдаёт по cookie-сессии и CSRF короткоживущий ticket и атомарно поглощает его при WebSocket handshake'
 
-  cloudComment.backendApi.publicWidgetController -[internal]-> cloudComment.backendApi.accountPrivacyModule 'Проверяет bearer audience WIDGET и обслуживает самообслуживание аккаунта'
+  cloudComment.backendApi.publicWidgetController -[internal]-> cloudComment.backendApi.accountPrivacyModule 'Отдаёт site-scoped версии и ссылки на юридические документы для регистрации'
+
+  cloudComment.backendApi.widgetContextModule -[stores]-> cloudComment.backendApi.persistenceModule 'Хранит только хеши ticket/context, page hash и публичный iframe-ключ'
 
   cloudComment.backendApi.publicWidgetController -[internal]-> cloudComment.backendApi.automodPolicyModule 'Вычисляет решение активной политики без внешней передачи текста'
 
@@ -483,6 +495,7 @@ views {
     include cloudComment.widgetRuntime
     include cloudComment.widgetRuntime.*
     include cloudComment.backendApi.publicWidgetController
+    include cloudComment.backendApi.widgetContextModule
 
     autoLayout LeftRight 150 100
   }
@@ -572,7 +585,13 @@ views {
 
     externalWebsite -> cloudComment.widgetRuntime.embedLoader 'Загружает embed script'
 
-    cloudComment.widgetRuntime.embedLoader -> cloudComment.widgetRuntime.widgetShell 'Инициализирует виджет'
+    cloudComment.widgetRuntime.embedLoader -> cloudComment.backendApi.widgetContextModule 'Создаёт ticket по browser-observed Origin и канонической странице'
+
+    cloudComment.widgetRuntime.embedLoader -> cloudComment.widgetRuntime.frameBridge 'Передаёт ticket внутрь sandboxed iframe'
+
+    cloudComment.widgetRuntime.frameBridge -> cloudComment.backendApi.widgetContextModule 'Подписывает ticket P-256 и получает widget context'
+
+    cloudComment.widgetRuntime.frameBridge -> cloudComment.widgetRuntime.widgetShell 'Запускает интерфейс внутри iframe'
 
     cloudComment.widgetRuntime.widgetShell -> cloudComment.widgetRuntime.widgetAuthClient 'Проверяет авторизацию'
 
@@ -582,7 +601,9 @@ views {
 
     cloudComment.widgetRuntime.publicApiClient -> cloudComment.backendApi.publicWidgetController 'POST /api/public/sites/{siteId}/pages/comments'
 
-    cloudComment.backendApi.publicWidgetController -> cloudComment.backendApi.authModule 'Проверяет bearer-токен пользователя'
+    cloudComment.backendApi.publicWidgetController -> cloudComment.backendApi.widgetContextModule 'Проверяет context, страницу и scope bearer-токена'
+
+    cloudComment.backendApi.publicWidgetController -> cloudComment.backendApi.authModule 'Проверяет audience WIDGET и пользователя'
 
     cloudComment.backendApi.publicWidgetController -> cloudComment.backendApi.domainPolicyModule 'Проверяет origin домена'
 

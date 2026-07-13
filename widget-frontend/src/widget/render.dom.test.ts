@@ -2,12 +2,13 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { WIDGET_AUTH_TOKEN_KEY } from "./config";
+import { getWidgetAuthStorageKey } from "./config";
 import { renderWidget } from "./render";
 import type { PublicComment, PublicWidgetConfig } from "./types";
 
 const siteId = "00000000-0000-0000-0000-000000000001";
 const token = "widget-test-token";
+const authStorageKey = getWidgetAuthStorageKey(siteId, "https://site.example.test");
 
 const config: PublicWidgetConfig = {
   siteId,
@@ -85,7 +86,7 @@ function installApiMock(overrides: ApiOverrides = {}) {
     if (url.endsWith(`/public/sites/${siteId}/config`)) {
       return jsonResponse(config);
     }
-    if (url.endsWith("/privacy/consent-requirements")) {
+    if (url.endsWith(`/public/sites/${siteId}/privacy/consent-requirements`)) {
       return jsonResponse({
         privacyPolicyVersion: "test",
         termsVersion: "test",
@@ -182,7 +183,10 @@ function deferredResponse(): { promise: Promise<Response>; resolve: (response: R
   return { promise, resolve: resolvePromise };
 }
 
-async function renderReadyWidget(): Promise<{ root: HTMLElement; shadowRoot: ShadowRoot }> {
+async function renderReadyWidget(options: {
+  authStorageKey?: string;
+  onAuthCleared?: () => void;
+} = {}): Promise<{ root: HTMLElement; shadowRoot: ShadowRoot }> {
   const root = document.createElement("div");
   document.body.append(root);
   renderWidget(root, {
@@ -190,7 +194,9 @@ async function renderReadyWidget(): Promise<{ root: HTMLElement; shadowRoot: Sha
     apiBaseUrl: "https://api.example.test",
     pageUrl: "https://site.example.test/article",
     target: root,
-    theme: "light"
+    theme: "light",
+    contextToken: "test-frame-context",
+    ...options
   });
   const shadowRoot = root.shadowRoot;
   if (!shadowRoot) {
@@ -231,7 +237,7 @@ beforeEach(() => {
   document.body.replaceChildren();
   window.localStorage.clear();
   window.sessionStorage.clear();
-  window.localStorage.setItem(WIDGET_AUTH_TOKEN_KEY, token);
+  window.sessionStorage.setItem(authStorageKey, token);
 });
 
 afterEach(() => {
@@ -240,6 +246,46 @@ afterEach(() => {
 });
 
 describe("устойчивый черновик и фокус виджета", () => {
+  it("при запрете sessionStorage держит bearer только в памяти", async () => {
+    vi.spyOn(window, "sessionStorage", "get").mockImplementation(() => {
+      throw new DOMException("Storage blocked", "SecurityError");
+    });
+    installApiMock();
+    const firstRoot = document.createElement("div");
+    document.body.append(firstRoot);
+    const first = renderWidget(firstRoot, {
+      siteId,
+      apiBaseUrl: "https://api.example.test",
+      pageUrl: "https://site.example.test/article",
+      target: firstRoot,
+      theme: "light",
+      contextToken: "test-frame-context",
+      parentOrigin: "https://site.example.test"
+    });
+    const firstShadow = firstRoot.shadowRoot!;
+    await vi.waitFor(() => expect(firstShadow.querySelectorAll(".cloud-comment__comment")).toHaveLength(1));
+    expect(composer(firstShadow).readOnly).toBe(true);
+
+    await login(firstShadow, "memory-only@example.test");
+    expect(composer(firstShadow).readOnly).toBe(false);
+    first.destroy();
+
+    const reloadedRoot = document.createElement("div");
+    document.body.append(reloadedRoot);
+    renderWidget(reloadedRoot, {
+      siteId,
+      apiBaseUrl: "https://api.example.test",
+      pageUrl: "https://site.example.test/article",
+      target: reloadedRoot,
+      theme: "light",
+      contextToken: "new-frame-context",
+      parentOrigin: "https://site.example.test"
+    });
+    const reloadedShadow = reloadedRoot.shadowRoot!;
+    await vi.waitFor(() => expect(reloadedShadow.querySelectorAll(".cloud-comment__comment")).toHaveLength(1));
+    expect(composer(reloadedShadow).readOnly).toBe(true);
+  });
+
   it("сохраняет точный черновик и фокус при реакции, открытии профиля и смене сортировки", async () => {
     const api = installApiMock();
     const { shadowRoot } = await renderReadyWidget();
@@ -290,7 +336,7 @@ describe("устойчивый черновик и фокус виджета", (
     typeDraft(textarea, draft);
     textarea.focus();
     textarea.setSelectionRange(2, 11, "forward");
-    const submit = textarea.form?.querySelector<HTMLButtonElement>("button[type='submit']");
+    const submit = textarea.form?.querySelector<HTMLButtonElement>("button[data-cloud-comment-submit]");
     submit?.focus();
     submit?.click();
 
@@ -314,7 +360,7 @@ describe("устойчивый черновик и фокус виджета", (
     typeDraft(textarea, draft);
     textarea.focus();
     textarea.setSelectionRange(2, 14, "backward");
-    const submit = textarea.form?.querySelector<HTMLButtonElement>("button[type='submit']");
+    const submit = textarea.form?.querySelector<HTMLButtonElement>("button[data-cloud-comment-submit]");
     submit?.focus();
     submit?.click();
 
@@ -335,7 +381,7 @@ describe("устойчивый черновик и фокус виджета", (
       return;
     }
     typeDraft(textarea, "Сохранённая версия");
-    const submit = textarea.form?.querySelector<HTMLButtonElement>("button[type='submit']");
+    const submit = textarea.form?.querySelector<HTMLButtonElement>("button[data-cloud-comment-submit]");
     submit?.focus();
     submit?.click();
 
@@ -395,7 +441,32 @@ describe("устойчивый черновик и фокус виджета", (
     await login(shadowRoot, "new-user@example.test");
     expect(composer(shadowRoot).value).toBe("");
     expect(shadowRoot.textContent).toContain("Вы вошли как new-user@example.test");
-    expect(window.localStorage.getItem(WIDGET_AUTH_TOKEN_KEY)).toBe("new-widget-token");
+    expect(window.sessionStorage.getItem(authStorageKey)).toBe("new-widget-token");
+  });
+
+  it("явный logout сообщает frame об очистке persisted context", async () => {
+    const onAuthCleared = vi.fn();
+    installApiMock();
+    const { shadowRoot } = await renderReadyWidget({ authStorageKey, onAuthCleared });
+    shadowRoot.querySelector<HTMLButtonElement>("[data-profile-action='toggle']")?.click();
+    shadowRoot.querySelector<HTMLButtonElement>("[data-account-action='logout']")?.click();
+
+    await vi.waitFor(() => expect(onAuthCleared).toHaveBeenCalledOnce());
+    expect(window.sessionStorage.getItem(authStorageKey)).toBeNull();
+  });
+
+  it("не показывает в виджете глобальные экспорт и удаление аккаунта", async () => {
+    const api = installApiMock();
+    const { shadowRoot } = await renderReadyWidget();
+    shadowRoot.querySelector<HTMLButtonElement>("[data-profile-action='toggle']")?.click();
+
+    expect(shadowRoot.querySelector("[data-account-action='export-data']")).toBeNull();
+    expect(shadowRoot.querySelector("[data-account-action='delete']")).toBeNull();
+    expect(shadowRoot.querySelector("[data-account-action='request-delete']")).toBeNull();
+    expect(shadowRoot.querySelector("[data-account-action='logout']")).not.toBeNull();
+    expect(shadowRoot.textContent).not.toContain("Скачать данные");
+    expect(shadowRoot.textContent).not.toContain("Удалить аккаунт");
+    expect(api.fetchMock.mock.calls.some(([url]) => String(url).includes("/account/"))).toBe(false);
   });
 
   it("атомарный logout не позволяет старым 401 восстановить draft или сбросить новую сессию", async () => {
@@ -429,7 +500,7 @@ describe("устойчивый черновик и фокус виджета", (
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(composer(shadowRoot).readOnly).toBe(false);
     expect(composer(shadowRoot).value).toBe("");
-    expect(window.localStorage.getItem(WIDGET_AUTH_TOKEN_KEY)).toBe("new-widget-token");
+    expect(window.sessionStorage.getItem(authStorageKey)).toBe("new-widget-token");
     expect(shadowRoot.textContent).toContain("Вы вошли как anna@example.test");
     expect(shadowRoot.textContent).not.toContain("Старый bearer 401");
     expect(shadowRoot.textContent).not.toContain("Поздний logout 401");
@@ -604,7 +675,7 @@ describe("устойчивый черновик и фокус виджета", (
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(composer(shadowRoot).readOnly).toBe(false);
     expect(composer(shadowRoot).value).toBe(draft);
-    expect(window.localStorage.getItem(WIDGET_AUTH_TOKEN_KEY)).toBe("new-widget-token");
+    expect(window.sessionStorage.getItem(authStorageKey)).toBe("new-widget-token");
     expect(shadowRoot.textContent).toContain("Вы вошли как anna@example.test");
     expect(shadowRoot.textContent).not.toContain("Запоздалая старая 401");
   });

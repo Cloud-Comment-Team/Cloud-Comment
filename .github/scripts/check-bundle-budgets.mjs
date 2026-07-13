@@ -4,6 +4,8 @@ import { createGzip } from 'node:zlib'
 
 const adminDistDir = 'frontend/admin/dist'
 const adminAssetsDir = join(adminDistDir, 'assets')
+const widgetDistDir = 'widget-frontend/dist/widget'
+const widgetBundleLimit = 20 * 1024
 const analyticsGraphLimit = 120 * 1024
 const analyticsEntrySuffix = 'src/components/analytics/AnalyticsTrendChart.tsx'
 
@@ -66,7 +68,6 @@ function readAnalyticsGraph() {
 
 const analyticsGraphFiles = readAnalyticsGraph()
 const budgets = [
-  { dir: 'widget-frontend/dist/widget', match: (name) => name.endsWith('.js'), limit: 20 * 1024, label: 'пакет виджета' },
   { dir: adminAssetsDir, match: (name) => /^index-.*\.js$/.test(name), limit: 180 * 1024, label: 'основной пакет админки' },
   {
     dir: adminAssetsDir,
@@ -77,6 +78,21 @@ const budgets = [
 ]
 
 let failed = false
+if (!existsSync(widgetDistDir)) throw new Error(`Не найден каталог сборки: ${widgetDistDir}`)
+const widgetFiles = readdirSync(widgetDistDir)
+  .filter((name) => name.endsWith('.js') || name.endsWith('.css'))
+  .map((name) => join(widgetDistDir, name))
+  .filter((path) => statSync(path).isFile())
+if (widgetFiles.length === 0) throw new Error('Не найдены JavaScript/CSS-пакеты виджета.')
+let widgetBundleSize = 0
+for (const file of widgetFiles) widgetBundleSize += await gzipSize(file)
+const widgetBundleOk = widgetBundleSize <= widgetBundleLimit
+console.log(
+  `${widgetBundleOk ? 'OK' : 'FAIL'} пакет виджета целиком: ${(widgetBundleSize / 1024).toFixed(1)} КБ / ${widgetBundleLimit / 1024} КБ gzip `
+  + `(${widgetFiles.map((path) => basename(path)).join(', ')})`,
+)
+failed ||= !widgetBundleOk
+
 for (const budget of budgets) {
   if (!existsSync(budget.dir)) throw new Error(`Не найден каталог сборки: ${budget.dir}`)
   const files = readdirSync(budget.dir)

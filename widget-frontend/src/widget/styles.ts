@@ -346,11 +346,6 @@ export const widgetStyles = `
   font-weight: 800;
   line-height: 1;
   padding: 6px 9px;
-  transition:
-    border-color 150ms ease,
-    background 150ms ease,
-    color 150ms ease,
-    transform 150ms ease;
 }
 
 .cloud-comment__reaction:hover {
@@ -392,11 +387,14 @@ export const widgetStyles = `
   font-size: 12px;
   font-weight: 800;
   padding: 5px 10px;
-  transition:
-    border-color 150ms ease,
-    background 150ms ease,
-    color 150ms ease,
-    transform 150ms ease;
+}
+
+.cloud-comment__reaction,
+.cloud-comment__reply-button,
+.cloud-comment__reply-cancel,
+.cloud-comment__comment-action,
+.cloud-comment__account-button {
+  transition: border-color 150ms ease, background 150ms ease, color 150ms ease, transform 150ms ease;
 }
 
 .cloud-comment__reply-button:hover,
@@ -678,7 +676,6 @@ export const widgetStyles = `
 }
 
 .cloud-comment__account-actions,
-.cloud-comment__delete-actions,
 .cloud-comment__account-links {
   display: flex;
   flex-wrap: wrap;
@@ -695,11 +692,6 @@ export const widgetStyles = `
   font-size: 12px;
   font-weight: 800;
   padding: 8px 10px;
-  transition:
-    border-color 150ms ease,
-    background 150ms ease,
-    color 150ms ease,
-    transform 150ms ease;
 }
 
 .cloud-comment__account-button:hover {
@@ -715,17 +707,6 @@ export const widgetStyles = `
   transform: none;
 }
 
-.cloud-comment__account-button--danger {
-  border-color: var(--cc-danger-border);
-  color: var(--cc-danger-text);
-}
-
-.cloud-comment__account-button--danger:hover {
-  border-color: var(--cc-danger-border);
-  background: var(--cc-danger-bg);
-  color: var(--cc-danger-text);
-}
-
 .cloud-comment__account-links a {
   color: var(--cc-accent);
   font-size: 12px;
@@ -735,21 +716,6 @@ export const widgetStyles = `
 
 .cloud-comment__account-links a:hover {
   text-decoration: underline;
-}
-
-.cloud-comment__delete-confirm {
-  display: grid;
-  gap: 10px;
-  border: 1px solid var(--cc-danger-border);
-  border-radius: var(--cc-radius);
-  background: var(--cc-danger-bg);
-  padding: 12px;
-}
-
-.cloud-comment__delete-confirm p {
-  margin: 0;
-  color: var(--cc-danger-text);
-  font-size: 13px;
 }
 
 .cloud-comment__auth {
@@ -852,17 +818,16 @@ export const widgetStyles = `
   }
 }
 
-@media (max-width: 640px) {
+@container cloud-comment (max-width: 640px) {
   .cloud-comment__header,
   .cloud-comment__actions {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .cloud-comment__body,
-  .cloud-comment__header {
-    padding-left: 16px;
-    padding-right: 16px;
+  .cloud-comment__header,
+  .cloud-comment__body {
+    padding-inline: 14px;
   }
 
   .cloud-comment__auth-form {
@@ -871,17 +836,6 @@ export const widgetStyles = `
 
   .cloud-comment__button {
     width: 100%;
-  }
-}
-
-@container cloud-comment (max-width: 640px) {
-  .cloud-comment__header,
-  .cloud-comment__body {
-    padding-inline: 14px;
-  }
-
-  .cloud-comment__auth-form {
-    grid-template-columns: 1fr;
   }
 
   .cloud-comment__replies {
@@ -909,17 +863,10 @@ export const widgetStyles = `
     min-width: 0;
   }
 
-  .cloud-comment__actions {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .cloud-comment__button {
-    width: 100%;
-  }
-
   .cloud-comment__comment {
     padding: 11px;
   }
 }
 `;
+
+export const widgetStylesUrl = "";

@@ -3,6 +3,7 @@ package com.cloudcomment.auth.api;
 import com.cloudcomment.auth.persistence.UserAccountRepository;
 import com.cloudcomment.auth.application.SessionTokenHasher;
 import com.cloudcomment.auth.domain.SessionAudience;
+import com.cloudcomment.widgetcontext.application.WidgetContextService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -22,6 +23,7 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Set;
+import java.util.Base64;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -102,11 +104,15 @@ class ApiAuthenticationIntegrationTests {
             siteId,
             origin
         );
+        String widgetContextToken = createWidgetContext(siteId, origin, "1".repeat(64));
+        String secondPageContextToken = createWidgetContext(siteId, origin, "2".repeat(64));
         String widgetToken = "widget-" + UUID.randomUUID();
         userAccountRepository.createSession(
             userId,
             sessionTokenHasher.hash(widgetToken),
             SessionAudience.WIDGET,
+            siteId,
+            origin,
             Instant.now().plus(Duration.ofHours(1))
         );
         String legacyToken = "legacy-" + UUID.randomUUID();
@@ -124,11 +130,53 @@ class ApiAuthenticationIntegrationTests {
             .andExpect(jsonPath("$.passwordHash").doesNotExist());
 
         mockMvc.perform(get("/api/public/sites/{siteId}/auth/me", siteId)
-                .header(HttpHeaders.ORIGIN, origin)
+                .header(HttpHeaders.ORIGIN, "http://widget.localhost")
+                .header(WidgetContextService.CONTEXT_HEADER, widgetContextToken)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + widgetToken))
             .andExpect(status().isOk())
             .andExpect(header().doesNotExist(HttpHeaders.SET_COOKIE))
             .andExpect(jsonPath("$.email", is(email)));
+
+        mockMvc.perform(get("/api/public/sites/{siteId}/auth/me", siteId)
+                .header(HttpHeaders.ORIGIN, "http://widget.localhost")
+                .header(WidgetContextService.CONTEXT_HEADER, secondPageContextToken)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + widgetToken))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.email", is(email)));
+
+        String otherOrigin = "https://other-audience.example.com";
+        jdbcTemplate.update(
+            "insert into site_allowed_origins (site_id, origin) values (?, ?)",
+            siteId,
+            otherOrigin
+        );
+        String otherOriginContextToken = createWidgetContext(siteId, otherOrigin, "3".repeat(64));
+        mockMvc.perform(get("/api/public/sites/{siteId}/auth/me", siteId)
+                .header(HttpHeaders.ORIGIN, "http://widget.localhost")
+                .header(WidgetContextService.CONTEXT_HEADER, otherOriginContextToken)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + widgetToken))
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.error.code", is("INVALID_SESSION")));
+
+        UUID otherSiteId = jdbcTemplate.queryForObject(
+            "insert into sites (owner_id, name, domain, public_key) values (?, 'Other audience', ?, ?) returning id",
+            UUID.class,
+            userId,
+            "other-audience-" + UUID.randomUUID() + ".example.com",
+            UUID.randomUUID().toString().replace("-", "").repeat(2).substring(0, 64)
+        );
+        jdbcTemplate.update(
+            "insert into site_allowed_origins (site_id, origin) values (?, ?)",
+            otherSiteId,
+            origin
+        );
+        String otherSiteContextToken = createWidgetContext(otherSiteId, origin, "4".repeat(64));
+        mockMvc.perform(get("/api/public/sites/{siteId}/auth/me", otherSiteId)
+                .header(HttpHeaders.ORIGIN, "http://widget.localhost")
+                .header(WidgetContextService.CONTEXT_HEADER, otherSiteContextToken)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + widgetToken))
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.error.code", is("INVALID_SESSION")));
 
         mockMvc.perform(get("/api/auth/me")
                 .with(adminSession(widgetToken)))
@@ -136,7 +184,8 @@ class ApiAuthenticationIntegrationTests {
             .andExpect(jsonPath("$.error.code", is("INVALID_SESSION")));
 
         mockMvc.perform(get("/api/public/sites/{siteId}/auth/me", siteId)
-                .header(HttpHeaders.ORIGIN, origin)
+                .header(HttpHeaders.ORIGIN, "http://widget.localhost")
+                .header(WidgetContextService.CONTEXT_HEADER, widgetContextToken)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
             .andExpect(status().isUnauthorized())
             .andExpect(jsonPath("$.error.code", is("INVALID_SESSION")));
@@ -147,7 +196,8 @@ class ApiAuthenticationIntegrationTests {
             .andExpect(jsonPath("$.error.code", is("INVALID_SESSION")));
 
         mockMvc.perform(get("/api/public/sites/{siteId}/auth/me", siteId)
-                .header(HttpHeaders.ORIGIN, origin)
+                .header(HttpHeaders.ORIGIN, "http://widget.localhost")
+                .header(WidgetContextService.CONTEXT_HEADER, widgetContextToken)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + legacyToken))
             .andExpect(status().isUnauthorized())
             .andExpect(jsonPath("$.error.code", is("INVALID_SESSION")));
@@ -244,6 +294,24 @@ class ApiAuthenticationIntegrationTests {
               "password": "strong-password"
             }
             """.formatted(email);
+    }
+
+    private String createWidgetContext(UUID siteId, String origin, String pageUrlHash) {
+        byte[] contextBytes = new byte[32];
+        new java.security.SecureRandom().nextBytes(contextBytes);
+        String contextToken = Base64.getUrlEncoder().withoutPadding().encodeToString(contextBytes);
+        jdbcTemplate.update(
+            """
+                insert into widget_frame_contexts (
+                    token_hash, site_id, origin, page_url_hash, created_at, expires_at
+                ) values (?, ?, ?, ?, now(), now() + interval '2 hours')
+                """,
+            sessionTokenHasher.hash(contextToken),
+            siteId,
+            origin,
+            pageUrlHash
+        );
+        return contextToken;
     }
 
 }

@@ -29,6 +29,8 @@ services:
       CLOUD_COMMENT_DEMO_SEED_ENABLED: ${CLOUD_COMMENT_DEMO_SEED_ENABLED:-true}
       CLOUD_COMMENT_DEMO_ALLOWED_ORIGINS: ${CLOUD_COMMENT_DEMO_ALLOWED_ORIGINS:-http://localhost,http://127.0.0.1,http://127.0.0.1:4173}
       CLOUD_COMMENT_DEMO_PAGE_URL: ${CLOUD_COMMENT_DEMO_PAGE_URL:-http://localhost/demo-page.html}
+      CLOUD_COMMENT_WIDGET_BASE_URL: ${CLOUD_COMMENT_WIDGET_BASE_URL:-http://widget.localhost}
+      CLOUD_COMMENT_TRUSTED_PROXIES: ${CLOUD_COMMENT_TRUSTED_PROXIES:-172.16.0.0/12}
     depends_on:
       postgres:
         condition: service_healthy
@@ -45,6 +47,8 @@ services:
     build:
       context: .
       dockerfile: docker/caddy/Dockerfile
+      args:
+        VITE_CLOUD_COMMENT_WIDGET_BASE_URL: ${CLOUD_COMMENT_WIDGET_BASE_URL:-http://widget.localhost}
     image: cloud-comment-web:local
     depends_on:
       backend:

@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.util.UUID;
 
 @Service
 public class CurrentUserService {
@@ -28,12 +29,30 @@ public class CurrentUserService {
 
     @Transactional(readOnly = true)
     public AuthenticatedUser getCurrentUser(String token, SessionAudience audience) {
-        if (audience == SessionAudience.LEGACY) {
+        if (audience == SessionAudience.LEGACY || audience == SessionAudience.WIDGET) {
             throw invalidSession();
         }
         return userAccountRepository.findUserByActiveSessionTokenHash(
                 sessionTokenHasher.hash(token),
                 audience,
+                null,
+                null,
+                clock.instant()
+            )
+            .orElseThrow(this::invalidSession);
+    }
+
+    @Transactional(readOnly = true)
+    public AuthenticatedUser getWidgetCurrentUser(
+        String token,
+        UUID siteId,
+        String origin
+    ) {
+        return userAccountRepository.findUserByActiveSessionTokenHash(
+                sessionTokenHasher.hash(token),
+                SessionAudience.WIDGET,
+                siteId,
+                origin,
                 clock.instant()
             )
             .orElseThrow(this::invalidSession);

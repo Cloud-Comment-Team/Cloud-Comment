@@ -119,6 +119,21 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
     }
 
     @Override
+    public List<String> findAllowedOriginsForActiveSite(UUID siteId) {
+        return jdbcTemplate.queryForList(
+            """
+                select o.origin
+                from site_allowed_origins o
+                join sites s on s.id = o.site_id
+                where o.site_id = ? and s.is_active = true
+                order by o.origin
+                """,
+            String.class,
+            siteId
+        );
+    }
+
+    @Override
     public Optional<UUID> findPageId(UUID siteId, String pageUrl) {
         List<UUID> pageIds = jdbcTemplate.queryForList(
             """
@@ -131,6 +146,25 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
             pageUrl
         );
         return pageIds.stream().findFirst();
+    }
+
+    @Override
+    public boolean commentBelongsToPage(UUID siteId, UUID commentId, String canonicalPageUrl) {
+        Boolean exists = jdbcTemplate.queryForObject(
+            """
+                select exists(
+                    select 1
+                    from comments c
+                    join pages p on p.id = c.page_id
+                    where c.id = ? and p.site_id = ? and p.url = ?
+                )
+                """,
+            Boolean.class,
+            commentId,
+            siteId,
+            canonicalPageUrl
+        );
+        return Boolean.TRUE.equals(exists);
     }
 
     @Override

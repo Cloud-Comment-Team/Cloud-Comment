@@ -14,11 +14,13 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.Locale;
+import java.util.UUID;
 
 @Service
 public class LoginService {
 
-    private static final Duration SESSION_TTL = Duration.ofDays(7);
+    private static final Duration ADMIN_SESSION_TTL = Duration.ofDays(7);
+    private static final Duration WIDGET_SESSION_TTL = Duration.ofMinutes(60);
     private static final int TOKEN_BYTES = 32;
 
     private final UserAccountRepository userAccountRepository;
@@ -42,7 +44,24 @@ public class LoginService {
 
     @Transactional
     public LoginResult login(String email, String password, SessionAudience audience) {
-        return createSession(email, password, audience, null);
+        return createSession(email, password, audience, null, null, null);
+    }
+
+    @Transactional
+    public LoginResult loginWidget(
+        String email,
+        String password,
+        UUID siteId,
+        String origin
+    ) {
+        return createSession(
+            email,
+            password,
+            SessionAudience.WIDGET,
+            siteId,
+            origin,
+            null
+        );
     }
 
     @Transactional
@@ -52,17 +71,20 @@ public class LoginService {
         SessionAudience audience,
         String previousToken
     ) {
-        return createSession(email, password, audience, previousToken);
+        return createSession(email, password, audience, null, null, previousToken);
     }
 
     private LoginResult createSession(
         String email,
         String password,
         SessionAudience audience,
+        UUID siteId,
+        String origin,
         String previousToken
     ) {
-        if (audience == SessionAudience.LEGACY) {
-            throw new IllegalArgumentException("New sessions must have an explicit non-legacy audience");
+        if (audience == SessionAudience.LEGACY
+            || (audience == SessionAudience.WIDGET && siteId == null)) {
+            throw new IllegalArgumentException("New sessions must have an explicit supported scope");
         }
         String normalizedEmail = normalizeEmail(email);
         UserCredentials user = userAccountRepository.findCredentialsByEmail(normalizedEmail)
@@ -71,11 +93,25 @@ public class LoginService {
             .orElseThrow(this::invalidCredentials);
 
         String token = generateToken();
-        Instant expiresAt = clock.instant().plus(SESSION_TTL);
-        userAccountRepository.createSession(user.id(), sessionTokenHasher.hash(token), audience, expiresAt);
+        Duration ttl = audience == SessionAudience.WIDGET ? WIDGET_SESSION_TTL : ADMIN_SESSION_TTL;
+        Instant expiresAt = clock.instant().plus(ttl);
+        userAccountRepository.createSession(
+            user.id(),
+            sessionTokenHasher.hash(token),
+            audience,
+            siteId,
+            origin,
+            expiresAt
+        );
 
         if (previousToken != null && !previousToken.isBlank()) {
-            userAccountRepository.revokeSession(sessionTokenHasher.hash(previousToken), audience, clock.instant());
+            userAccountRepository.revokeSession(
+                sessionTokenHasher.hash(previousToken),
+                audience,
+                siteId,
+                origin,
+                clock.instant()
+            );
         }
 
         return new LoginResult(

@@ -13,7 +13,14 @@ import org.springframework.mock.web.MockCookie;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import com.cloudcomment.widgetcontext.application.WidgetContextService;
 
+import java.nio.charset.StandardCharsets;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.Signature;
+import java.security.spec.ECGenParameterSpec;
+import java.util.Base64;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -124,9 +131,10 @@ class MvpApiSmokeTests {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.siteId", is(siteId)))
             .andExpect(jsonPath("$.scriptUrl", is("http://localhost/widget/cloud-comment-widget.js")))
-            .andExpect(jsonPath("$.embedCode", is("<script src=\"http://localhost/widget/cloud-comment-widget.js\" data-site-id=\"" + siteId + "\" data-api-base-url=\"http://localhost/api\"></script>")))
+            .andExpect(jsonPath("$.embedCode", is("<script src=\"http://localhost/widget/cloud-comment-widget.js\" data-site-id=\"" + siteId + "\" data-api-base-url=\"http://localhost/api\" data-frame-base-url=\"http://widget.localhost\"></script>")))
             .andExpect(jsonPath("$.dataAttributes.siteId", is(siteId)))
-            .andExpect(jsonPath("$.dataAttributes.apiBaseUrl", is("http://localhost/api")));
+            .andExpect(jsonPath("$.dataAttributes.apiBaseUrl", is("http://localhost/api")))
+            .andExpect(jsonPath("$.dataAttributes.frameBaseUrl", is("http://widget.localhost")));
 
         mockMvc.perform(get("/api/public/sites/{siteId}/config", siteId)
                 .header(HttpHeaders.ORIGIN, origin))
@@ -149,11 +157,13 @@ class MvpApiSmokeTests {
             .andExpect(jsonPath("$.items", empty()))
             .andExpect(jsonPath("$.totalItems", is(0)));
 
-        String widgetToken = widgetLogin(siteId, origin, email, "strong-password");
+        WidgetSession widgetSession = widgetLogin(siteId, origin, pageUrl, email, "strong-password");
 
         String commentResponse = mockMvc.perform(post("/api/public/sites/{siteId}/pages/comments", siteId)
-                .header(HttpHeaders.ORIGIN, origin)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + widgetToken)
+                .header(HttpHeaders.ORIGIN, "http://widget.localhost")
+                .header(WidgetContextService.CONTEXT_HEADER, widgetSession.contextToken())
+                .header("X-CloudComment-Page-Url", pageUrl)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + widgetSession.bearerToken())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -244,8 +254,6 @@ class MvpApiSmokeTests {
             .getResponse()
             .getContentAsString();
         String siteId = extractString(siteResponse, "id");
-        String widgetToken = widgetLogin(siteId, origin, email, "strong-password");
-
         String trackingGetUrl = origin + "/article?tab=comments&%67braid=first&srsltid=result#thread";
         mockMvc.perform(get("/api/public/sites/{siteId}/pages/comments", siteId)
                 .header(HttpHeaders.ORIGIN, origin)
@@ -255,9 +263,18 @@ class MvpApiSmokeTests {
 
         String trackingPostUrl = origin + "/article?wbraid=second&tab=comments&gad_source=1"
             + "&gad_campaignid=2&client_secret=secret&x%2Damz%2Dsignature=signed#comments";
+        WidgetSession trackingSession = widgetLogin(
+            siteId,
+            origin,
+            trackingGetUrl,
+            email,
+            "strong-password"
+        );
         String commentResponse = mockMvc.perform(post("/api/public/sites/{siteId}/pages/comments", siteId)
-                .header(HttpHeaders.ORIGIN, origin)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + widgetToken)
+                .header(HttpHeaders.ORIGIN, "http://widget.localhost")
+                .header(WidgetContextService.CONTEXT_HEADER, trackingSession.contextToken())
+                .header("X-CloudComment-Page-Url", trackingPostUrl)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + trackingSession.bearerToken())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -279,9 +296,18 @@ class MvpApiSmokeTests {
             .andExpect(jsonPath("$.totalItems", is(1)));
 
         String functionalPageUrl = origin + "/article?tab=popular&x-goog-signature=secret&gbraid=third";
+        WidgetSession functionalSession = widgetLogin(
+            siteId,
+            origin,
+            functionalPageUrl,
+            email,
+            "strong-password"
+        );
         String functionalCommentResponse = mockMvc.perform(post("/api/public/sites/{siteId}/pages/comments", siteId)
-                .header(HttpHeaders.ORIGIN, origin)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + widgetToken)
+                .header(HttpHeaders.ORIGIN, "http://widget.localhost")
+                .header(WidgetContextService.CONTEXT_HEADER, functionalSession.contextToken())
+                .header("X-CloudComment-Page-Url", functionalPageUrl)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + functionalSession.bearerToken())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -341,9 +367,57 @@ class MvpApiSmokeTests {
         return new LoginSession(response.getContentAsString(), MockCookie.parse(setCookie).getValue());
     }
 
-    private String widgetLogin(String siteId, String origin, String email, String password) throws Exception {
-        String response = mockMvc.perform(post("/api/public/sites/{siteId}/auth/login", siteId)
+    private WidgetSession widgetLogin(
+        String siteId,
+        String origin,
+        String pageUrl,
+        String email,
+        String password
+    ) throws Exception {
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("EC");
+        generator.initialize(new ECGenParameterSpec("secp256r1"));
+        KeyPair keyPair = generator.generateKeyPair();
+        String encodedPublicKey = Base64.getUrlEncoder().withoutPadding()
+            .encodeToString(keyPair.getPublic().getEncoded());
+        String bootstrapResponse = mockMvc.perform(post(
+                "/api/public/sites/{siteId}/widget-context/bootstrap",
+                siteId
+            )
                 .header(HttpHeaders.ORIGIN, origin)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"publicKey":"%s","pageUrl":"%s"}
+                    """.formatted(encodedPublicKey, pageUrl)))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+        String ticket = extractString(bootstrapResponse, "ticket");
+        String canonicalPageUrl = extractString(bootstrapResponse, "canonicalPageUrl");
+        String fingerprint = extractString(bootstrapResponse, "publicKeyFingerprint");
+        String payload = "CLOUDCOMMENT_WIDGET_BOOTSTRAP_V1\n" + siteId + "\n" + origin + "\n"
+            + canonicalPageUrl + "\n" + fingerprint + "\n" + ticket;
+        Signature signer = Signature.getInstance("SHA256withECDSAinP1363Format");
+        signer.initSign(keyPair.getPrivate());
+        signer.update(payload.getBytes(StandardCharsets.UTF_8));
+        String proof = Base64.getUrlEncoder().withoutPadding().encodeToString(signer.sign());
+        String exchangeResponse = mockMvc.perform(post(
+                "/api/public/sites/{siteId}/widget-context/exchange",
+                siteId
+            )
+                .header(HttpHeaders.ORIGIN, "http://widget.localhost")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"ticket":"%s","proof":"%s"}
+                    """.formatted(ticket, proof)))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+        String contextToken = extractString(exchangeResponse, "contextToken");
+        String loginResponse = mockMvc.perform(post("/api/public/sites/{siteId}/auth/login", siteId)
+                .header(HttpHeaders.ORIGIN, "http://widget.localhost")
+                .header(WidgetContextService.CONTEXT_HEADER, contextToken)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -355,10 +429,13 @@ class MvpApiSmokeTests {
             .andReturn()
             .getResponse()
             .getContentAsString();
-        return extractToken(response);
+        return new WidgetSession(contextToken, extractToken(loginResponse));
     }
 
     private record LoginSession(String body, String token) {
+    }
+
+    private record WidgetSession(String contextToken, String bearerToken) {
     }
 
     private String extractString(String json, String fieldName) {

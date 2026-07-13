@@ -1,5 +1,4 @@
 import type {
-  AccountDeletionRequest,
   AuthUser,
   CommentReactionType,
   CommentReactionsResponse,
@@ -9,6 +8,7 @@ import type {
   PublicCommentSort,
   PublicWidgetConfig
 } from "./types";
+import { WIDGET_CONTEXT_HEADER, WIDGET_PAGE_URL_HEADER } from "./protocol";
 
 type ApiErrorBody = {
   error?: {
@@ -61,25 +61,35 @@ export type WidgetApiClient = {
   login: (email: string, password: string) => Promise<LoginResponse>;
   register: (payload: RegisterPayload) => Promise<void>;
   logout: (token: string) => Promise<void>;
-  requestAccountDeletion: (token: string) => Promise<AccountDeletionRequest>;
-  exportPersonalData: (token: string) => Promise<unknown>;
 };
 
 export function createWidgetApiClient(
   apiBaseUrl: string,
   siteId: string,
-  pageUrl: string
+  pageUrl: string,
+  contextToken: string
 ): WidgetApiClient {
+  if (!contextToken.trim()) {
+    throw new Error("CloudComment frame context is required");
+  }
   const baseUrl = apiBaseUrl.replace(/\/+$/, "");
   const siteBasePath = `/public/sites/${encodeURIComponent(siteId)}`;
 
   async function request<T>(path: string, init?: RequestInit): Promise<T> {
+    const siteRequest = path.startsWith(siteBasePath);
+    const pageRequest = path.startsWith(`${siteBasePath}/pages/comments`)
+      || path.startsWith(`${siteBasePath}/comments/`);
     let response: Response;
     try {
       response = await fetch(`${baseUrl}${path}`, {
         ...init,
+        mode: "cors",
+        credentials: "omit",
+        cache: "no-store",
         headers: {
           Accept: "application/json",
+          ...(siteRequest ? { [WIDGET_CONTEXT_HEADER]: contextToken } : {}),
+          ...(pageRequest ? { [WIDGET_PAGE_URL_HEADER]: pageUrl } : {}),
           ...init?.headers
         }
       });
@@ -100,7 +110,7 @@ export function createWidgetApiClient(
 
   return {
     getConfig: () => request<PublicWidgetConfig>(`${siteBasePath}/config`),
-    getConsentRequirements: () => request<ConsentRequirements>("/privacy/consent-requirements"),
+    getConsentRequirements: () => request<ConsentRequirements>(`${siteBasePath}/privacy/consent-requirements`),
     listComments: (sort, token) => {
       const params = new URLSearchParams({
         pageUrl,
@@ -183,19 +193,6 @@ export function createWidgetApiClient(
     logout: (token) =>
       request<void>(`${siteBasePath}/auth/logout`, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      }),
-    requestAccountDeletion: (token) =>
-      request<AccountDeletionRequest>(`${siteBasePath}/account/deletion-requests`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      }),
-    exportPersonalData: (token) =>
-      request<unknown>(`${siteBasePath}/account/personal-data`, {
         headers: {
           Authorization: `Bearer ${token}`
         }

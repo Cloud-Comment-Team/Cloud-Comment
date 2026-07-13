@@ -1,6 +1,11 @@
 package com.cloudcomment.auth.persistence;
 
 import com.cloudcomment.auth.domain.SessionAudience;
+import com.cloudcomment.shared.error.ApiErrorCode;
+import com.cloudcomment.shared.error.ApplicationException;
+import com.cloudcomment.widgetcontext.application.WidgetBootstrapResult;
+import com.cloudcomment.widgetcontext.application.WidgetContextService;
+import com.cloudcomment.widgetcontext.persistence.WidgetContextRepository;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.Test;
@@ -14,11 +19,24 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import javax.sql.DataSource;
+import java.nio.charset.StandardCharsets;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.Signature;
+import java.security.spec.ECGenParameterSpec;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.Set;
+import java.util.List;
+import java.util.Base64;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -43,6 +61,12 @@ class PostgresFlywayIntegrationTests {
 
     @Autowired
     UserAccountRepository userAccountRepository;
+
+    @Autowired
+    WidgetContextRepository widgetContextRepository;
+
+    @Autowired
+    WidgetContextService widgetContextService;
 
     @Test
     void applicationConnectsToPostgresAndFlywayCreatesSchemaHistory() {
@@ -74,7 +98,9 @@ class PostgresFlywayIntegrationTests {
                 'automod_policy_versions',
                 'site_automod_policy_state',
                 'automod_policy_feedback',
-                'automod_decision_events'
+                'automod_decision_events',
+                'widget_bootstrap_tickets',
+                'widget_frame_contexts'
             )
             """, Integer.class);
         Integer roleRows = jdbcTemplate.queryForObject("""
@@ -82,12 +108,356 @@ class PostgresFlywayIntegrationTests {
             from roles
             where name in ('OWNER', 'COMMENTER', 'MODERATOR')
             """, Integer.class);
+        Integer widgetExpiryIndexes = jdbcTemplate.queryForObject("""
+            select count(*)
+            from pg_indexes
+            where schemaname = 'public'
+              and indexname in (
+                'idx_widget_bootstrap_tickets_expires_at',
+                'idx_widget_frame_contexts_expires_at'
+              )
+            """, Integer.class);
 
         assertThat(databaseVersion).contains("PostgreSQL");
-        assertThat(schemaHistoryRows).isEqualTo(17);
+        assertThat(schemaHistoryRows).isEqualTo(18);
         assertThat(smokeTableRows).isZero();
-        assertThat(coreTableRows).isEqualTo(18);
+        assertThat(coreTableRows).isEqualTo(20);
         assertThat(roleRows).isEqualTo(3);
+        assertThat(widgetExpiryIndexes).isEqualTo(2);
+    }
+
+    @Test
+    void v17ConsumesBootstrapTicketAtomicallyAndStoresOnlyHashedContextToken() throws Exception {
+        var user = userAccountRepository.create(
+            "widget-ticket-" + UUID.randomUUID() + "@example.com",
+            "hash",
+            Set.of("COMMENTER")
+        );
+        UUID siteId = createSite(user.id(), "atomic");
+        String ticketHash = randomHash();
+        String contextTokenHash = randomHash();
+        String canonicalPageUrl = "https://atomic-" + UUID.randomUUID() + ".example.com/article";
+        String origin = canonicalPageUrl.substring(0, canonicalPageUrl.lastIndexOf('/'));
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        widgetContextRepository.createBootstrapTicket(
+            ticketHash,
+            siteId,
+            origin,
+            canonicalPageUrl,
+            randomHash(),
+            "A".repeat(43),
+            new byte[] {1, 2, 3},
+            now,
+            now.plus(Duration.ofMinutes(2))
+        );
+
+        int attempts = 12;
+        CountDownLatch ready = new CountDownLatch(attempts);
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(attempts);
+        try {
+            List<Future<Boolean>> results = IntStream.range(0, attempts)
+                .mapToObj(ignored -> executor.submit(() -> {
+                    ready.countDown();
+                    start.await(10, TimeUnit.SECONDS);
+                    return widgetContextRepository.consumeBootstrapTicket(ticketHash, siteId, now.plusSeconds(1));
+                }))
+                .toList();
+            assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            assertThat(results.stream().filter(future -> get(future)).count()).isOne();
+        } finally {
+            start.countDown();
+            executor.shutdownNow();
+        }
+
+        assertThat(widgetContextRepository.findActiveBootstrapTicket(ticketHash, siteId, now.plusSeconds(1)))
+            .isEmpty();
+        widgetContextRepository.deleteBootstrapTicket(ticketHash, siteId);
+        widgetContextRepository.createFrameContext(
+            contextTokenHash,
+            siteId,
+            origin,
+            randomHash(),
+            now,
+            now.plus(Duration.ofHours(2))
+        );
+        assertThat(widgetContextRepository.findActiveFrameContext(contextTokenHash, siteId, now.plusSeconds(1)))
+            .hasValueSatisfying(context -> {
+                assertThat(context.siteId()).isEqualTo(siteId);
+                assertThat(context.origin()).isEqualTo(origin);
+                assertThat(context.expiresAt()).isEqualTo(now.plus(Duration.ofHours(2)));
+            });
+        assertThat(jdbcTemplate.queryForObject(
+            "select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'widget_frame_contexts' and column_name = 'canonical_page_url'",
+            Integer.class
+        )).isZero();
+    }
+
+    @Test
+    void v17RetentionKeepsSiteScopedSessionsAndRollbackShapeFailsClosedInBackend() {
+        var user = userAccountRepository.create(
+            "widget-retention-" + UUID.randomUUID() + "@example.com",
+            "hash",
+            Set.of("COMMENTER")
+        );
+        UUID siteId = createSite(user.id(), "retention");
+        String origin = "https://retention-" + UUID.randomUUID() + ".example.com";
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        String contextHash = randomHash();
+        widgetContextRepository.createFrameContext(
+            contextHash,
+            siteId,
+            origin,
+            randomHash(),
+            now.minus(Duration.ofHours(50)),
+            now.minus(Duration.ofHours(49))
+        );
+        String scopedSessionHash = randomHash();
+        userAccountRepository.createSession(
+            user.id(),
+            scopedSessionHash,
+            SessionAudience.WIDGET,
+            siteId,
+            origin,
+            now.plus(Duration.ofHours(1))
+        );
+        widgetContextRepository.createBootstrapTicket(
+            randomHash(),
+            siteId,
+            origin,
+            origin + "/article",
+            randomHash(),
+            "B".repeat(43),
+            new byte[] {4, 5, 6},
+            now.minus(Duration.ofHours(50)),
+            now.minus(Duration.ofHours(49))
+        );
+
+        Instant cutoff = now.minus(Duration.ofHours(24));
+        assertThat(widgetContextRepository.deleteExpiredBootstrapTickets(cutoff)).isOne();
+        assertThat(widgetContextRepository.deleteExpiredFrameContexts(cutoff)).isOne();
+        assertThat(jdbcTemplate.queryForObject(
+            "select count(*) from auth_sessions where token_hash = ?",
+            Integer.class,
+            scopedSessionHash
+        )).isOne();
+        assertThat(userAccountRepository.findUserByActiveSessionTokenHash(
+            scopedSessionHash,
+            SessionAudience.WIDGET,
+            siteId,
+            origin,
+            now
+        )).isPresent();
+
+        String rollbackTokenHash = randomHash();
+        jdbcTemplate.update(
+            "insert into auth_sessions (user_id, token_hash, audience, expires_at) values (?, ?, 'WIDGET', ?)",
+            user.id(),
+            rollbackTokenHash,
+            java.time.OffsetDateTime.ofInstant(now.plus(Duration.ofHours(1)), ZoneOffset.UTC)
+        );
+        assertThatThrownBy(() -> userAccountRepository.findUserByActiveSessionTokenHash(
+            rollbackTokenHash,
+            SessionAudience.WIDGET,
+            now
+        )).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> jdbcTemplate.update(
+            "insert into auth_sessions (user_id, token_hash, audience, site_id, expires_at) values (?, ?, 'WIDGET', ?, ?)",
+            user.id(),
+            randomHash(),
+            siteId,
+            java.time.OffsetDateTime.ofInstant(now.plus(Duration.ofHours(1)), ZoneOffset.UTC)
+        )).isInstanceOf(DataAccessException.class);
+    }
+
+    @Test
+    void widgetContextServiceExchangesOneRealTicketExactlyOnceUnderConcurrency() throws Exception {
+        var user = userAccountRepository.create(
+            "widget-exchange-" + UUID.randomUUID() + "@example.com",
+            "hash",
+            Set.of("COMMENTER")
+        );
+        String embeddingOrigin = "https://exchange-" + UUID.randomUUID() + ".example.com";
+        UUID siteId = createSite(user.id(), "exchange");
+        jdbcTemplate.update(
+            "insert into site_allowed_origins (site_id, origin) values (?, ?)",
+            siteId,
+            embeddingOrigin
+        );
+        BootstrapProof bootstrap = createBootstrapProof(siteId, embeddingOrigin);
+        int attempts = 12;
+        CountDownLatch ready = new CountDownLatch(attempts);
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(attempts);
+        try {
+            List<Future<Boolean>> results = IntStream.range(0, attempts)
+                .mapToObj(ignored -> executor.submit(() -> {
+                    ready.countDown();
+                    start.await(10, TimeUnit.SECONDS);
+                    try {
+                        widgetContextService.exchange(
+                            siteId,
+                            "http://widget.localhost",
+                            bootstrap.result().ticket(),
+                            bootstrap.proof()
+                        );
+                        return true;
+                    } catch (ApplicationException exception) {
+                        assertThat(exception.code()).isEqualTo(ApiErrorCode.INVALID_WIDGET_BOOTSTRAP);
+                        return false;
+                    }
+                }))
+                .toList();
+            assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            assertThat(results.stream().filter(this::get).count()).isOne();
+        } finally {
+            start.countDown();
+            executor.shutdownNow();
+        }
+
+        assertThat(jdbcTemplate.queryForObject(
+            "select count(*) from widget_frame_contexts where site_id = ?",
+            Integer.class,
+            siteId
+        )).isOne();
+        assertThat(jdbcTemplate.queryForObject(
+            "select count(*) from widget_bootstrap_tickets where site_id = ?",
+            Integer.class,
+            siteId
+        )).isZero();
+        assertThatThrownBy(() -> widgetContextService.exchange(
+            siteId,
+            "http://widget.localhost",
+            bootstrap.result().ticket(),
+            bootstrap.proof()
+        )).isInstanceOfSatisfying(ApplicationException.class, exception ->
+            assertThat(exception.code()).isEqualTo(ApiErrorCode.INVALID_WIDGET_BOOTSTRAP)
+        );
+    }
+
+    @Test
+    void bootstrapAllowsOnlyOneOutstandingTicketPerSiteOriginAndKey() throws Exception {
+        var user = userAccountRepository.create(
+            "widget-bootstrap-" + UUID.randomUUID() + "@example.com",
+            "hash",
+            Set.of("COMMENTER")
+        );
+        String embeddingOrigin = "https://bootstrap-" + UUID.randomUUID() + ".example.com";
+        UUID siteId = createSite(user.id(), "bootstrap-limit");
+        jdbcTemplate.update(
+            "insert into site_allowed_origins (site_id, origin) values (?, ?)",
+            siteId,
+            embeddingOrigin
+        );
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("EC");
+        generator.initialize(new ECGenParameterSpec("secp256r1"));
+        String publicKey = Base64.getUrlEncoder().withoutPadding()
+            .encodeToString(generator.generateKeyPair().getPublic().getEncoded());
+        WidgetBootstrapResult first = widgetContextService.bootstrap(
+            siteId,
+            embeddingOrigin,
+            embeddingOrigin + "/article",
+            publicKey
+        );
+
+        assertThatThrownBy(() -> widgetContextService.bootstrap(
+            siteId,
+            embeddingOrigin,
+            embeddingOrigin + "/article",
+            publicKey
+        )).isInstanceOfSatisfying(ApplicationException.class, exception ->
+            assertThat(exception.code()).isEqualTo(ApiErrorCode.RATE_LIMITED)
+        );
+        assertThat(jdbcTemplate.queryForObject(
+            "select count(*) from widget_bootstrap_tickets where site_id = ? and consumed_at is null",
+            Integer.class,
+            siteId
+        )).isOne();
+
+        jdbcTemplate.update(
+            "update widget_bootstrap_tickets set created_at = now() - interval '2 seconds', expires_at = now() - interval '1 second' where site_id = ?",
+            siteId
+        );
+        WidgetBootstrapResult replacement = widgetContextService.bootstrap(
+            siteId,
+            embeddingOrigin,
+            embeddingOrigin + "/article",
+            publicKey
+        );
+        assertThat(replacement.ticket()).isNotEqualTo(first.ticket());
+        assertThat(jdbcTemplate.queryForObject(
+            "select count(*) from widget_bootstrap_tickets where site_id = ? and consumed_at is null",
+            Integer.class,
+            siteId
+        )).isOne();
+    }
+
+    @Test
+    void failedContextInsertRollsBackTicketConsumptionAndAllowsSafeRetry() throws Exception {
+        var user = userAccountRepository.create(
+            "widget-rollback-" + UUID.randomUUID() + "@example.com",
+            "hash",
+            Set.of("COMMENTER")
+        );
+        String embeddingOrigin = "https://rollback-" + UUID.randomUUID() + ".example.com";
+        UUID siteId = createSite(user.id(), "exchange-rollback");
+        jdbcTemplate.update(
+            "insert into site_allowed_origins (site_id, origin) values (?, ?)",
+            siteId,
+            embeddingOrigin
+        );
+        BootstrapProof bootstrap = createBootstrapProof(siteId, embeddingOrigin);
+        String suffix = UUID.randomUUID().toString().replace("-", "");
+        String functionName = "reject_widget_context_" + suffix;
+        String triggerName = "reject_widget_context_trigger_" + suffix;
+        jdbcTemplate.execute("""
+            create function %s() returns trigger language plpgsql as $$
+            begin
+                raise exception 'intentional widget context insert failure';
+            end
+            $$
+            """.formatted(functionName));
+        jdbcTemplate.execute("""
+            create trigger %s before insert on widget_frame_contexts
+            for each row when (new.site_id = '%s'::uuid)
+            execute function %s()
+            """.formatted(triggerName, siteId, functionName));
+        try {
+            assertThatThrownBy(() -> widgetContextService.exchange(
+                siteId,
+                "http://widget.localhost",
+                bootstrap.result().ticket(),
+                bootstrap.proof()
+            )).isInstanceOf(DataAccessException.class);
+        } finally {
+            jdbcTemplate.execute("drop trigger if exists " + triggerName + " on widget_frame_contexts");
+            jdbcTemplate.execute("drop function if exists " + functionName + "()");
+        }
+
+        assertThat(jdbcTemplate.queryForObject(
+            "select count(*) from widget_bootstrap_tickets where site_id = ? and consumed_at is null",
+            Integer.class,
+            siteId
+        )).isOne();
+        assertThat(jdbcTemplate.queryForObject(
+            "select count(*) from widget_frame_contexts where site_id = ?",
+            Integer.class,
+            siteId
+        )).isZero();
+
+        assertThat(widgetContextService.exchange(
+            siteId,
+            "http://widget.localhost",
+            bootstrap.result().ticket(),
+            bootstrap.proof()
+        ).contextToken()).isNotBlank();
+        assertThat(jdbcTemplate.queryForObject(
+            "select count(*) from widget_bootstrap_tickets where site_id = ?",
+            Integer.class,
+            siteId
+        )).isZero();
     }
 
     @Test
@@ -319,7 +689,7 @@ class PostgresFlywayIntegrationTests {
     }
 
     @Test
-    void v16BackfillsLegacyAudienceRevokesExistingSessionsAndKeepsRollbackDefault() {
+    void v16AndV17RevokeLegacyWidgetSessionsAndKeepRollbackCompatibleShape() {
         String schema = "v16_upgrade_" + UUID.randomUUID().toString().replace("-", "");
         try {
             Flyway.configure()
@@ -380,6 +750,52 @@ class PostgresFlywayIntegrationTests {
                 String.class,
                 "0".repeat(64)
             )).isEqualTo("LEGACY");
+
+            jdbcTemplate.update(
+                "insert into " + schema + ".auth_sessions (user_id, token_hash, audience, expires_at) values (?, ?, 'WIDGET', now() + interval '1 day')",
+                userId,
+                "1".repeat(64)
+            );
+
+            Flyway.configure()
+                .dataSource(dataSource)
+                .schemas(schema)
+                .defaultSchema(schema)
+                .target(MigrationVersion.fromVersion("17"))
+                .load()
+                .migrate();
+
+            assertThat(jdbcTemplate.queryForObject(
+                "select audience = 'LEGACY' and revoked_at is not null from " + schema + ".auth_sessions where token_hash = ?",
+                Boolean.class,
+                "1".repeat(64)
+            )).isTrue();
+            jdbcTemplate.update(
+                "insert into " + schema + ".auth_sessions (user_id, token_hash, audience, expires_at) values (?, ?, 'WIDGET', now() + interval '1 day')",
+                userId,
+                "2".repeat(64)
+            );
+            assertThat(jdbcTemplate.queryForObject(
+                "select site_id is null and origin is null from "
+                    + schema + ".auth_sessions where token_hash = ?",
+                Boolean.class,
+                "2".repeat(64)
+            )).isTrue();
+            assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from information_schema.columns where table_schema = ? and table_name = 'widget_frame_contexts' and column_name = 'canonical_page_url'",
+                Integer.class,
+                schema
+            )).isZero();
+            assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from information_schema.columns where table_schema = ? and table_name = 'widget_bootstrap_tickets' and column_name = 'canonical_page_url'",
+                Integer.class,
+                schema
+            )).isOne();
+            assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from information_schema.columns where table_schema = ? and table_name = 'auth_sessions' and column_name = 'widget_context_id'",
+                Integer.class,
+                schema
+            )).isZero();
         } finally {
             jdbcTemplate.execute("drop schema if exists " + schema + " cascade");
         }
@@ -437,9 +853,27 @@ class PostgresFlywayIntegrationTests {
         assertThat(currentUser.createdAt()).isEqualTo(user.createdAt());
         assertThat(currentUser.updatedAt()).isEqualTo(user.updatedAt());
 
+        String widgetOrigin = "https://widget-scope.example.com";
+        UUID widgetSiteId = jdbcTemplate.queryForObject(
+            "insert into sites (owner_id, name, domain, public_key) values (?, 'Widget scope', ?, ?) returning id",
+            UUID.class,
+            user.id(),
+            "widget-scope-" + UUID.randomUUID() + ".example.com",
+            UUID.randomUUID().toString().replace("-", "").repeat(2).substring(0, 64)
+        );
+        assertThatThrownBy(() -> jdbcTemplate.update(
+            "insert into auth_sessions (user_id, token_hash, audience, site_id, expires_at) values (?, ?, 'WIDGET_FRAME', ?, ?)",
+            user.id(),
+            "9".repeat(64),
+            widgetSiteId,
+            java.time.OffsetDateTime.ofInstant(expiresAt, ZoneOffset.UTC)
+        )).isInstanceOf(DataAccessException.class);
+
         SessionRevocationResult wrongAudienceRevoke = userAccountRepository.revokeSession(
             "a".repeat(64),
             SessionAudience.WIDGET,
+            widgetSiteId,
+            widgetOrigin,
             activeAt
         );
         assertThat(wrongAudienceRevoke).isEqualTo(SessionRevocationResult.NOT_FOUND_OR_EXPIRED);
@@ -488,7 +922,38 @@ class PostgresFlywayIntegrationTests {
             activeAt
         )).isEmpty();
 
-        userAccountRepository.createSession(user.id(), "c".repeat(64), SessionAudience.WIDGET, expiresAt);
+        userAccountRepository.createSession(
+            user.id(),
+            "c".repeat(64),
+            SessionAudience.WIDGET,
+            widgetSiteId,
+            widgetOrigin,
+            expiresAt
+        );
+        assertThat(jdbcTemplate.queryForObject(
+            "select audience from auth_sessions where token_hash = ?",
+            String.class,
+            "c".repeat(64)
+        )).isEqualTo("WIDGET_FRAME");
+        assertThat(jdbcTemplate.queryForObject(
+            "select count(*) from auth_sessions where token_hash = ? and audience = 'WIDGET'",
+            Integer.class,
+            "c".repeat(64)
+        )).as("предыдущая версия backend не должна видеть scoped-сессию как WIDGET").isZero();
+        assertThat(userAccountRepository.findUserByActiveSessionTokenHash(
+            "c".repeat(64),
+            SessionAudience.WIDGET,
+            widgetSiteId,
+            widgetOrigin,
+            activeAt
+        )).isPresent();
+        assertThat(userAccountRepository.findUserByActiveSessionTokenHash(
+            "c".repeat(64),
+            SessionAudience.WIDGET,
+            widgetSiteId,
+            "https://other-widget-scope.example.com",
+            activeAt
+        )).isEmpty();
         assertThat(userAccountRepository.revokeSession(
             "c".repeat(64),
             SessionAudience.ADMIN,
@@ -497,6 +962,8 @@ class PostgresFlywayIntegrationTests {
         SessionRevocationResult skewSafeRevoked = userAccountRepository.revokeSession(
             "c".repeat(64),
             SessionAudience.WIDGET,
+            widgetSiteId,
+            widgetOrigin,
             skewedPastAt
         );
         assertThat(skewSafeRevoked).isEqualTo(SessionRevocationResult.REVOKED);
@@ -538,5 +1005,54 @@ class PostgresFlywayIntegrationTests {
             SessionAudience.ADMIN,
             activeAt
         )).isEmpty();
+    }
+
+    private UUID createSite(UUID ownerId, String prefix) {
+        return jdbcTemplate.queryForObject(
+            "insert into sites (owner_id, name, domain, public_key) values (?, ?, ?, ?) returning id",
+            UUID.class,
+            ownerId,
+            "Widget " + prefix,
+            prefix + "-" + UUID.randomUUID() + ".example.com",
+            randomHash()
+        );
+    }
+
+    private BootstrapProof createBootstrapProof(UUID siteId, String origin) throws Exception {
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("EC");
+        generator.initialize(new ECGenParameterSpec("secp256r1"));
+        KeyPair keyPair = generator.generateKeyPair();
+        String pageUrl = origin + "/article";
+        WidgetBootstrapResult result = widgetContextService.bootstrap(
+            siteId,
+            origin,
+            pageUrl,
+            Base64.getUrlEncoder().withoutPadding().encodeToString(keyPair.getPublic().getEncoded())
+        );
+        String payload = "CLOUDCOMMENT_WIDGET_BOOTSTRAP_V1\n" + siteId + "\n" + origin + "\n"
+            + result.canonicalPageUrl() + "\n" + result.publicKeyFingerprint() + "\n" + result.ticket();
+        Signature signer = Signature.getInstance("SHA256withECDSAinP1363Format");
+        signer.initSign(keyPair.getPrivate());
+        signer.update(payload.getBytes(StandardCharsets.UTF_8));
+        return new BootstrapProof(
+            result,
+            Base64.getUrlEncoder().withoutPadding().encodeToString(signer.sign())
+        );
+    }
+
+    private String randomHash() {
+        return UUID.randomUUID().toString().replace("-", "")
+            + UUID.randomUUID().toString().replace("-", "");
+    }
+
+    private boolean get(Future<Boolean> future) {
+        try {
+            return future.get(10, TimeUnit.SECONDS);
+        } catch (Exception exception) {
+            throw new AssertionError("Concurrent ticket consumption did not complete", exception);
+        }
+    }
+
+    private record BootstrapProof(WidgetBootstrapResult result, String proof) {
     }
 }

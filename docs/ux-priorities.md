@@ -106,7 +106,7 @@ Minimum считается неделимым: выпускать отдельн
 
 ### Definition of Done
 
-- Anonymous public API и отрендеренный Shadow DOM не содержат email ни в одном состоянии.
+- Anonymous public API, host-loader и отрендерованный iframe не содержат email ни в одном доступном host-странице состоянии.
 - URL с fragment работает; tracking query не дробит тред; функциональный query следует документированной policy.
 - Старые page records не теряют комментарии, replies, reactions и ownership.
 - Введённый widget draft переживает reaction, открытие profile, смену sort и rerender; POST 500 сохраняет текст и возвращает focus/selection в редактор.

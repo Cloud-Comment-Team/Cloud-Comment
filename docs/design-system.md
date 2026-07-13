@@ -365,7 +365,8 @@ Progress показывает только подтверждённые собы
 ### Интеграция с сайтом
 
 - Widget наследует font family, line height и доступный color scheme host page, если owner не выбрал явную тему.
-- Shadow DOM изолирует внутреннюю раскладку, но не считается изоляцией bearer token.
+- Host-страница получает только тонкий loader и контейнер. Полный интерфейс, Web Crypto-ключ, widget context и bearer-сессия живут внутри sandboxed iframe; host JavaScript не получает секреты через `postMessage`, DOM или storage.
+- Выделенный `widget`-origin обязателен и использует `allow-same-origin` только внутри собственного cross-origin iframe, поэтому host-страница не получает доступ к его DOM и storage. При совпадении widget/API origins loader завершает запуск fail closed; fallback через opaque iframe не поддерживается.
 - Container queries являются главным механизмом responsive; viewport media query используется только как fallback.
 - Default page identity удаляет fragment и следует canonical URL; integrator может передать стабильный `pageKey/pageUrl` явно.
 - Виджет не загружает шрифты, иллюстрации, analytics SDK и motion library.
@@ -399,7 +400,7 @@ Layout не должен создавать горизонтальный scroll 
 
 ## Производительность
 
-- Widget bundle: не более 20 КБ gzip; новые зависимости требуют отдельного обоснования.
+- Все обязательные JS- и CSS-ресурсы Widget суммарно: не более 20 КБ gzip; новые зависимости требуют отдельного обоснования.
 - Основной admin bundle: не более 180 КБ gzip; обычный route bundle — не более 60 КБ gzip согласно действующему quality budget.
 - Widget не выполняет полный `replaceChildren` при локальном действии и не переанимирует весь список.
 - Корневые комментарии загружаются страницами. Replies загружаются по запросу; DOM не содержит скрытые сотни сообщений.

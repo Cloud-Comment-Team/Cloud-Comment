@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   envDir: "..",
+  publicDir: "public",
   build: {
     emptyOutDir: true,
     outDir: "dist/widget",

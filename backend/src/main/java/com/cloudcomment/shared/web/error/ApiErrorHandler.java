@@ -270,11 +270,13 @@ class ApiErrorHandler {
     private HttpStatus resolveStatus(ApiErrorCode code) {
         return switch (code) {
             case EMAIL_ALREADY_USED, BUSINESS_ERROR -> HttpStatus.CONFLICT;
-            case INVALID_CREDENTIALS, INVALID_SESSION -> HttpStatus.UNAUTHORIZED;
+            case INVALID_CREDENTIALS, INVALID_SESSION, INVALID_WIDGET_BOOTSTRAP, INVALID_WIDGET_CONTEXT ->
+                HttpStatus.UNAUTHORIZED;
             case INVALID_CSRF_TOKEN -> HttpStatus.FORBIDDEN;
             case INTERNAL_ERROR -> HttpStatus.INTERNAL_SERVER_ERROR;
             case METHOD_NOT_ALLOWED -> HttpStatus.METHOD_NOT_ALLOWED;
             case NOT_FOUND -> HttpStatus.NOT_FOUND;
+            case RATE_LIMITED -> HttpStatus.TOO_MANY_REQUESTS;
             case UNSUPPORTED_MEDIA_TYPE -> HttpStatus.UNSUPPORTED_MEDIA_TYPE;
             default -> HttpStatus.BAD_REQUEST;
         };

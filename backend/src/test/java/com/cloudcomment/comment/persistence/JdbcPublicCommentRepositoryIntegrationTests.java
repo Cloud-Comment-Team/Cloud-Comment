@@ -179,6 +179,10 @@ class JdbcPublicCommentRepositoryIntegrationTests {
 
         assertThat(repository.existsApprovedCommentInSite(siteId, approvedRoot.id())).isTrue();
         assertThat(repository.existsApprovedCommentInSite(siteId, pendingRoot.id())).isFalse();
+        assertThat(repository.commentBelongsToPage(siteId, approvedRoot.id(), pageUrl)).isTrue();
+        assertThat(repository.commentBelongsToPage(siteId, approvedReply.id(), pageUrl)).isTrue();
+        assertThat(repository.commentBelongsToPage(siteId, approvedRoot.id(), pageUrl + "/other")).isFalse();
+        assertThat(repository.commentBelongsToPage(inactiveSiteId, approvedRoot.id(), pageUrl)).isFalse();
         assertThat(repository.clearReaction(approvedRoot.id(), visitorId))
             .filteredOn(reaction -> reaction.type() == CommentReactionType.LOVE)
             .singleElement()

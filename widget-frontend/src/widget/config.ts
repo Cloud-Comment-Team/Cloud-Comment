@@ -1,6 +1,5 @@
 const FALLBACK_API_BASE_URL = "/api";
-export const WIDGET_AUTH_TOKEN_KEY = "cloud-comment.widget.authToken";
-export const ADMIN_AUTH_TOKEN_KEY = "cloud-comment.admin.authToken";
+const WIDGET_AUTH_TOKEN_KEY_PREFIX = "cloud-comment.widget.authToken.v2";
 
 export function getDefaultApiBaseUrl(
   envValue = import.meta.env.VITE_CLOUD_COMMENT_API_BASE_URL
@@ -10,3 +9,17 @@ export function getDefaultApiBaseUrl(
 }
 
 export const DEFAULT_API_BASE_URL = getDefaultApiBaseUrl();
+
+export function getFrameBaseUrl(
+  apiBaseUrl: string,
+  explicitValue?: string,
+  envValue = import.meta.env.VITE_CLOUD_COMMENT_WIDGET_BASE_URL
+): string {
+  const candidate = explicitValue?.trim() || envValue?.trim();
+  const resolved = new URL(candidate || apiBaseUrl, window.location.href);
+  return `${resolved.protocol}//${resolved.host}`;
+}
+
+export function getWidgetAuthStorageKey(siteId: string, parentOrigin: string): string {
+  return `${WIDGET_AUTH_TOKEN_KEY_PREFIX}:${siteId}:${parentOrigin}`;
+}

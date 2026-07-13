@@ -373,7 +373,8 @@ class SiteServiceTests {
             new FixedPublicKeyGenerator(),
             new EmbedCodeService(new EmbedCodeProperties(
                 "http://localhost/widget/cloud-comment-widget.js",
-                "http://localhost/api"
+                "http://localhost/api",
+                "http://localhost"
             )),
             new AutoModerationService()
         );

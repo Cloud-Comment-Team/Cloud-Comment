@@ -13,54 +13,70 @@
     <div id="cloud-comment-preview"></div>
     <script>
       (() => {
-        const SITE_ID = '00000000-0000-0000-0000-000000000001';
         let style = null;
         let instance = null;
-        const json = (body) => Promise.resolve(new Response(JSON.stringify(body), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        }));
-        const comment = {
-          id: '00000000-0000-0000-0000-000000000002', siteId: SITE_ID,
-          pageId: '00000000-0000-0000-0000-000000000003', parentId: null,
-          author: { id: '00000000-0000-0000-0000-000000000004', displayName: 'Анна' },
-          content: 'Так выглядит комментарий с выбранным оформлением.', status: 'APPROVED',
-          createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), editedAt: null,
-          pinned: true, ownedByCurrentUser: false,
-          reactions: [
-            { type: 'LIKE', emoji: '👍', label: 'Нравится', count: 4, reactedByCurrentUser: false },
-            { type: 'LOVE', emoji: '❤️', label: 'Любовь', count: 2, reactedByCurrentUser: false },
-            { type: 'LAUGH', emoji: '😄', label: 'Смешно', count: 1, reactedByCurrentUser: false },
-            { type: 'WOW', emoji: '😮', label: 'Удивление', count: 0, reactedByCurrentUser: false },
-          ],
-          replyCount: 0, replies: [],
-        };
-        window.fetch = (input) => {
-          const url = String(input);
-          if (url.endsWith('/config')) return json({ siteId: SITE_ID, moderationMode: 'POST_MODERATION', style });
-          if (url.includes('/pages/comments')) return json({ items: [comment], page: 0, pageSize: 20, totalItems: 1, totalPages: 1 });
-          if (url.endsWith('/privacy/consent-requirements')) return json({
-            privacyPolicyVersion: 'preview', termsVersion: 'preview', privacyPolicyUrl: '#', termsUrl: '#',
-            personalDataNoticeUrl: '#', dataExportInfoUrl: '#',
-          });
-          return Promise.resolve(new Response('{}', { status: 404 }));
-        };
+        const siteId = '00000000-0000-0000-0000-000000000001';
+        const unsupported = async () => { throw new Error('Недоступно в предварительном просмотре.'); };
+        function createPreviewApi() {
+          const now = new Date().toISOString();
+          const comment = {
+            id: '00000000-0000-0000-0000-000000000002',
+            siteId,
+            pageId: '00000000-0000-0000-0000-000000000003',
+            parentId: null,
+            author: { id: '00000000-0000-0000-0000-000000000004', displayName: 'Анна' },
+            content: 'Так выглядит комментарий с выбранным оформлением.',
+            status: 'APPROVED',
+            createdAt: now,
+            updatedAt: now,
+            editedAt: null,
+            pinned: true,
+            ownedByCurrentUser: false,
+            reactions: ['LIKE', 'LOVE', 'LAUGH', 'WOW'].map((type, index) => ({
+              type,
+              emoji: ['👍', '❤️', '😄', '😮'][index],
+              label: ['Нравится', 'Любовь', 'Смешно', 'Удивление'][index],
+              count: [4, 2, 1, 0][index],
+              reactedByCurrentUser: false
+            })),
+            replyCount: 0,
+            replies: []
+          };
+          return {
+            getConfig: async () => ({ siteId, moderationMode: 'POST_MODERATION', style }),
+            getConsentRequirements: async () => ({
+              privacyPolicyVersion: 'preview',
+              termsVersion: 'preview',
+              privacyPolicyUrl: '#',
+              termsUrl: '#',
+              personalDataNoticeUrl: '#',
+              dataExportInfoUrl: '#'
+            }),
+            listComments: async () => ({ items: [comment], page: 1, pageSize: 20, totalItems: 1, totalPages: 1 }),
+            listReplies: async () => ({ items: [], page: 1, pageSize: 20, totalItems: 0, totalPages: 0 }),
+            createComment: unsupported,
+            updateComment: unsupported,
+            deleteComment: unsupported,
+            setReaction: unsupported,
+            getCurrentUser: unsupported,
+            login: unsupported,
+            register: unsupported,
+            logout: unsupported
+          };
+        }
         function render() {
-          if (!style || !window.CloudCommentWidget) return;
+          if (!style || !window.CloudCommentWidgetFrame) return;
           instance?.destroy();
           document.getElementById('cloud-comment-preview').replaceChildren();
-          instance = window.CloudCommentWidget.init({
-            siteId: SITE_ID, apiBaseUrl: 'https://preview.invalid/api',
-            pageUrl: 'https://preview.invalid/article', target: '#cloud-comment-preview',
-          });
+          instance = window.CloudCommentWidgetFrame.previewInit(createPreviewApi());
         }
         window.addEventListener('message', (event) => {
-          if (event.source !== parent || event.data?.type !== 'cloud-comment-preview') return;
+          if (event.source !== parent || event.origin !== window.location.origin || event.data?.type !== 'cloud-comment-preview') return;
           style = event.data.style;
           render();
         });
         const script = document.createElement('script');
-        script.src = '/widget/cloud-comment-widget.js';
+        script.src = '/widget/cloud-comment-widget-frame.js';
         script.addEventListener('load', render);
         document.head.append(script);
       })();

@@ -2,6 +2,7 @@ package com.cloudcomment.comment.api;
 
 import com.cloudcomment.site.domain.SiteInputRules;
 import jakarta.servlet.http.HttpServletRequest;
+import com.cloudcomment.shared.web.security.WidgetRequestContext;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Component;
 
@@ -13,6 +14,10 @@ import java.util.Optional;
 class WidgetRequestOriginResolver {
 
     String resolve(HttpServletRequest request) {
+        Optional<WidgetRequestContext> context = WidgetRequestContext.resolve(request);
+        if (context.isPresent()) {
+            return context.orElseThrow().origin();
+        }
         String origin = request.getHeader(HttpHeaders.ORIGIN);
         if (origin != null && !origin.isBlank()) {
             return origin;

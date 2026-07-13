@@ -245,7 +245,7 @@ jobs:
             -v /work/frontend/admin/node_modules \
             -w /work/frontend/admin \
             mcr.microsoft.com/playwright:v1.61.1-noble \
-            bash -lc "npm ci && npm run e2e:ux"
+            bash -lc "npm ci && npm run e2e:ux && npm run e2e:widget-isolation"
       - name: Upload UX report
         if: always()
         uses: actions/upload-artifact@v6

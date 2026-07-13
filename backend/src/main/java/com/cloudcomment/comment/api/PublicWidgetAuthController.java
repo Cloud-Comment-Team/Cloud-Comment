@@ -10,13 +10,15 @@ import com.cloudcomment.auth.application.LoginService;
 import com.cloudcomment.auth.application.LogoutService;
 import com.cloudcomment.auth.application.RegisteredUser;
 import com.cloudcomment.auth.application.RegistrationService;
-import com.cloudcomment.auth.domain.SessionAudience;
 import com.cloudcomment.comment.application.DomainPolicyService;
 import com.cloudcomment.privacy.application.RegistrationConsent;
 import com.cloudcomment.privacy.domain.ConsentSource;
 import com.cloudcomment.shared.web.security.BearerTokenResolver;
 import com.cloudcomment.shared.web.security.CurrentUser;
 import com.cloudcomment.shared.web.security.PublicApi;
+import com.cloudcomment.shared.web.security.WidgetRequestContext;
+import com.cloudcomment.widgetcontext.application.WidgetSecurityRateLimiter;
+import com.cloudcomment.widgetcontext.application.WidgetClientIpResolver;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -44,6 +46,8 @@ class PublicWidgetAuthController {
     private final LogoutService logoutService;
     private final BearerTokenResolver bearerTokenResolver;
     private final WidgetRequestOriginResolver requestOriginResolver;
+    private final WidgetSecurityRateLimiter rateLimiter;
+    private final WidgetClientIpResolver clientIpResolver;
 
     @PublicApi
     @PostMapping("/register")
@@ -53,7 +57,9 @@ class PublicWidgetAuthController {
         @Valid @RequestBody RegisterUserRequest request
     ) {
         String origin = requestOriginResolver.resolve(servletRequest);
+        WidgetRequestContext.require(servletRequest);
         domainPolicyService.validate(siteId, origin);
+        rateLimiter.checkRegister(siteId, origin, clientIpResolver.resolve(servletRequest), request.email());
         RegisteredUser user = registrationService.register(
             request.email(),
             request.password(),
@@ -71,11 +77,14 @@ class PublicWidgetAuthController {
         @Valid @RequestBody LoginUserRequest request
     ) {
         String origin = requestOriginResolver.resolve(servletRequest);
+        WidgetRequestContext context = WidgetRequestContext.require(servletRequest);
         domainPolicyService.validate(siteId, origin);
-        return LoginUserResponse.from(loginService.login(
+        rateLimiter.checkLogin(siteId, origin, clientIpResolver.resolve(servletRequest), request.email());
+        return LoginUserResponse.from(loginService.loginWidget(
             request.email(),
             request.password(),
-            SessionAudience.WIDGET
+            context.siteId(),
+            context.origin()
         ));
     }
 
@@ -97,7 +106,12 @@ class PublicWidgetAuthController {
         @RequestHeader(name = HttpHeaders.AUTHORIZATION, required = false) String authorization
     ) {
         domainPolicyService.validate(siteId, requestOriginResolver.resolve(servletRequest));
-        logoutService.logout(bearerTokenResolver.resolve(authorization), SessionAudience.WIDGET);
+        WidgetRequestContext context = WidgetRequestContext.require(servletRequest);
+        logoutService.logoutWidget(
+            bearerTokenResolver.resolve(authorization),
+            context.siteId(),
+            context.origin()
+        );
         return ResponseEntity.noContent().build();
     }
 }
