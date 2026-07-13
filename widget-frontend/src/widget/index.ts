@@ -1,4 +1,5 @@
 import { DEFAULT_API_BASE_URL } from "./config";
+import { resolvePageUrl } from "./pageUrl";
 import { renderWidget } from "./render";
 import type {
   CloudCommentWidgetApi,
@@ -46,7 +47,7 @@ function normalizeOptions(options: CloudCommentWidgetOptions): Required<CloudCom
   return {
     siteId: options.siteId,
     apiBaseUrl: options.apiBaseUrl ?? DEFAULT_API_BASE_URL,
-    pageUrl: options.pageUrl ?? window.location.href,
+    pageUrl: resolvePageUrl(options.pageUrl, window.location.href),
     target: options.target ?? `#${DEFAULT_TARGET_ID}`,
     theme: normalizeTheme(options.theme)
   };
