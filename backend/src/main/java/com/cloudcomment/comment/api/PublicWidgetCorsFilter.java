@@ -19,10 +19,14 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import tools.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE)
@@ -35,7 +39,13 @@ class PublicWidgetCorsFilter extends OncePerRequestFilter {
     private static final Pattern PUBLIC_SITE_CONFIG_PATH = Pattern.compile(
         "^/api/public/sites/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/config/?$"
     );
-    private static final String ALLOWED_METHODS = "GET, POST, PUT, OPTIONS";
+    private static final Set<String> ALLOWED_REQUEST_METHODS = Set.of(
+        "GET", "POST", "PUT", "PATCH", "DELETE"
+    );
+    private static final Set<String> ALLOWED_REQUEST_HEADERS = Set.of(
+        "authorization", "content-type", "accept"
+    );
+    private static final String ALLOWED_METHODS = "GET, POST, PUT, PATCH, DELETE, OPTIONS";
     private static final String ALLOWED_HEADERS = "Authorization, Content-Type, Accept";
     private static final String MAX_AGE_SECONDS = "3600";
 
@@ -62,18 +72,24 @@ class PublicWidgetCorsFilter extends OncePerRequestFilter {
             domainPolicyService.recordRejectedInstallation(siteId.orElseThrow(), requestOrigin);
         }
         applyVaryHeaders(response);
-        if (allowed && corsOrigin != null && !corsOrigin.isBlank()) {
-            applyCorsHeaders(response, corsOrigin);
-        }
 
         if (CorsUtils.isPreFlightRequest(request)) {
-            response.setStatus(allowed ? HttpServletResponse.SC_NO_CONTENT : HttpServletResponse.SC_NOT_FOUND);
+            boolean validPreflight = allowed && isAllowedPreflight(request);
+            if (validPreflight) {
+                applyCorsHeaders(response, corsOrigin);
+            }
+            response.setStatus(
+                validPreflight ? HttpServletResponse.SC_NO_CONTENT : HttpServletResponse.SC_NOT_FOUND
+            );
             return;
         }
 
         if (!allowed) {
             writeNotFound(response, request);
             return;
+        }
+        if (corsOrigin != null && !corsOrigin.isBlank()) {
+            applyCorsHeaders(response, corsOrigin);
         }
 
         filterChain.doFilter(request, response);
@@ -129,6 +145,27 @@ class PublicWidgetCorsFilter extends OncePerRequestFilter {
         response.setHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS, ALLOWED_METHODS);
         response.setHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS, ALLOWED_HEADERS);
         response.setHeader(HttpHeaders.ACCESS_CONTROL_MAX_AGE, MAX_AGE_SECONDS);
+    }
+
+    private boolean isAllowedPreflight(HttpServletRequest request) {
+        String method = request.getHeader(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD);
+        if (method == null
+            || !ALLOWED_REQUEST_METHODS.contains(method.trim().toUpperCase(Locale.ROOT))) {
+            return false;
+        }
+        return requestedHeaders(request).stream().allMatch(ALLOWED_REQUEST_HEADERS::contains);
+    }
+
+    private Set<String> requestedHeaders(HttpServletRequest request) {
+        String value = request.getHeader(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS);
+        if (value == null || value.isBlank()) {
+            return Set.of();
+        }
+        return Arrays.stream(value.split(","))
+            .map(String::trim)
+            .filter(header -> !header.isBlank())
+            .map(header -> header.toLowerCase(Locale.ROOT))
+            .collect(Collectors.toUnmodifiableSet());
     }
 
     private void applyVaryHeaders(HttpServletResponse response) {

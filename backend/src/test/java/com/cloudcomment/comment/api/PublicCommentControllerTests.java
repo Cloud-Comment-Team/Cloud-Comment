@@ -453,6 +453,11 @@ class PublicCommentControllerTests {
                     }
                     """))
             .andExpect(status().isOk())
+            .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, ORIGIN))
+            .andExpect(header().string(
+                HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS,
+                "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+            ))
             .andExpect(jsonPath("$.id", is(commentId.toString())))
             .andExpect(jsonPath("$.content", is("Updated body")))
             .andExpect(jsonPath("$.status", is("PENDING")));
@@ -508,7 +513,12 @@ class PublicCommentControllerTests {
         mockMvc.perform(delete("/api/public/sites/{siteId}/comments/{commentId}", siteId, commentId)
                 .header(HttpHeaders.ORIGIN, ORIGIN)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
-            .andExpect(status().isNoContent());
+            .andExpect(status().isNoContent())
+            .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, ORIGIN))
+            .andExpect(header().string(
+                HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS,
+                "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+            ));
 
         verify(publicCommentService).deleteOwnComment(currentUser, siteId, ORIGIN, commentId);
     }
@@ -542,12 +552,58 @@ class PublicCommentControllerTests {
                 .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "Authorization, Content-Type"))
             .andExpect(status().isNoContent())
             .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, ORIGIN))
-            .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS, "GET, POST, PUT, OPTIONS"))
+            .andExpect(header().string(
+                HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS,
+                "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+            ))
             .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS, "Authorization, Content-Type, Accept"));
 
         verifyNoInteractions(currentUserService, publicCommentService);
         verify(domainPolicyService, org.mockito.Mockito.never())
             .recordSuccessfulInstallation(siteId, ORIGIN);
+    }
+
+    @Test
+    void preflightForAllowedOriginSupportsPatchAndDelete() throws Exception {
+        UUID siteId = UUID.randomUUID();
+        when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
+
+        for (String method : java.util.List.of("PATCH", "DELETE")) {
+            mockMvc.perform(options("/api/public/sites/{siteId}/comments/{commentId}", siteId, UUID.randomUUID())
+                    .header(HttpHeaders.ORIGIN, ORIGIN)
+                    .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, method)
+                    .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "authorization, content-type, accept"))
+                .andExpect(status().isNoContent())
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, ORIGIN))
+                .andExpect(header().string(
+                    HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS,
+                    "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+                ))
+                .andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS));
+        }
+
+        verifyNoInteractions(currentUserService, publicCommentService);
+    }
+
+    @Test
+    void preflightRejectsUnknownMethodAndHeaderWithoutCorsHeaders() throws Exception {
+        UUID siteId = UUID.randomUUID();
+        when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
+
+        mockMvc.perform(options("/api/public/sites/{siteId}/comments/{commentId}", siteId, UUID.randomUUID())
+                .header(HttpHeaders.ORIGIN, ORIGIN)
+                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "TRACE"))
+            .andExpect(status().isNotFound())
+            .andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN));
+
+        mockMvc.perform(options("/api/public/sites/{siteId}/comments/{commentId}", siteId, UUID.randomUUID())
+                .header(HttpHeaders.ORIGIN, ORIGIN)
+                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "PATCH")
+                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "Authorization, X-Admin-Token"))
+            .andExpect(status().isNotFound())
+            .andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN));
+
+        verifyNoInteractions(currentUserService, publicCommentService);
     }
 
     @Test

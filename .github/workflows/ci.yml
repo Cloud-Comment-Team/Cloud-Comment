@@ -203,6 +203,35 @@ jobs:
       - name: Validate compose config
         run: docker compose config --quiet
 
+      - name: Start production-like stack
+        run: |
+          docker compose up --build -d
+          for _ in {1..60}; do
+            if curl -fsS http://localhost/api/health >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose ps
+          exit 1
+
+      - name: Run cross-origin widget CORS tests
+        run: |
+          docker run --rm --network host --ipc=host \
+            -v "$GITHUB_WORKSPACE:/work" \
+            -v /work/frontend/admin/node_modules \
+            -w /work/frontend/admin \
+            mcr.microsoft.com/playwright:v1.61.1-noble \
+            bash -lc "npm ci && npm run e2e:cors"
+
+      - name: Show compose logs on failure
+        if: failure()
+        run: docker compose logs --no-color
+
+      - name: Stop production-like stack
+        if: always()
+        run: docker compose down -v --remove-orphans
+
   ux-e2e:
     name: UX E2E
     runs-on: ubuntu-latest

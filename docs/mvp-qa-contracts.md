@@ -618,6 +618,7 @@ Request для реакции:
 - Удаление комментария автором soft-delete'ит запись: комментарий исчезает из public list и moderation queue, но база сохраняет факт удаления для целостности истории.
 - `reactions` возвращаются для корневых комментариев и ответов; при наличии bearer token публичный list помечает реакцию текущего пользователя через `reactedByCurrentUser`.
 - Embedded widget auth uses site-scoped `/api/public/sites/{siteId}/auth/*` aliases, not `/api/auth/*`, so browser CORS preflight is checked against the same domain policy.
+- CORS preflight разрешает только exact-match origin, методы `GET`, `POST`, `PUT`, `PATCH`, `DELETE` и заголовки `Authorization`, `Content-Type`, `Accept`. Неизвестный метод, лишний заголовок или чужой origin получают `404` без `Access-Control-Allow-Origin`; credentials и wildcard не разрешаются.
 - Самообслуживание аккаунта в виджете использует site-scoped aliases `/api/public/sites/{siteId}/account/*`, а не `/api/account/*`: экспорт персональных данных и запрос удаления работают с external origin без ослабления глобального CORS.
 - Создание комментария требует bearer token; guest-flow в MVP не поддерживается.
 
