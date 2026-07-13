@@ -9,6 +9,7 @@ import {
 import { getApiErrorMessage } from '../../api/auth'
 import { getConsentRequirements, type ConsentRequirements } from '../../api/privacy'
 import { AsyncState } from '../../components/common/AsyncState'
+import { PageHeader } from '../../components/common/Workspace'
 import { formatDateTime } from '../../utils/formatDate'
 
 const AccountSettings = () => {
@@ -71,19 +72,16 @@ const AccountSettings = () => {
   }
 
   return (
-    <div className="space-y-6">
-      <header className="space-y-1 text-left">
-        <h1 className="text-2xl font-bold" style={{ color: 'var(--text-h)' }}>
-          Аккаунт и конфиденциальность
-        </h1>
-        <p className="text-sm" style={{ color: 'var(--text)' }}>
-          Управление персональными данными, экспортом и удалением аккаунта CloudComment.
-        </p>
-      </header>
+    <div className="cc-page">
+      <PageHeader
+        eyebrow="Профиль"
+        title="Аккаунт и конфиденциальность"
+        description="Персональные данные, юридические документы и управление аккаунтом"
+      />
 
       <AsyncState loading={loading} error={error}>
         {requirements && (
-          <>
+          <div className="space-y-5">
             {notice && (
               <div
                 className="rounded-lg border px-4 py-3 text-sm"
@@ -93,90 +91,83 @@ const AccountSettings = () => {
               </div>
             )}
 
-            <section
-              className="cc-card space-y-4 p-5 text-left"
-              style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}
-            >
-              <div className="flex items-center gap-3">
-                <div className="rounded-lg p-2" style={{ backgroundColor: 'var(--accent-bg)', color: 'var(--accent)' }}>
-                  <Shield className="h-5 w-5" aria-hidden="true" />
+            <div className="cc-settings-grid">
+              <section className="cc-section space-y-5 p-5 text-left md:p-6">
+                <div className="flex items-center gap-3">
+                  <div className="rounded-lg p-2" style={{ backgroundColor: 'var(--accent-bg)', color: 'var(--accent)' }}>
+                    <Shield className="h-5 w-5" aria-hidden="true" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-semibold" style={{ color: 'var(--text-h)' }}>
+                      Документы и уведомления
+                    </h2>
+                    <p className="text-sm" style={{ color: 'var(--text)' }}>
+                      Актуальные версии: политика {requirements.privacyPolicyVersion}, условия {requirements.termsVersion}.
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h2 className="text-lg font-semibold" style={{ color: 'var(--text-h)' }}>
-                    Документы и уведомления
-                  </h2>
-                  <p className="text-sm" style={{ color: 'var(--text)' }}>
-                    Актуальные версии: политика {requirements.privacyPolicyVersion}, условия {requirements.termsVersion}.
-                  </p>
-                </div>
-              </div>
 
-              <ul className="space-y-2 text-sm">
+                <ul className="divide-y text-sm" style={{ borderColor: 'var(--border)' }}>
                 <li>
                   <a
-                    className="inline-flex items-center gap-1 font-medium hover:underline"
+                    className="flex items-center justify-between gap-3 py-3 font-medium hover:underline"
                     href={requirements.privacyPolicyUrl}
                     rel="noreferrer"
                     style={{ color: 'var(--accent)' }}
                     target="_blank"
                   >
                     Политика конфиденциальности
-                    <ExternalLink className="h-4 w-4" aria-hidden="true" />
+                    <ExternalLink className="h-4 w-4 shrink-0" aria-hidden="true" />
                   </a>
                 </li>
                 <li>
                   <a
-                    className="inline-flex items-center gap-1 font-medium hover:underline"
+                    className="flex items-center justify-between gap-3 py-3 font-medium hover:underline"
                     href={requirements.termsUrl}
                     rel="noreferrer"
                     style={{ color: 'var(--accent)' }}
                     target="_blank"
                   >
                     Условия использования
-                    <ExternalLink className="h-4 w-4" aria-hidden="true" />
+                    <ExternalLink className="h-4 w-4 shrink-0" aria-hidden="true" />
                   </a>
                 </li>
                 <li>
                   <a
-                    className="inline-flex items-center gap-1 font-medium hover:underline"
+                    className="flex items-center justify-between gap-3 py-3 font-medium hover:underline"
                     href={requirements.personalDataNoticeUrl}
                     rel="noreferrer"
                     style={{ color: 'var(--accent)' }}
                     target="_blank"
                   >
                     Уведомление об обработке персональных данных
-                    <ExternalLink className="h-4 w-4" aria-hidden="true" />
+                    <ExternalLink className="h-4 w-4 shrink-0" aria-hidden="true" />
                   </a>
                 </li>
-              </ul>
-            </section>
+                </ul>
+              </section>
 
-            <section
-              className="cc-card space-y-4 p-5 text-left"
-              style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}
-            >
-              <h2 className="text-lg font-semibold" style={{ color: 'var(--text-h)' }}>
-                Экспорт данных
-              </h2>
-              <p className="text-sm" style={{ color: 'var(--text)' }}>
-                Чтобы запросить копию ваших персональных данных, следуйте инструкции в уведомлении об обработке ПДн.
-              </p>
-              <a
-                className="inline-flex items-center gap-1 text-sm font-medium hover:underline"
-                href={requirements.dataExportInfoUrl}
-                rel="noreferrer"
-                style={{ color: 'var(--accent)' }}
-                target="_blank"
-              >
-                Как запросить экспорт данных
-                <ExternalLink className="h-4 w-4" aria-hidden="true" />
-              </a>
-            </section>
+              <section className="cc-section space-y-4 p-5 text-left md:p-6">
+                <h2 className="text-lg font-semibold" style={{ color: 'var(--text-h)' }}>
+                  Экспорт данных
+                </h2>
+                <p className="text-sm" style={{ color: 'var(--text)' }}>
+                  Чтобы запросить копию ваших персональных данных, следуйте инструкции в уведомлении об обработке ПДн.
+                </p>
+                <a
+                  className="inline-flex items-center gap-1 text-sm font-medium hover:underline"
+                  href={requirements.dataExportInfoUrl}
+                  rel="noreferrer"
+                  style={{ color: 'var(--accent)' }}
+                  target="_blank"
+                >
+                  Как запросить экспорт данных
+                  <ExternalLink className="h-4 w-4" aria-hidden="true" />
+                </a>
+              </section>
+            </div>
 
-            <section
-              className="cc-card space-y-4 p-5 text-left"
-              style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}
-            >
+            <section className="cc-danger-section space-y-4 text-left">
               <div className="flex items-center gap-3">
                 <div className="rounded-lg p-2" style={{ backgroundColor: 'var(--danger-bg)', color: 'var(--danger)' }}>
                   <Trash2 className="h-5 w-5" aria-hidden="true" />
@@ -214,15 +205,14 @@ const AccountSettings = () => {
 
               <button
                 type="button"
-                className="rounded-lg px-4 py-2 text-sm font-semibold transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                className="cc-button-danger disabled:cursor-not-allowed"
                 disabled={submitting}
                 onClick={() => void handleDeletionRequest()}
-                style={{ backgroundColor: 'var(--danger)', color: '#fff' }}
               >
                 {submitting ? 'Отправляем запрос...' : deletionRequest ? 'Отправить письмо повторно' : 'Запросить удаление аккаунта'}
               </button>
             </section>
-          </>
+          </div>
         )}
       </AsyncState>
     </div>

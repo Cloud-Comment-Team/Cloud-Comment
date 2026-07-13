@@ -12,13 +12,13 @@ interface HeaderProps {
 const Header = ({ onMenuClick, actions }: HeaderProps) => {
   return (
     <header
-      className="sticky top-0 z-30 border-b"
+      className="sticky top-0 z-30 border-b lg:hidden"
       style={{ backgroundColor: 'var(--surface-translucent)', borderColor: 'var(--border)' }}
     >
       <div className="flex min-h-16 items-center justify-between gap-4 px-4">
         <button
           type="button"
-          className="inline-flex h-10 w-10 items-center justify-center rounded-lg border transition lg:hidden"
+          className="inline-flex h-10 w-10 items-center justify-center rounded-lg border transition"
           style={{ borderColor: 'var(--border)', color: 'var(--text-h)' }}
           aria-label="Открыть меню"
           onClick={onMenuClick}
@@ -26,15 +26,15 @@ const Header = ({ onMenuClick, actions }: HeaderProps) => {
           <Menu className="h-5 w-5" aria-hidden="true" />
         </button>
 
-        <div className="flex min-w-0 flex-1 items-center gap-2 text-left lg:hidden">
-          <BrandMark className="h-8 w-8 rounded-md shadow-sm lg:hidden" />
+        <div className="flex min-w-0 flex-1 items-center gap-2 text-left">
+          <BrandMark className="h-8 w-8 rounded-md" />
           <p className="text-sm font-semibold" style={{ color: 'var(--text-h)' }}>
             CloudComment
           </p>
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-2">
           {actions}
-          <ThemeToggle compact className="lg:hidden" />
+          <ThemeToggle compact />
         </div>
       </div>
     </header>

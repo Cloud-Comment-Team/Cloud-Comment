@@ -19,7 +19,7 @@ export function ThemeToggle({ compact = false, className = '', ...props }: Theme
       type="button"
       aria-label={label}
       title={label}
-      className={`inline-flex h-10 items-center justify-center gap-2 rounded-lg border px-3 text-sm font-semibold transition hover:-translate-y-0.5 hover:shadow-sm ${compact ? 'w-10 px-0' : ''} ${className}`}
+      className={`inline-flex h-10 items-center justify-center gap-2 rounded-lg border px-3 text-sm font-semibold transition-colors ${compact ? 'w-10 px-0' : ''} ${className}`}
       style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)', color: 'var(--text-h)' }}
       onClick={(event) => {
         const rect = event.currentTarget.getBoundingClientRect()
