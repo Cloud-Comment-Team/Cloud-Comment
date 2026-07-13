@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useEffect, useId, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 
@@ -28,15 +28,91 @@ export function DataRow({ children, compact = false }: { children: ReactNode; co
 }
 
 export function Drawer({ title, open, onClose, children }: { title: string; open: boolean; onClose: () => void; children: ReactNode }) {
+  const drawerRef = useRef<HTMLElement>(null)
+  const onCloseRef = useRef(onClose)
+  const titleId = useId()
+
+  useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
+
+  useEffect(() => {
+    if (!open) return
+
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const appRoot = document.getElementById('root')
+    const rootWasInert = appRoot?.hasAttribute('inert') ?? false
+    appRoot?.setAttribute('inert', '')
+    const drawer = drawerRef.current
+    const focusableSelector = [
+      'a[href]',
+      'button:not([disabled])',
+      'input:not([disabled])',
+      'select:not([disabled])',
+      'textarea:not([disabled])',
+      '[tabindex]:not([tabindex="-1"])',
+    ].join(',')
+    const focusableElements = () => Array.from(
+      drawer?.querySelectorAll<HTMLElement>(focusableSelector) ?? [],
+    ).filter((element) => !element.hidden && element.getAttribute('aria-hidden') !== 'true')
+
+    ;(focusableElements()[0] ?? drawer)?.focus()
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        onCloseRef.current()
+        return
+      }
+      if (event.key !== 'Tab' || !drawer) return
+
+      const elements = focusableElements()
+      if (elements.length === 0) {
+        event.preventDefault()
+        drawer.focus()
+        return
+      }
+      const first = elements[0]
+      const last = elements[elements.length - 1]
+      if (!drawer.contains(document.activeElement)) {
+        event.preventDefault()
+        ;(event.shiftKey ? last : first).focus()
+      } else if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+      if (appRoot && !rootWasInert) appRoot.removeAttribute('inert')
+      if (previousFocus?.isConnected) previousFocus.focus()
+    }
+  }, [open])
+
   if (!open) return null
-  return (
-    <aside className="cc-drawer" role="dialog" aria-modal="true" aria-labelledby="cc-drawer-title">
-      <div className="mb-5 flex items-center justify-between gap-3">
-        <h2 id="cc-drawer-title" className="text-lg font-semibold" style={{ color: 'var(--text-h)' }}>{title}</h2>
-        <button type="button" className="cc-button-secondary !p-2" onClick={onClose} aria-label="Закрыть панель"><X className="h-4 w-4" /></button>
-      </div>
-      {children}
-    </aside>
+  return createPortal(
+    <>
+      <button
+        className="fixed inset-0 z-40 cursor-default bg-slate-950/40"
+        type="button"
+        onClick={onClose}
+        aria-label="Закрыть панель по фону"
+        tabIndex={-1}
+      />
+      <aside ref={drawerRef} className="cc-drawer" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}>
+        <div className="mb-5 flex items-center justify-between gap-3">
+          <h2 id={titleId} className="text-lg font-semibold" style={{ color: 'var(--text-h)' }}>{title}</h2>
+          <button type="button" className="cc-button-secondary !p-2" onClick={onClose} aria-label="Закрыть панель"><X className="h-4 w-4" /></button>
+        </div>
+        {children}
+      </aside>
+    </>,
+    document.body,
   )
 }
 
