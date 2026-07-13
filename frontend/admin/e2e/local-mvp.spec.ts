@@ -23,6 +23,8 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   const apiReplyText = `E2E API reply ${suffix}`
   const pendingWidgetReplyText = `E2E widget pending reply ${suffix}`
   const deleteCommentText = `E2E comment to delete ${suffix}`
+  const crossOriginCommentText = `E2E cross-origin comment ${suffix}`
+  const crossOriginEditedText = `E2E cross-origin edited ${suffix}`
   const blockedWord = `blocked-${suffix}`
   const spamCommentText = `Automod should catch ${blockedWord}`
   const pageUrl = `${ADMIN_ORIGIN}/demo-page.html`
@@ -882,6 +884,50 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
     'href',
     `${ADMIN_ORIGIN}/legal/terms.html`,
   )
+
+  const crossOriginCreateResponse = await request.post(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
+    headers: { Authorization: `Bearer ${widgetToken}`, Origin: 'http://127.0.0.1' },
+    data: {
+      pageUrl: 'http://127.0.0.1/demo-page.html',
+      parentId: null,
+      content: crossOriginCommentText,
+    },
+  })
+  await expect(crossOriginCreateResponse).toBeOK()
+  const crossOriginComment = await crossOriginCreateResponse.json() as { id: string }
+
+  const crossOriginPatch = await externalPage.evaluate(async ({ apiBaseUrl, currentSiteId, commentId, token, content }) => {
+    const response = await fetch(`${apiBaseUrl}/public/sites/${currentSiteId}/comments/${commentId}`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    })
+    return { status: response.status, body: await response.json() }
+  }, {
+    apiBaseUrl: API_BASE_URL,
+    currentSiteId: siteId!,
+    commentId: crossOriginComment.id,
+    token: widgetToken,
+    content: crossOriginEditedText,
+  })
+  expect(crossOriginPatch).toMatchObject({
+    status: 200,
+    body: { id: crossOriginComment.id, content: crossOriginEditedText },
+  })
+
+  const crossOriginDeleteStatus = await externalPage.evaluate(async ({ apiBaseUrl, currentSiteId, commentId, token }) => {
+    const response = await fetch(`${apiBaseUrl}/public/sites/${currentSiteId}/comments/${commentId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    return response.status
+  }, {
+    apiBaseUrl: API_BASE_URL,
+    currentSiteId: siteId!,
+    commentId: crossOriginComment.id,
+    token: widgetToken,
+  })
+  expect(crossOriginDeleteStatus).toBe(204)
 
   const widgetLogoutResponse = await request.post(`${API_BASE_URL}/public/sites/${siteId}/auth/logout`, {
     headers: { Authorization: `Bearer ${widgetToken}`, Origin: ADMIN_ORIGIN },

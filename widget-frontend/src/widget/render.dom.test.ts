@@ -66,6 +66,7 @@ function publicComment(overrides: Partial<PublicComment> = {}): PublicComment {
 type ApiOverrides = {
   onPost?: () => Promise<Response> | Response;
   onPatch?: () => Promise<Response> | Response;
+  onDelete?: () => Promise<Response> | Response;
   onReaction?: () => Promise<Response> | Response;
   onLogout?: () => Promise<Response> | Response;
   failListAfterPost?: boolean;
@@ -146,6 +147,9 @@ function installApiMock(overrides: ApiOverrides = {}) {
     }
     if (url.includes(`/public/sites/${siteId}/comments/`) && method === "PATCH") {
       return overrides.onPatch?.() ?? jsonResponse(publicComment({ content: "Обновлённый комментарий" }));
+    }
+    if (url.includes(`/public/sites/${siteId}/comments/`) && method === "DELETE") {
+      return overrides.onDelete?.() ?? new Response(null, { status: 204 });
     }
     if (url.endsWith("/reaction") && method === "PUT") {
       if (overrides.onReaction) {
@@ -323,6 +327,22 @@ describe("устойчивый черновик и фокус виджета", (
     expect(restored?.value).toBe(draft);
     expect(shadowRoot.activeElement).toBe(restored);
     expect([restored?.selectionStart, restored?.selectionEnd, restored?.selectionDirection]).toEqual([2, 14, "backward"]);
+  });
+
+  it("восстанавливает комментарий и позволяет повторить удаление после ошибки DELETE", async () => {
+    installApiMock({
+      onDelete: () => jsonResponse({ error: { message: "Удаление не выполнено" } }, 503)
+    });
+    const { shadowRoot } = await renderReadyWidget();
+
+    shadowRoot.querySelector<HTMLButtonElement>("[data-comment-action='ask-delete']")?.click();
+    shadowRoot.querySelector<HTMLButtonElement>("[data-comment-action='confirm-delete']")?.click();
+
+    await vi.waitFor(() => expect(shadowRoot.textContent).toContain("Удаление не выполнено"));
+    expect(shadowRoot.textContent).toContain("Исходный комментарий");
+    const retry = shadowRoot.querySelector<HTMLButtonElement>("[data-comment-action='confirm-delete']");
+    expect(retry).not.toBeNull();
+    expect(retry?.disabled).toBe(false);
   });
 
   it("после успешной правки возвращает фокус на кнопку редактирования", async () => {
