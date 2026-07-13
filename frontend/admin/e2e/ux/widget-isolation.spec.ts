@@ -213,3 +213,108 @@ test('виджет стабильно отображает сто коммент
     return shell ? shell.scrollWidth <= shell.clientWidth : false
   })).toBe(true)
 })
+
+test('реальный bundle сохраняет черновик и фокус при перерисовках и ошибке отправки', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-light', 'Сценарий устойчивости фокуса достаточно выполнить в одном профиле')
+
+  const comment = {
+    id: '00000000-0000-0000-0000-000000000010',
+    siteId: '00000000-0000-0000-0000-000000000001',
+    pageId: '00000000-0000-0000-0000-000000000002',
+    parentId: null,
+    author: { id: '00000000-0000-0000-0000-000000000003', displayName: 'Анна' },
+    content: 'Исходный комментарий',
+    status: 'APPROVED',
+    createdAt: '2026-07-13T10:00:00Z',
+    updatedAt: '2026-07-13T10:00:00Z',
+    editedAt: null,
+    pinned: false,
+    ownedByCurrentUser: true,
+    reactions: [
+      { type: 'LIKE', emoji: '👍', label: 'Нравится', count: 0, reactedByCurrentUser: false },
+      { type: 'LOVE', emoji: '❤️', label: 'Люблю', count: 0, reactedByCurrentUser: false },
+      { type: 'LAUGH', emoji: '😂', label: 'Смешно', count: 0, reactedByCurrentUser: false },
+      { type: 'WOW', emoji: '😮', label: 'Удивительно', count: 0, reactedByCurrentUser: false },
+    ],
+    replyCount: 0,
+    replies: [],
+  }
+
+  await page.route('**/public/sites/**/config', (route) => route.fulfill({
+    json: { siteId: comment.siteId, moderationMode: 'POST_MODERATION', style: { theme: 'LIGHT', accentColor: '#0f766e', cornerRadius: 'MEDIUM' } },
+  }))
+  await page.route('**/privacy/consent-requirements', (route) => route.fulfill({
+    json: { privacyPolicyVersion: 'test', termsVersion: 'test', privacyPolicyUrl: '#', termsUrl: '#', personalDataNoticeUrl: '#', dataExportInfoUrl: '#' },
+  }))
+  await page.route('**/public/sites/**/auth/me', (route) => route.fulfill({
+    json: { id: comment.author.id, email: 'anna@example.test', roles: ['COMMENTER'], createdAt: comment.createdAt, updatedAt: comment.updatedAt },
+  }))
+  await page.route('**/public/sites/**/pages/comments**', (route) => {
+    if (route.request().method() === 'POST') {
+      return route.fulfill({ status: 500, json: { error: { message: 'Сервер не сохранил комментарий' } } })
+    }
+    return route.fulfill({ json: { items: [comment], page: 1, pageSize: 20, totalItems: 1, totalPages: 1 } })
+  })
+  await page.route('**/public/sites/**/comments/**/reaction', (route) => route.fulfill({
+    json: {
+      reactions: comment.reactions.map((reaction) => ({
+        ...reaction,
+        count: reaction.type === 'LIKE' ? 1 : 0,
+        reactedByCurrentUser: reaction.type === 'LIKE',
+      })),
+    },
+  }))
+
+  await page.goto('/login')
+  await page.evaluate(() => {
+    localStorage.setItem('cloud-comment.widget.authToken', 'widget-test-token')
+    document.body.innerHTML = '<div id="comments"></div>'
+  })
+  await page.addScriptTag({ path: resolve('../../widget-frontend/dist/widget/cloud-comment-widget.js') })
+  await page.evaluate(() => window.CloudCommentWidget?.init({
+    siteId: '00000000-0000-0000-0000-000000000001',
+    apiBaseUrl: 'https://api.example.test',
+    pageUrl: 'https://site.example.test/article',
+    target: '#comments',
+    theme: 'light',
+  }))
+
+  const host = page.locator('#comments')
+  await expect(host.locator('.cloud-comment__comment')).toHaveCount(1)
+  const draft = '  Черновик должен сохраниться  '
+  await host.locator("[data-cloud-comment-form='comment'] textarea").fill(draft)
+
+  const reaction = host.locator("[data-reaction-type='LIKE']")
+  await reaction.focus()
+  await reaction.click()
+  await expect(reaction).toContainText('1')
+  await expect(reaction).toBeFocused()
+  await expect(host.locator("[data-cloud-comment-form='comment'] textarea")).toHaveValue(draft)
+
+  const profile = host.locator("[data-profile-action='toggle']")
+  await profile.focus()
+  await profile.click()
+  await expect(profile).toHaveAttribute('aria-expanded', 'true')
+  await expect(profile).toBeFocused()
+
+  const sort = host.locator("[data-comment-sort='true']")
+  await sort.focus()
+  await sort.selectOption('NEWEST')
+  await expect(sort).toHaveValue('NEWEST')
+  await expect(sort).toBeFocused()
+
+  const textarea = host.locator("[data-cloud-comment-form='comment'] textarea")
+  await textarea.evaluate((element: HTMLTextAreaElement) => {
+    element.focus()
+    element.setSelectionRange(2, 12, 'forward')
+  })
+  await host.locator("[data-cloud-comment-form='comment'] button[type='submit']").click()
+  await expect(host).toContainText('Сервер не сохранил комментарий')
+  await expect(textarea).toHaveValue(draft)
+  await expect(textarea).toBeFocused()
+  expect(await textarea.evaluate((element: HTMLTextAreaElement) => [
+    element.selectionStart,
+    element.selectionEnd,
+    element.selectionDirection,
+  ])).toEqual([2, 12, 'forward'])
+})
