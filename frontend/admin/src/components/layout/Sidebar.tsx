@@ -1,6 +1,6 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Globe, LayoutDashboard, LogOut, Shield, X } from 'lucide-react'
+import { Globe, LayoutDashboard, LogOut, MessageSquareText, Shield, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 import { BrandMark } from '../brand/BrandLogo'
@@ -11,7 +11,8 @@ import { preloadRoute } from '../../routes/lazyPages'
 const navigation = [
   { name: 'Дашборд', href: '/', icon: LayoutDashboard },
   { name: 'Сайты', href: '/sites', icon: Globe },
-  { name: 'Модерация', href: '/moderation', icon: Shield },
+  { name: 'Обсуждения', href: '/comments', icon: MessageSquareText },
+  { name: 'К разбору', href: '/moderation', icon: Shield },
 ]
 
 interface SidebarProps {

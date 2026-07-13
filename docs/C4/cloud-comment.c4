@@ -173,6 +173,8 @@ model {
 
       embedCodePage = component 'Страница embed-кода' 'Показывает JS-код для подключения виджета'
 
+      discussionPages = component 'Страницы обсуждений' 'Адресуемый master-detail опубликованных веток с owner-scoped фильтрами непрочитанного и ожидания ответа'
+
       moderationPages = component 'Страницы модерации' 'Компактная owner-scoped очередь, подробности, массовые действия, горячие клавиши и отмена'
 
       automodPolicyPages = component 'Политика автомодерации' 'Черновик с optimistic revision, моделирование, SHADOW/LIVE, публикация, история, откат и feedback'
@@ -225,6 +227,8 @@ model {
       widgetConfigModule = component 'Widget config module' 'Версионированная безопасная конфигурация оформления виджета; синхронизирует JSONB V2 с legacy-полями'
 
       commentModule = component 'Comment module' 'Создание, получение, сортировка, pin, редактирование, soft-delete, реакции и хранение комментариев'
+
+      discussionModule = component 'Discussion module' 'Owner-scoped read model опубликованных корневых веток, безопасной identity, unread и needs-reply'
 
       moderationModule = component 'Moderation module' 'Smart-ranked очередь, owner-scoped флаги, идемпотентные массовые действия и ограниченная отмена'
 
@@ -306,6 +310,8 @@ model {
 
   cloudComment.adminWebApp.embedCodePage -[internal]-> cloudComment.adminWebApp.adminApiClient 'Запрашивает код подключения'
 
+  cloudComment.adminWebApp.discussionPages -[internal]-> cloudComment.adminWebApp.adminApiClient 'Читает список и выбранную опубликованную ветку'
+
   cloudComment.adminWebApp.moderationPages -[internal]-> cloudComment.adminWebApp.adminApiClient 'Управляет модерацией'
 
   cloudComment.adminWebApp.automodPolicyPages -[internal]-> cloudComment.adminWebApp.adminApiClient 'Управляет черновиком, моделированием, публикацией, откатом и feedback'
@@ -343,6 +349,8 @@ model {
   cloudComment.backendApi.adminApiController -[internal]-> cloudComment.backendApi.siteModule 'Управляет сайтами'
 
   cloudComment.backendApi.adminApiController -[internal]-> cloudComment.backendApi.embedCodeModule 'Возвращает embed-код'
+
+  cloudComment.backendApi.adminApiController -[internal]-> cloudComment.backendApi.discussionModule 'Возвращает owner-scoped опубликованные обсуждения'
 
   cloudComment.backendApi.adminApiController -[internal]-> cloudComment.backendApi.moderationModule 'Выполняет действия модерации'
 
@@ -389,6 +397,8 @@ model {
   cloudComment.backendApi.pageModule -[stores]-> cloudComment.backendApi.persistenceModule 'Сохраняет страницы сайта'
 
   cloudComment.backendApi.commentModule -[stores]-> cloudComment.backendApi.persistenceModule 'Сохраняет комментарии; триггер полей снимка в базе данных добавляет совместимые с откатом события решений без копии текста'
+
+  cloudComment.backendApi.discussionModule -[reads]-> cloudComment.backendApi.persistenceModule 'Читает опубликованные корни, ответы и unread без раскрытия чужих ресурсов'
 
   cloudComment.backendApi.moderationModule -[stores]-> cloudComment.backendApi.persistenceModule 'Обновляет статусы, pin и favorite flags комментариев'
 
@@ -519,6 +529,37 @@ views {
     include cloudComment.postgres
 
     autoLayout LeftRight 150 100
+  }
+
+  view discussion_architecture {
+    title 'C3. Опубликованные обсуждения владельца'
+
+    include websiteOwner
+    include cloudComment.adminWebApp.discussionPages
+    include cloudComment.adminWebApp.adminApiClient
+    include cloudComment.backendApi.adminApiController
+    include cloudComment.backendApi.accessPolicyModule
+    include cloudComment.backendApi.discussionModule
+    include cloudComment.backendApi.notificationModule
+    include cloudComment.backendApi.persistenceModule
+    include cloudComment.postgres
+
+    autoLayout LeftRight 150 100
+  }
+
+  dynamic view discussion_read_flow {
+    title 'Сценарий: владелец читает опубликованную ветку'
+
+    websiteOwner -> cloudComment.adminWebApp.discussionPages 'Открывает рабочее пространство обсуждений'
+    cloudComment.adminWebApp.discussionPages -> cloudComment.adminWebApp.adminApiClient 'Передаёт стабильные фильтры и выбранный rootCommentId'
+    cloudComment.adminWebApp.adminApiClient -> cloudComment.backendApi.adminApiController 'GET /api/discussions'
+    cloudComment.backendApi.adminApiController -> cloudComment.backendApi.discussionModule 'Запрашивает owner-scoped список'
+    cloudComment.backendApi.discussionModule -> cloudComment.backendApi.persistenceModule 'Читает опубликованные корни, unread и needs-reply'
+    cloudComment.backendApi.persistenceModule -> cloudComment.postgres 'SELECT comments, pages, sites, owner_notifications'
+    cloudComment.adminWebApp.adminApiClient -> cloudComment.backendApi.adminApiController 'GET /api/discussions/{rootCommentId}'
+    cloudComment.backendApi.adminApiController -> cloudComment.backendApi.discussionModule 'Получает сообщения выбранной ветки без email'
+
+    autoLayout LeftRight
   }
 
   dynamic view create_site_flow {

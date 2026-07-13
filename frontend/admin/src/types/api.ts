@@ -326,6 +326,54 @@ export interface UpdateCommentFlagsRequest {
   favorite?: boolean
 }
 
+export type DiscussionFilter = 'ALL' | 'UNREAD' | 'NEEDS_REPLY'
+export type DiscussionStatus = 'ACTIVE' | 'NEEDS_REPLY'
+
+export interface DiscussionAuthor {
+  id: string | null
+  displayName: string
+  owner: boolean
+}
+
+export interface DiscussionSummary {
+  rootCommentId: string
+  siteId: string
+  siteName: string
+  pageId: string
+  pageUrl: string
+  pageTitle: string | null
+  lastAuthor: DiscussionAuthor
+  lastMessage: string
+  lastActivityAt: string
+  replyCount: number
+  unread: boolean
+  status: DiscussionStatus
+  pinned: boolean
+}
+
+export interface DiscussionMessage {
+  id: string
+  parentId: string | null
+  author: DiscussionAuthor
+  content: string
+  createdAt: string
+  updatedAt: string
+  pinned: boolean
+}
+
+export interface DiscussionThread {
+  summary: DiscussionSummary
+  messages: DiscussionMessage[]
+}
+
+export interface ListDiscussionsParams {
+  siteId?: string
+  view?: DiscussionFilter
+  search?: string
+  page?: number
+  pageSize?: number
+}
+
 export type AnalyticsRange = '7d' | '30d' | '90d' | 'all'
 
 export type AnalyticsBucketGranularity = 'DAY' | 'WEEK' | 'MONTH'
