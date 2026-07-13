@@ -68,6 +68,80 @@ test('мастер хранит черновик, проверяет шаги и
   await expect(page.getByRole('button', { name: /4\. Проверка/ })).toBeDisabled()
 })
 
+test('установка подтверждается автоматически после реального запроса виджета', async ({ page }) => {
+  await authenticate(page)
+  let installationStatusRequests = 0
+
+  await page.route(new RegExp(`/api/sites/${SITE_ID}(?:/[^?]+)?(?:\\?.*)?$`), (route) => {
+    const path = new URL(route.request().url()).pathname
+    if (path.endsWith('/installation-status')) {
+      installationStatusRequests += 1
+      const healthy = installationStatusRequests >= 3
+      return route.fulfill({ json: {
+        status: healthy ? 'HEALTHY' : 'NEVER_SEEN',
+        reason: healthy ? 'RECENT_SUCCESS' : 'WIDGET_NOT_SEEN',
+        siteCreated: true,
+        originConfigured: true,
+        widgetSeen: healthy,
+        firstCommentReceived: healthy,
+        lastSuccessfulOrigin: healthy ? 'https://example.com' : null,
+        lastSuccessfulAt: healthy ? '2026-07-13T12:00:00Z' : null,
+        lastRejectedOrigin: null,
+        lastRejectedAt: null,
+      } })
+    }
+    if (path.endsWith('/embed-code')) {
+      return route.fulfill({ json: {
+        siteId: SITE_ID,
+        scriptUrl: 'https://cloud.example/widget/cloud-comment-widget.js',
+        embedCode: `<script data-site-id="${SITE_ID}"></script>`,
+        dataAttributes: {},
+      } })
+    }
+    return route.fulfill({ json: {
+      id: SITE_ID,
+      ownerId: OWNER_ID,
+      name: 'Сайт с автопроверкой',
+      domain: 'example.com',
+      publicKey: 'public-key',
+      moderationMode: 'PRE_MODERATION',
+      isActive: true,
+      allowedOrigins: ['https://example.com'],
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-01T00:00:00Z',
+      widgetStyle: {
+        version: 2, theme: 'AUTO', accentColor: '#0f766e', cornerRadius: 'MEDIUM', density: 'COMFORTABLE',
+        contentWidth: 'READABLE', alignment: 'CENTER', fontScale: 'MEDIUM', fontFamily: 'INHERIT',
+        showHeader: true, headerTitle: 'Комментарии', composerPosition: 'BOTTOM', defaultSort: 'PINNED_FIRST',
+        showSort: true, enabledReactions: ['LIKE', 'LOVE', 'LAUGH', 'WOW'], avatarStyle: 'INITIALS',
+        elevation: 'BORDER', locale: 'RU', commentsTitle: 'Комментарии', composerPlaceholder: 'Напишите комментарий',
+        emptyMessage: 'Пока нет комментариев.',
+      },
+      autoModeration: { enabled: true, strictness: 'BALANCED', blockedWords: [], holdLinks: true, blockLinks: false, maxLinks: 2 },
+    } })
+  })
+  await page.route('**/api/analytics/owner**', (route) => route.fulfill({ json: {
+    range: '30d', siteId: SITE_ID, timeZone: 'Europe/Moscow', bucketGranularity: 'DAY',
+    from: '2026-06-13T00:00:00Z', to: '2026-07-13T12:00:00Z',
+    summary: { sites: 1, pages: 0, comments: 0, replies: 0, reactions: 0, pending: 0, approved: 0, rejected: 0, hidden: 0, spam: 0 },
+    comparison: null,
+    workload: { requiringDecision: 0, oldestPendingAt: null, automaticDecisions: 0, manualDecisions: 0, undoActions: 0 },
+    commentsOverTime: [], moderationDistribution: [], moderationFunnel: [], reactionDistribution: [], topPages: [], activeCommenters: [],
+  } }))
+
+  await page.goto(`/sites/${SITE_ID}`)
+  await expect(page.getByRole('heading', { name: 'Виджет ещё не подключался' })).toBeVisible()
+  await page.getByRole('button', { name: 'Установка', exact: true }).click()
+  await expect(page.getByText('Ждём реальный запрос виджета и проверяем установку автоматически…')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Установка работает' })).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByLabel('Виджет увиден: готово')).toBeVisible()
+  await expect(page.getByLabel('Первый комментарий: готово')).toBeVisible()
+
+  const requestsAfterActivation = installationStatusRequests
+  await page.waitForTimeout(2_500)
+  expect(installationStatusRequests).toBe(requestsAfterActivation)
+})
+
 test('рабочее пространство разделяет установку, настройки и опасную зону', async ({ page }) => {
   await authenticate(page)
   let installationStatusAvailable = true
