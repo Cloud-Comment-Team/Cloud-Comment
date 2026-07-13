@@ -16,6 +16,7 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   const adminRequest = context.request
   const suffix = Date.now().toString(36)
   const email = `e2e-${suffix}@example.com`
+  const otherEmail = `e2e-other-${suffix}@example.com`
   const siteName = `E2E Site ${suffix}`
   const domain = `e2e-${suffix}.example.com`
   const commentText = `E2E comment ${suffix}`
@@ -843,7 +844,7 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
 
   await expect(widget.locator('.cloud-comment__message--notice')).toBeVisible()
   await expect(widget.getByText(pendingWidgetReplyText)).toBeVisible()
-  await expect(widget.locator('.cloud-comment__status')).toBeVisible()
+  await expect(widget.getByText(pendingWidgetReplyText).locator('..').locator('.cloud-comment__status')).toBeVisible()
 
   const publicCommentsAfterPendingReply = await request.get(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
     headers: {
@@ -858,6 +859,69 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   await expect(publicCommentsAfterPendingReply).toBeOK()
   const commentsAfterPendingReply = await publicCommentsAfterPendingReply.json()
   expect(JSON.stringify(commentsAfterPendingReply)).not.toContain(pendingWidgetReplyText)
+
+  const ownerCommentsAfterPendingReply = await request.get(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
+    headers: {
+      Authorization: `Bearer ${widgetToken}`,
+      Origin: ADMIN_ORIGIN,
+    },
+    params: {
+      pageUrl,
+      page: '1',
+      pageSize: '20',
+      replyLimit: '100',
+    },
+  })
+  await expect(ownerCommentsAfterPendingReply).toBeOK()
+  expect(JSON.stringify(await ownerCommentsAfterPendingReply.json())).toContain(pendingWidgetReplyText)
+
+  const consentRequirementsResponse = await request.get(`${API_BASE_URL}/privacy/consent-requirements`, {
+    headers: { Origin: ADMIN_ORIGIN },
+  })
+  await expect(consentRequirementsResponse).toBeOK()
+  const consentRequirements = await consentRequirementsResponse.json() as {
+    privacyPolicyVersion: string
+    termsVersion: string
+  }
+  const otherRegisterResponse = await request.post(`${API_BASE_URL}/public/sites/${siteId}/auth/register`, {
+    headers: { Origin: ADMIN_ORIGIN },
+    data: {
+      email: otherEmail,
+      password: PASSWORD,
+      acceptedPrivacyPolicy: true,
+      acceptedTerms: true,
+      privacyPolicyVersion: consentRequirements.privacyPolicyVersion,
+      termsVersion: consentRequirements.termsVersion,
+    },
+  })
+  await expect(otherRegisterResponse).toBeOK()
+  const otherLoginResponse = await request.post(`${API_BASE_URL}/public/sites/${siteId}/auth/login`, {
+    headers: { Origin: ADMIN_ORIGIN },
+    data: { email: otherEmail, password: PASSWORD },
+  })
+  await expect(otherLoginResponse).toBeOK()
+  const otherWidgetToken = (await otherLoginResponse.json()).token as string
+  const otherCommentsAfterPendingReply = await request.get(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
+    headers: {
+      Authorization: `Bearer ${otherWidgetToken}`,
+      Origin: ADMIN_ORIGIN,
+    },
+    params: {
+      pageUrl,
+      page: '1',
+      pageSize: '20',
+      replyLimit: '100',
+    },
+  })
+  await expect(otherCommentsAfterPendingReply).toBeOK()
+  expect(JSON.stringify(await otherCommentsAfterPendingReply.json())).not.toContain(pendingWidgetReplyText)
+
+  await page.reload()
+  const loadPendingReplies = widget.getByRole('button', { name: /Показать ещё ответы/ }).first()
+  await expect(loadPendingReplies).toBeVisible()
+  await loadPendingReplies.click()
+  await expect(widget.getByText(pendingWidgetReplyText)).toBeVisible()
+  await expect(widget.getByText(pendingWidgetReplyText).locator('..').locator('.cloud-comment__status')).toBeVisible()
 
   const externalPage = await context.newPage()
   await externalPage.goto(`http://127.0.0.1/demo-page.html?siteId=${siteId}`)

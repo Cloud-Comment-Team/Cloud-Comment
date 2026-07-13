@@ -50,6 +50,7 @@ class JdbcPublicCommentRepositoryIntegrationTests {
     void resolvesActiveSiteAllowedOriginsAndCreatesPageCommentsTransactionally() {
         UUID ownerId = insertUser("owner", "Owner Name");
         UUID visitorId = insertUser("visitor", "Visitor Name");
+        UUID otherVisitorId = insertUser("other-visitor", "Other Visitor");
         UUID siteId = insertSite(ownerId, "example.com", "https://example.com", ModerationMode.PRE_MODERATION, true);
         UUID inactiveSiteId = insertSite(ownerId, "inactive.example.com", "https://inactive.example.com", ModerationMode.POST_MODERATION, false);
         jdbcTemplate.update("update sites set widget_style_config = widget_style_config || ?::jsonb where id = ?",
@@ -124,7 +125,7 @@ class JdbcPublicCommentRepositoryIntegrationTests {
             "Nested approved reply",
             CommentStatus.APPROVED
         );
-        repository.createComment(
+        CommentView pendingReply = repository.createComment(
             siteId,
             pageId,
             approvedRoot.id(),
@@ -140,41 +141,81 @@ class JdbcPublicCommentRepositoryIntegrationTests {
 
         CommentPage comments = repository.findApprovedComments(siteId, pageId, 1, 20, Optional.of(visitorId));
 
-        assertThat(comments.totalItems()).isEqualTo(1);
-        assertThat(comments.items()).singleElement().satisfies(root -> {
-            assertThat(root.id()).isEqualTo(approvedRoot.id());
-            assertThat(root.content()).isEqualTo("Approved root");
-            assertThat(root.author().id()).isEqualTo(visitorId);
-            assertThat(root.author().email()).isEqualTo("visitor@example.com");
-            assertThat(root.author().displayName()).isEqualTo("Visitor Name");
-            assertThat(root.status()).isEqualTo(CommentStatus.APPROVED);
-            assertThat(root.ownedByCurrentUser()).isTrue();
-            assertThat(root.reactions())
-                .filteredOn(reaction -> reaction.type() == CommentReactionType.LOVE)
-                .singleElement()
-                .satisfies(reaction -> {
-                    assertThat(reaction.count()).isEqualTo(1);
-                    assertThat(reaction.reactedByCurrentUser()).isTrue();
-                });
-            assertThat(root.reactions())
-                .filteredOn(reaction -> reaction.type() == CommentReactionType.LIKE)
-                .singleElement()
-                .satisfies(reaction -> {
-                    assertThat(reaction.count()).isEqualTo(1);
-                    assertThat(reaction.reactedByCurrentUser()).isFalse();
-                });
-            assertThat(root.replies()).singleElement().satisfies(reply -> {
-                assertThat(reply.id()).isEqualTo(approvedReply.id());
-                assertThat(reply.content()).isEqualTo("Approved reply");
-                assertThat(reply.reactions())
-                    .filteredOn(reaction -> reaction.type() == CommentReactionType.WOW)
+        assertThat(comments.totalItems()).isEqualTo(2);
+        assertThat(comments.items()).hasSize(2);
+        assertThat(comments.items())
+            .filteredOn(root -> root.id().equals(pendingRoot.id()))
+            .singleElement()
+            .satisfies(root -> {
+                assertThat(root.status()).isEqualTo(CommentStatus.PENDING);
+                assertThat(root.ownedByCurrentUser()).isTrue();
+                assertThat(root.replies()).isEmpty();
+            });
+        assertThat(comments.items())
+            .filteredOn(root -> root.id().equals(approvedRoot.id()))
+            .singleElement()
+            .satisfies(root -> {
+                assertThat(root.id()).isEqualTo(approvedRoot.id());
+                assertThat(root.content()).isEqualTo("Approved root");
+                assertThat(root.author().id()).isEqualTo(visitorId);
+                assertThat(root.author().email()).isEqualTo("visitor@example.com");
+                assertThat(root.author().displayName()).isEqualTo("Visitor Name");
+                assertThat(root.status()).isEqualTo(CommentStatus.APPROVED);
+                assertThat(root.ownedByCurrentUser()).isTrue();
+                assertThat(root.reactions())
+                    .filteredOn(reaction -> reaction.type() == CommentReactionType.LOVE)
                     .singleElement()
                     .satisfies(reaction -> {
                         assertThat(reaction.count()).isEqualTo(1);
                         assertThat(reaction.reactedByCurrentUser()).isTrue();
                     });
-                assertThat(reply.replies()).isEmpty();
+                assertThat(root.reactions())
+                    .filteredOn(reaction -> reaction.type() == CommentReactionType.LIKE)
+                    .singleElement()
+                    .satisfies(reaction -> {
+                        assertThat(reaction.count()).isEqualTo(1);
+                        assertThat(reaction.reactedByCurrentUser()).isFalse();
+                    });
+                assertThat(root.replies()).hasSize(2);
+                assertThat(root.replies())
+                    .filteredOn(reply -> reply.id().equals(approvedReply.id()))
+                    .singleElement()
+                    .satisfies(reply -> {
+                        assertThat(reply.id()).isEqualTo(approvedReply.id());
+                        assertThat(reply.content()).isEqualTo("Approved reply");
+                        assertThat(reply.reactions())
+                            .filteredOn(reaction -> reaction.type() == CommentReactionType.WOW)
+                            .singleElement()
+                            .satisfies(reaction -> {
+                                assertThat(reaction.count()).isEqualTo(1);
+                                assertThat(reaction.reactedByCurrentUser()).isTrue();
+                            });
+                        assertThat(reply.replies()).isEmpty();
+                    });
+                assertThat(root.replies())
+                    .filteredOn(reply -> reply.id().equals(pendingReply.id()))
+                    .singleElement()
+                    .satisfies(reply -> {
+                        assertThat(reply.status()).isEqualTo(CommentStatus.PENDING);
+                        assertThat(reply.ownedByCurrentUser()).isTrue();
+                    });
             });
+
+        CommentPage anonymousComments = repository.findApprovedComments(
+            siteId, pageId, 1, 20, Optional.empty()
+        );
+        assertThat(anonymousComments.totalItems()).isEqualTo(1);
+        assertThat(anonymousComments.items()).singleElement().satisfies(root -> {
+            assertThat(root.id()).isEqualTo(approvedRoot.id());
+            assertThat(root.replies()).singleElement().extracting(CommentView::id).isEqualTo(approvedReply.id());
+        });
+        CommentPage otherViewerComments = repository.findApprovedComments(
+            siteId, pageId, 1, 20, Optional.of(otherVisitorId)
+        );
+        assertThat(otherViewerComments.totalItems()).isEqualTo(1);
+        assertThat(otherViewerComments.items()).singleElement().satisfies(root -> {
+            assertThat(root.id()).isEqualTo(approvedRoot.id());
+            assertThat(root.replies()).singleElement().extracting(CommentView::id).isEqualTo(approvedReply.id());
         });
 
         assertThat(repository.existsApprovedCommentInSite(siteId, approvedRoot.id())).isTrue();
@@ -203,7 +244,20 @@ class JdbcPublicCommentRepositoryIntegrationTests {
         assertThat(updatedRoot.status()).isEqualTo(CommentStatus.PENDING);
         assertThat(updatedRoot.editedAt()).isNotNull();
         assertThat(updatedRoot.ownedByCurrentUser()).isTrue();
-        assertThat(repository.findApprovedComments(siteId, pageId, 1, 20, Optional.of(visitorId)).items()).isEmpty();
+        assertThat(repository.findApprovedComments(siteId, pageId, 1, 20, Optional.of(visitorId)).items())
+            .extracting(CommentView::id)
+            .containsExactlyInAnyOrder(pendingRoot.id(), approvedRoot.id());
+        assertThat(repository.findApprovedComments(siteId, pageId, 1, 20, Optional.empty()).items()).isEmpty();
+        assertThat(repository.findApprovedReplies(
+            siteId, approvedRoot.id(), 1, 20, Optional.of(visitorId)
+        ).items()).extracting(CommentView::id)
+            .containsExactly(approvedReply.id(), pendingReply.id());
+        assertThat(repository.findApprovedReplies(
+            siteId, approvedRoot.id(), 1, 20, Optional.of(otherVisitorId)
+        ).items()).isEmpty();
+        assertThat(repository.findApprovedReplies(
+            siteId, approvedRoot.id(), 1, 20, Optional.empty()
+        ).items()).isEmpty();
 
         assertThat(repository.softDeleteOwnComment(siteId, approvedReply.id(), ownerId)).isFalse();
         assertThat(repository.softDeleteOwnComment(siteId, approvedReply.id(), visitorId)).isTrue();
@@ -214,6 +268,7 @@ class JdbcPublicCommentRepositoryIntegrationTests {
     void limitsInlineRepliesAndPagesTheCompleteBranch() {
         UUID ownerId = insertUser("reply-owner", "Reply Owner");
         UUID visitorId = insertUser("reply-visitor", "Reply Visitor");
+        UUID otherVisitorId = insertUser("other-reply-visitor", "Other Reply Visitor");
         UUID siteId = insertSite(ownerId, "replies.example.com", "https://replies.example.com", ModerationMode.POST_MODERATION, true);
         UUID pageId = repository.findOrCreatePage(siteId, "https://replies.example.com/article");
         CommentView root = repository.createComment(
@@ -225,18 +280,41 @@ class JdbcPublicCommentRepositoryIntegrationTests {
         repository.createComment(
             siteId, pageId, root.id(), visitorId, "Reply Visitor", "reply-visitor@example.com", "Second", CommentStatus.APPROVED
         );
+        CommentView ownPendingReply = repository.createComment(
+            siteId, pageId, root.id(), visitorId, "Reply Visitor", "reply-visitor@example.com", "Own pending", CommentStatus.PENDING
+        );
+        CommentView otherPendingReply = repository.createComment(
+            siteId, pageId, root.id(), otherVisitorId, "Other Reply Visitor", "other-reply@example.com", "Other pending", CommentStatus.PENDING
+        );
 
         CommentPage limited = repository.findApprovedComments(
             siteId, pageId, 1, 20, PublicCommentSort.PINNED_FIRST, Optional.of(visitorId), 1
         );
         assertThat(limited.items()).singleElement().satisfies(comment -> {
-            assertThat(comment.replyCount()).isEqualTo(2);
+            assertThat(comment.replyCount()).isEqualTo(3);
             assertThat(comment.replies()).singleElement().extracting(CommentView::content).isEqualTo("First");
         });
 
         CommentPage secondPage = repository.findApprovedReplies(siteId, root.id(), 2, 1, Optional.of(visitorId));
-        assertThat(secondPage.totalItems()).isEqualTo(2);
+        assertThat(secondPage.totalItems()).isEqualTo(3);
         assertThat(secondPage.items()).singleElement().extracting(CommentView::content).isEqualTo("Second");
+        CommentPage thirdPage = repository.findApprovedReplies(siteId, root.id(), 3, 1, Optional.of(visitorId));
+        assertThat(thirdPage.items()).singleElement().extracting(CommentView::id).isEqualTo(ownPendingReply.id());
+
+        CommentPage anonymousReplies = repository.findApprovedReplies(
+            siteId, root.id(), 1, 20, Optional.empty()
+        );
+        assertThat(anonymousReplies.totalItems()).isEqualTo(2);
+        assertThat(anonymousReplies.items()).extracting(CommentView::id)
+            .doesNotContain(ownPendingReply.id(), otherPendingReply.id());
+
+        CommentPage otherViewerReplies = repository.findApprovedReplies(
+            siteId, root.id(), 1, 20, Optional.of(otherVisitorId)
+        );
+        assertThat(otherViewerReplies.totalItems()).isEqualTo(3);
+        assertThat(otherViewerReplies.items()).extracting(CommentView::id)
+            .contains(otherPendingReply.id())
+            .doesNotContain(ownPendingReply.id());
     }
 
     @Test
