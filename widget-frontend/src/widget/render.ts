@@ -29,6 +29,26 @@ type EditingComment = {
   content: string;
 };
 
+type FocusSnapshot = {
+  key: string;
+  fallbackKey: string | null;
+  selectionStart: number | null;
+  selectionEnd: number | null;
+  selectionDirection: "forward" | "backward" | "none" | null;
+};
+
+type ExpiredDraftContext = {
+  ownerEmail: string;
+  composerDraft: string;
+  replyingTo: ReplyTarget | null;
+  editingComment: EditingComment | null;
+};
+
+type SessionRequest = {
+  token: string | null;
+  epoch: number;
+};
+
 type WidgetState = {
   loading: boolean;
   submitting: boolean;
@@ -54,6 +74,7 @@ type WidgetState = {
   replyingTo: ReplyTarget | null;
   authExpanded: boolean;
   profileOpen: boolean;
+  composerDraft: string;
   loadingRepliesId: string | null;
   replyPages: Record<string, number>;
   collapsedReplyIds: Set<string>;
@@ -102,27 +123,35 @@ export function renderWidget(
     replyingTo: null,
     authExpanded: false,
     profileOpen: false,
+    composerDraft: "",
     loadingRepliesId: null,
     replyPages: {},
     collapsedReplyIds: new Set()
   };
   let destroyed = false;
+  let expiredDraftContext: ExpiredDraftContext | null = null;
+  let sessionEpoch = 0;
+  const focusManager = createRenderFocusManager(root, shadowRoot, shell);
 
   function render(): void {
     if (destroyed) {
       return;
     }
 
+    focusManager.capture();
     const content = [renderHeader(options, state), renderBody(state, options)].filter(
       (element): element is HTMLElement => element !== null
     );
     shell.replaceChildren(...content);
+    focusManager.restore();
   }
 
   async function loadInitialData(): Promise<void> {
     state.loading = true;
     state.error = null;
     render();
+    let listUnauthorizedHandled = false;
+    let commentsRequest: SessionRequest | null = null;
 
     try {
       const config = await api.getConfig();
@@ -131,20 +160,37 @@ export function renderWidget(
       state.sort = config.style.defaultSort;
       applyWidgetStyle(shell, config.style);
       themeController.setConfiguredTheme(config.style.theme);
+      commentsRequest = captureSessionRequest();
+      const request = commentsRequest;
       const [comments, consentRequirements] = await Promise.all([
-        api.listComments(state.sort, state.token),
+        api.listComments(state.sort, request.token).catch((error: unknown) => {
+          if (isUnauthorized(error)) {
+            listUnauthorizedHandled = true;
+            if (expireAuthenticatedSession(request)) {
+              state.authError = "Сессия истекла. Войдите снова.";
+              render();
+            }
+          }
+          throw error;
+        }),
         api.getConsentRequirements()
       ]);
-      state.comments = comments.items;
+      if (isCurrentSessionRequest(request)) {
+        state.comments = comments.items;
+      }
       state.consentRequirements = consentRequirements;
       if (state.token) {
         await loadCurrentUser();
       }
     } catch (error) {
-      state.error = getErrorMessage(error);
+      if (!isUnauthorized(error) || !listUnauthorizedHandled) {
+        state.error = getErrorMessage(error);
+      }
     } finally {
-      state.loading = false;
-      render();
+      if (!commentsRequest || isCurrentSessionRequest(commentsRequest)) {
+        state.loading = false;
+        render();
+      }
     }
   }
 
@@ -176,11 +222,22 @@ export function renderWidget(
         loginResponse = await api.login(email, password);
       }
 
+      const comments = await api.listComments(state.sort, loginResponse.token);
+      sessionEpoch += 1;
       state.token = loginResponse.token;
       state.userEmail = loginResponse.user.email;
+      state.accountBusy = false;
+      state.submitting = false;
+      state.reactingCommentId = null;
+      state.updatingCommentId = null;
+      state.deletingCommentId = null;
+      state.loadingRepliesId = null;
+      state.loading = false;
       state.authExpanded = false;
       storeAuthToken(loginResponse.token);
-      state.comments = (await api.listComments(state.sort, loginResponse.token)).items;
+      state.comments = comments.items;
+      restoreExpiredDraftContext(loginResponse.user.email);
+      state.error = null;
       state.notice = "Вы вошли и можете оставить комментарий.";
       state.accountError = null;
       state.deleteConfirming = false;
@@ -193,47 +250,51 @@ export function renderWidget(
   }
 
   async function loadCurrentUser(): Promise<void> {
-    if (!state.token) {
+    const request = captureSessionRequest();
+    if (!request.token) {
       return;
     }
 
     try {
-      const user = await api.getCurrentUser(state.token);
-      state.userEmail = user.email;
+      const user = await api.getCurrentUser(request.token);
+      if (isCurrentAuthenticatedRequest(request)) {
+        state.userEmail = user.email;
+      }
     } catch (error) {
-      if (error instanceof WidgetApiError && error.status === 401) {
-        clearAuthState();
+      if (isUnauthorized(error)) {
+        if (expireAuthenticatedSession(request)) {
+          state.authError = "Сессия истекла. Войдите снова.";
+          render();
+        }
         return;
       }
-      state.accountError = getErrorMessage(error);
+      if (isCurrentAuthenticatedRequest(request)) {
+        state.accountError = getErrorMessage(error);
+      }
     }
   }
 
   async function logout(): Promise<void> {
-    if (!state.token) {
-      clearAuthState();
-      render();
+    const request = captureSessionRequest();
+    expiredDraftContext = null;
+    state.notice = "Вы вышли из аккаунта комментатора.";
+    clearAuthState(true);
+    render();
+
+    if (!request.token) {
       return;
     }
 
-    state.accountBusy = true;
-    state.accountError = null;
-    render();
-
     try {
-      await api.logout(state.token);
-      state.notice = "Вы вышли из аккаунта комментатора.";
+      await api.logout(request.token);
     } catch {
-      state.notice = "Вы вышли из виджета на этом устройстве.";
-    } finally {
-      clearAuthState();
-      state.accountBusy = false;
-      render();
+      // Локальный выход уже завершён; удалённый отзыв сессии выполняется по возможности.
     }
   }
 
   async function requestAccountDeletion(): Promise<void> {
-    if (!state.token) {
+    const request = captureSessionRequest();
+    if (!request.token) {
       state.authError = "Войдите, чтобы запросить удаление аккаунта.";
       render();
       return;
@@ -244,24 +305,32 @@ export function renderWidget(
     render();
 
     try {
-      const request = await api.requestAccountDeletion(state.token);
+      const deletionRequest = await api.requestAccountDeletion(request.token);
+      if (!isCurrentAuthenticatedRequest(request)) {
+        return;
+      }
       state.deleteConfirming = false;
-      state.notice = `Письмо для подтверждения удаления отправлено на ${state.userEmail ?? "ваш email"}. Код действует до ${formatDate(request.expiresAt)}.`;
+      state.notice = `Письмо для подтверждения удаления отправлено на ${state.userEmail ?? "ваш email"}. Код действует до ${formatDate(deletionRequest.expiresAt)}.`;
     } catch (error) {
-      if (error instanceof WidgetApiError && error.status === 401) {
-        clearAuthState();
-        state.authError = "Сессия истекла. Войдите снова.";
-      } else {
+      if (isUnauthorized(error)) {
+        if (expireAuthenticatedSession(request)) {
+          state.authError = "Сессия истекла. Войдите снова.";
+          render();
+        }
+      } else if (isCurrentAuthenticatedRequest(request)) {
         state.accountError = getErrorMessage(error);
       }
     } finally {
-      state.accountBusy = false;
-      render();
+      if (isCurrentAuthenticatedRequest(request)) {
+        state.accountBusy = false;
+        render();
+      }
     }
   }
 
   async function exportPersonalData(): Promise<void> {
-    if (!state.token) {
+    const request = captureSessionRequest();
+    if (!request.token) {
       state.authError = "Войдите, чтобы скачать данные аккаунта.";
       render();
       return;
@@ -272,23 +341,31 @@ export function renderWidget(
     render();
 
     try {
-      const personalData = await api.exportPersonalData(state.token);
+      const personalData = await api.exportPersonalData(request.token);
+      if (!isCurrentAuthenticatedRequest(request)) {
+        return;
+      }
       downloadJson("cloudcomment-personal-data.json", personalData);
       state.notice = "Файл с персональными данными подготовлен.";
     } catch (error) {
-      if (error instanceof WidgetApiError && error.status === 401) {
-        clearAuthState();
-        state.authError = "Сессия истекла. Войдите снова.";
-      } else {
+      if (isUnauthorized(error)) {
+        if (expireAuthenticatedSession(request)) {
+          state.authError = "Сессия истекла. Войдите снова.";
+          render();
+        }
+      } else if (isCurrentAuthenticatedRequest(request)) {
         state.accountError = getErrorMessage(error);
       }
     } finally {
-      state.accountBusy = false;
-      render();
+      if (isCurrentAuthenticatedRequest(request)) {
+        state.accountBusy = false;
+        render();
+      }
     }
   }
 
-  function clearAuthState(): void {
+  function clearAuthState(clearComposerDraft = false): void {
+    sessionEpoch += 1;
     state.token = null;
     state.userEmail = null;
     state.deleteConfirming = false;
@@ -296,12 +373,82 @@ export function renderWidget(
     state.editingComment = null;
     state.confirmingCommentDeleteId = null;
     state.profileOpen = false;
+    state.accountBusy = false;
+    state.submitting = false;
+    state.reactingCommentId = null;
+    state.updatingCommentId = null;
+    state.deletingCommentId = null;
+    state.loadingRepliesId = null;
+    state.loading = false;
+    state.authExpanded = false;
+    state.authMode = "login";
+    state.authError = null;
+    if (clearComposerDraft) {
+      state.composerDraft = "";
+    }
     state.comments = clearViewerReactions(state.comments);
     removeStoredAuthToken();
   }
 
+  function captureSessionRequest(): SessionRequest {
+    return { token: state.token, epoch: sessionEpoch };
+  }
+
+  function isCurrentSessionRequest(request: SessionRequest): boolean {
+    return request.token === state.token && request.epoch === sessionEpoch;
+  }
+
+  function isCurrentAuthenticatedRequest(request: SessionRequest): request is SessionRequest & { token: string } {
+    return request.token !== null && isCurrentSessionRequest(request);
+  }
+
+  function expireAuthenticatedSession(request: SessionRequest): boolean {
+    if (!isCurrentAuthenticatedRequest(request)) {
+      return false;
+    }
+    const ownerEmail = normalizeEmail(state.userEmail);
+    expiredDraftContext = ownerEmail
+      ? {
+          ownerEmail,
+          composerDraft: state.composerDraft,
+          replyingTo: state.replyingTo ? { ...state.replyingTo } : null,
+          editingComment: state.editingComment ? { ...state.editingComment } : null
+        }
+      : null;
+    clearAuthState(true);
+    return true;
+  }
+
+  function restoreExpiredDraftContext(userEmail: string): void {
+    const context = expiredDraftContext;
+    expiredDraftContext = null;
+    if (!context || normalizeEmail(userEmail) !== context.ownerEmail) {
+      return;
+    }
+
+    if (context.replyingTo) {
+      const replyTarget = state.comments.find((comment) =>
+        comment.id === context.replyingTo?.id && comment.parentId === null && comment.status === "APPROVED"
+      );
+      if (replyTarget) {
+        state.composerDraft = context.composerDraft;
+        state.replyingTo = { id: replyTarget.id, authorLabel: getAuthorLabel(replyTarget) };
+      }
+    } else {
+      state.composerDraft = context.composerDraft;
+    }
+
+    if (context.editingComment) {
+      const editableComment = findComment(state.comments, context.editingComment.id);
+      if (editableComment?.ownedByCurrentUser) {
+        state.editingComment = { ...context.editingComment };
+      }
+    }
+  }
+
   async function submitComment(content: string): Promise<void> {
-    if (!state.token) {
+    const request = captureSessionRequest();
+    if (!request.token) {
       state.authError = "Войдите или зарегистрируйтесь, чтобы оставить комментарий.";
       render();
       return;
@@ -319,42 +466,74 @@ export function renderWidget(
     state.notice = null;
     render();
 
-    let submittedStatus: PublicComment["status"] | null = null;
+    let createdComment: PublicComment;
     try {
-      const createdComment = await api.createComment(content, parentId, state.token);
-      submittedStatus = createdComment.status;
-      const refreshedComments = await api.listComments(state.sort, state.token);
+      createdComment = await api.createComment(content, parentId, request.token);
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        if (isCurrentAuthenticatedRequest(request)) {
+          state.comments = previousComments;
+          if (expireAuthenticatedSession(request)) {
+            state.error = getErrorMessage(error);
+            render();
+          }
+        }
+        return;
+      }
+      if (!isCurrentAuthenticatedRequest(request)) {
+        return;
+      }
+      state.comments = previousComments;
+      state.error = getErrorMessage(error);
+      state.submitting = false;
+      render();
+      return;
+    }
+    if (!isCurrentAuthenticatedRequest(request)) {
+      return;
+    }
+
+    expiredDraftContext = null;
+    state.composerDraft = "";
+    state.replyingTo = null;
+    state.comments = removeCommentFromTree(state.comments, optimisticComment.id);
+    state.comments = parentId
+      ? mergeCreatedReply(createdComment, [], parentId, state.comments)
+      : mergeCreatedComment(createdComment, state.comments);
+    state.notice = getSubmissionNotice(createdComment.status, parentId !== null, replyAuthor);
+
+    try {
+      const refreshedComments = await api.listComments(state.sort, request.token);
+      if (!isCurrentAuthenticatedRequest(request)) {
+        return;
+      }
       state.comments = removeCommentFromTree(state.comments, optimisticComment.id);
       state.comments = parentId
         ? mergeCreatedReply(createdComment, refreshedComments.items, parentId, state.comments)
         : mergeCreatedComment(createdComment, refreshedComments.items);
-      state.replyingTo = null;
-      state.notice =
-        createdComment.status === "APPROVED"
-          ? "Комментарий опубликован."
-          : "Комментарий отправлен и ждет модерации.";
-      if (parentId) {
-        state.notice = createdComment.status === "APPROVED"
-          ? "Ответ опубликован."
-          : `Ответ для ${replyAuthor ?? "комментария"} отправлен и ждет модерации.`;
-      }
     } catch (error) {
-      state.comments = previousComments;
-      if (error instanceof WidgetApiError && error.status === 401) {
-        clearAuthState();
+      if (isUnauthorized(error)) {
+        if (expireAuthenticatedSession(request)) {
+          state.authError = "Сессия истекла. Войдите снова.";
+          state.error = "Комментарий уже отправлен, но список не удалось обновить. Не отправляйте его повторно.";
+          render();
+        }
+        return;
       }
-      state.error = getErrorMessage(error);
+      if (isCurrentAuthenticatedRequest(request)) {
+        state.error = "Комментарий уже отправлен, но список не удалось обновить. Не отправляйте его повторно.";
+      }
     } finally {
-      if (submittedStatus) {
-        state.notice = getSubmissionNotice(submittedStatus, parentId !== null, replyAuthor);
+      if (isCurrentAuthenticatedRequest(request)) {
+        state.submitting = false;
+        render();
       }
-      state.submitting = false;
-      render();
     }
   }
 
   async function updateComment(commentId: string, content: string): Promise<void> {
-    if (!state.token) {
+    const request = captureSessionRequest();
+    if (!request.token) {
       state.authError = "Войдите, чтобы редактировать свой комментарий.";
       render();
       return;
@@ -375,26 +554,43 @@ export function renderWidget(
     render();
 
     try {
-      const updatedComment = await api.updateComment(commentId, content, state.token);
+      const updatedComment = await api.updateComment(commentId, content, request.token);
+      if (!isCurrentAuthenticatedRequest(request)) {
+        return;
+      }
+      expiredDraftContext = null;
       state.comments = updateCommentInTree(state.comments, updatedComment);
       state.editingComment = null;
       state.notice = updatedComment.status === "APPROVED"
         ? "Комментарий обновлен."
         : "Комментарий обновлен и отправлен на проверку.";
     } catch (error) {
-      state.comments = previousComments;
-      if (error instanceof WidgetApiError && error.status === 401) {
-        clearAuthState();
+      if (isUnauthorized(error)) {
+        if (isCurrentAuthenticatedRequest(request)) {
+          state.comments = previousComments;
+          if (expireAuthenticatedSession(request)) {
+            state.error = getErrorMessage(error);
+            render();
+          }
+        }
+        return;
       }
+      if (!isCurrentAuthenticatedRequest(request)) {
+        return;
+      }
+      state.comments = previousComments;
       state.error = getErrorMessage(error);
     } finally {
-      state.updatingCommentId = null;
-      render();
+      if (isCurrentAuthenticatedRequest(request)) {
+        state.updatingCommentId = null;
+        render();
+      }
     }
   }
 
   async function deleteComment(commentId: string): Promise<void> {
-    if (!state.token) {
+    const request = captureSessionRequest();
+    if (!request.token) {
       state.authError = "Войдите, чтобы удалить свой комментарий.";
       render();
       return;
@@ -407,24 +603,40 @@ export function renderWidget(
     render();
 
     try {
-      await api.deleteComment(commentId, state.token);
+      await api.deleteComment(commentId, request.token);
+      if (!isCurrentAuthenticatedRequest(request)) {
+        return;
+      }
       state.confirmingCommentDeleteId = null;
       state.editingComment = state.editingComment?.id === commentId ? null : state.editingComment;
       state.notice = "Комментарий удален.";
     } catch (error) {
-      state.comments = previousComments;
-      if (error instanceof WidgetApiError && error.status === 401) {
-        clearAuthState();
+      if (isUnauthorized(error)) {
+        if (isCurrentAuthenticatedRequest(request)) {
+          state.comments = previousComments;
+          if (expireAuthenticatedSession(request)) {
+            state.error = getErrorMessage(error);
+            render();
+          }
+        }
+        return;
       }
+      if (!isCurrentAuthenticatedRequest(request)) {
+        return;
+      }
+      state.comments = previousComments;
       state.error = getErrorMessage(error);
     } finally {
-      state.deletingCommentId = null;
-      render();
+      if (isCurrentAuthenticatedRequest(request)) {
+        state.deletingCommentId = null;
+        render();
+      }
     }
   }
 
   async function setReaction(commentId: string, type: CommentReactionType): Promise<void> {
-    if (!state.token) {
+    const request = captureSessionRequest();
+    if (!request.token) {
       state.authError = "Войдите или зарегистрируйтесь, чтобы поставить реакцию.";
       render();
       return;
@@ -447,19 +659,32 @@ export function renderWidget(
     render();
 
     try {
-      const response = await api.setReaction(commentId, currentReaction === type ? null : type, state.token);
+      const response = await api.setReaction(commentId, currentReaction === type ? null : type, request.token);
+      if (!isCurrentAuthenticatedRequest(request)) {
+        return;
+      }
       state.comments = updateCommentReactions(state.comments, commentId, response.reactions);
     } catch (error) {
-      state.comments = previousComments;
-      if (error instanceof WidgetApiError && error.status === 401) {
-        clearAuthState();
-        state.authError = "Сессия истекла. Войдите снова, чтобы поставить реакцию.";
-      } else {
-        state.error = getErrorMessage(error);
+      if (isUnauthorized(error)) {
+        if (isCurrentAuthenticatedRequest(request)) {
+          state.comments = previousComments;
+          if (expireAuthenticatedSession(request)) {
+            state.authError = "Сессия истекла. Войдите снова, чтобы поставить реакцию.";
+            render();
+          }
+        }
+        return;
       }
+      if (!isCurrentAuthenticatedRequest(request)) {
+        return;
+      }
+      state.comments = previousComments;
+      state.error = getErrorMessage(error);
     } finally {
-      state.reactingCommentId = null;
-      render();
+      if (isCurrentAuthenticatedRequest(request)) {
+        state.reactingCommentId = null;
+        render();
+      }
     }
   }
 
@@ -471,13 +696,26 @@ export function renderWidget(
     state.loading = true;
     state.error = null;
     render();
+    const request = captureSessionRequest();
     try {
-      state.comments = (await api.listComments(state.sort, state.token)).items;
+      const comments = await api.listComments(state.sort, request.token);
+      if (isCurrentSessionRequest(request)) {
+        state.comments = comments.items;
+      }
     } catch (error) {
-      state.error = getErrorMessage(error);
+      if (isUnauthorized(error)) {
+        if (expireAuthenticatedSession(request)) {
+          state.authError = "Сессия истекла. Войдите снова.";
+          render();
+        }
+      } else if (isCurrentSessionRequest(request)) {
+        state.error = getErrorMessage(error);
+      }
     } finally {
-      state.loading = false;
-      render();
+      if (isCurrentSessionRequest(request)) {
+        state.loading = false;
+        render();
+      }
     }
   }
 
@@ -490,15 +728,27 @@ export function renderWidget(
     state.loadingRepliesId = commentId;
     state.error = null;
     render();
+    const request = captureSessionRequest();
     try {
-      const response = await api.listReplies(commentId, nextPage, 20, state.token);
-      state.comments = updateRepliesInTree(state.comments, commentId, response.items, response.totalItems);
-      state.replyPages = { ...state.replyPages, [commentId]: nextPage };
+      const response = await api.listReplies(commentId, nextPage, 20, request.token);
+      if (isCurrentSessionRequest(request)) {
+        state.comments = updateRepliesInTree(state.comments, commentId, response.items, response.totalItems);
+        state.replyPages = { ...state.replyPages, [commentId]: nextPage };
+      }
     } catch (error) {
-      state.error = getErrorMessage(error);
+      if (isUnauthorized(error)) {
+        if (expireAuthenticatedSession(request)) {
+          state.authError = "Сессия истекла. Войдите снова.";
+          render();
+        }
+      } else if (isCurrentSessionRequest(request)) {
+        state.error = getErrorMessage(error);
+      }
     } finally {
-      state.loadingRepliesId = null;
-      render();
+      if (isCurrentSessionRequest(request)) {
+        state.loadingRepliesId = null;
+        render();
+      }
     }
   }
 
@@ -509,6 +759,24 @@ export function renderWidget(
     }
     if (isPublicCommentSort(target.value)) {
       void changeSort(target.value);
+    }
+  });
+
+  shell.addEventListener("input", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLTextAreaElement)) {
+      return;
+    }
+
+    const form = target.closest<HTMLFormElement>("form[data-cloud-comment-form]");
+    if (form?.dataset.cloudCommentForm === "comment") {
+      state.composerDraft = target.value;
+      return;
+    }
+
+    const editingComment = state.editingComment;
+    if (form?.dataset.cloudCommentForm === "edit-comment" && editingComment && editingComment.id === form.dataset.commentId) {
+      state.editingComment = { id: editingComment.id, content: target.value };
     }
   });
 
@@ -530,6 +798,7 @@ export function renderWidget(
     }
 
     if (form.dataset.cloudCommentForm === "comment") {
+      focusManager.remember(form.querySelector<HTMLTextAreaElement>("textarea[name='comment']"));
       const formData = new FormData(form);
       const content = String(formData.get("comment") ?? "").trim();
       if (!content) {
@@ -537,7 +806,6 @@ export function renderWidget(
         render();
         return;
       }
-      form.reset();
       void submitComment(content);
       return;
     }
@@ -549,6 +817,10 @@ export function renderWidget(
       if (!commentId) {
         return;
       }
+      focusManager.remember(
+        form.querySelector<HTMLTextAreaElement>("textarea[name='comment']"),
+        editTriggerFocusKey(commentId)
+      );
       if (!content) {
         state.error = "Комментарий не может быть пустым.";
         render();
@@ -644,11 +916,23 @@ export function renderWidget(
         state.confirmingCommentDeleteId = null;
         state.error = null;
         render();
+        shell.querySelector<HTMLTextAreaElement>(
+          `[data-cloud-comment-form='edit-comment'][data-comment-id='${comment.id}'] textarea`
+        )?.focus();
       }
       return;
     }
 
     if (button.dataset.commentAction === "cancel-edit") {
+      const editingCommentId = state.editingComment?.id;
+      if (editingCommentId) {
+        focusManager.remember(
+          shell.querySelector<HTMLTextAreaElement>(
+            `[data-cloud-comment-form='edit-comment'][data-comment-id='${editingCommentId}'] textarea`
+          ),
+          editTriggerFocusKey(editingCommentId)
+        );
+      }
       state.editingComment = null;
       render();
       return;
@@ -718,6 +1002,105 @@ export function renderWidget(
       shadowRoot.replaceChildren();
     }
   };
+}
+
+function createRenderFocusManager(
+  root: HTMLElement,
+  shadowRoot: ShadowRoot,
+  shell: HTMLElement
+): {
+  capture: () => void;
+  restore: () => void;
+  remember: (element: HTMLElement | null, fallbackKey?: string) => void;
+} {
+  let pending: FocusSnapshot | null = null;
+  let explicitlyRemembered = false;
+
+  return {
+    capture: () => {
+      if (explicitlyRemembered) {
+        explicitlyRemembered = false;
+        return;
+      }
+      const activeElement = shadowRoot.activeElement;
+      if (activeElement instanceof HTMLElement && shell.contains(activeElement)) {
+        const key = activeElement.dataset.focusKey;
+        pending = key ? captureFocusSnapshot(activeElement, key) : null;
+        return;
+      }
+
+      const documentActiveElement = root.ownerDocument.activeElement;
+      if (
+        pending &&
+        documentActiveElement &&
+        documentActiveElement !== root &&
+        documentActiveElement !== root.ownerDocument.body &&
+        documentActiveElement !== root.ownerDocument.documentElement
+      ) {
+        pending = null;
+      }
+    },
+    restore: () => {
+      if (!pending) {
+        return;
+      }
+
+      const snapshot = pending;
+      let element = findFocusTarget(shell, snapshot.key);
+      const restoresPrimaryTarget = Boolean(element);
+      if (!element && snapshot.fallbackKey) {
+        element = findFocusTarget(shell, snapshot.fallbackKey);
+        if (!element) {
+          pending = null;
+          return;
+        }
+      }
+      if (!element || element.matches(":disabled")) {
+        return;
+      }
+
+      element.focus({ preventScroll: true });
+      if (
+        restoresPrimaryTarget &&
+        (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) &&
+        snapshot.selectionStart !== null &&
+        snapshot.selectionEnd !== null
+      ) {
+        element.setSelectionRange(
+          Math.min(snapshot.selectionStart, element.value.length),
+          Math.min(snapshot.selectionEnd, element.value.length),
+          snapshot.selectionDirection ?? undefined
+        );
+      }
+      pending = null;
+    },
+    remember: (element, fallbackKey) => {
+      const key = element?.dataset.focusKey;
+      if (!element || !key) {
+        return;
+      }
+      pending = captureFocusSnapshot(element, key, fallbackKey ?? null);
+      explicitlyRemembered = true;
+    }
+  };
+}
+
+function findFocusTarget(shell: HTMLElement, key: string): HTMLElement | null {
+  return [...shell.querySelectorAll<HTMLElement>("[data-focus-key]")]
+    .find((candidate) => candidate.dataset.focusKey === key) ?? null;
+}
+
+function captureFocusSnapshot(element: HTMLElement, key: string, fallbackKey: string | null = null): FocusSnapshot {
+  if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+    return {
+      key,
+      fallbackKey,
+      selectionStart: element.selectionStart,
+      selectionEnd: element.selectionEnd,
+      selectionDirection: element.selectionDirection
+    };
+  }
+  return { key, fallbackKey, selectionStart: null, selectionEnd: null, selectionDirection: null };
 }
 
 function createThemeController(
@@ -903,6 +1286,7 @@ function renderCommentSort(sort: PublicCommentSort): HTMLElement {
 
   const select = document.createElement("select");
   select.dataset.commentSort = "true";
+  select.dataset.focusKey = "comment-sort";
   select.setAttribute("aria-label", "Сортировка комментариев");
   const options: Array<[PublicCommentSort, string]> = [
     ["PINNED_FIRST", "Закреплённые сначала"],
@@ -1063,6 +1447,7 @@ function renderOwnerCommentActions(comment: PublicComment, state: WidgetState): 
   editButton.type = "button";
   editButton.dataset.commentAction = "edit";
   editButton.dataset.commentId = comment.id;
+  editButton.dataset.focusKey = editTriggerFocusKey(comment.id);
   editButton.disabled = state.submitting || state.updatingCommentId === comment.id || state.deletingCommentId === comment.id;
   editButton.textContent = "Редактировать";
 
@@ -1086,6 +1471,7 @@ function renderEditCommentForm(comment: PublicComment, state: WidgetState): HTML
   const textarea = document.createElement("textarea");
   textarea.className = "cloud-comment__textarea";
   textarea.name = "comment";
+  textarea.dataset.focusKey = `edit-comment:${comment.id}`;
   textarea.maxLength = 5000;
   textarea.value = state.editingComment?.content ?? comment.content;
   textarea.disabled = state.updatingCommentId === comment.id;
@@ -1155,6 +1541,7 @@ function renderReactionBar(comment: PublicComment, state: WidgetState): HTMLElem
     button.type = "button";
     button.dataset.reactionCommentId = comment.id;
     button.dataset.reactionType = reaction.type;
+    button.dataset.focusKey = `reaction:${comment.id}:${reaction.type}`;
     button.disabled = state.reactingCommentId === comment.id;
     button.setAttribute("aria-label", reaction.label);
 
@@ -1199,6 +1586,8 @@ function renderCommentForm(state: WidgetState): HTMLElement {
   const textarea = document.createElement("textarea");
   textarea.className = "cloud-comment__textarea";
   textarea.name = "comment";
+  textarea.dataset.focusKey = "composer";
+  textarea.value = state.composerDraft;
   textarea.placeholder = state.token
     ? state.config?.style.composerPlaceholder ?? "Напишите комментарий"
     : "Войдите, чтобы написать комментарий";
@@ -1247,6 +1636,7 @@ function renderAccountSection(
   summary.className = "cloud-comment__account-summary";
   summary.type = "button";
   summary.dataset.profileAction = "toggle";
+  summary.dataset.focusKey = "profile-toggle";
   summary.setAttribute("aria-expanded", String(state.profileOpen));
   summary.setAttribute("aria-label", "Меню профиля");
 
@@ -1358,6 +1748,7 @@ function renderAuthSection(state: WidgetState, options: Required<CloudCommentWid
     expand.type = "button";
     expand.className = "cloud-comment__auth-expand";
     expand.dataset.authAction = "expand";
+    expand.dataset.focusKey = "auth-expand";
     expand.textContent = "Войти, чтобы участвовать";
     section.append(expand);
     return section;
@@ -1372,6 +1763,7 @@ function renderAuthSection(state: WidgetState, options: Required<CloudCommentWid
     button.className =
       mode === state.authMode ? "cloud-comment__tab cloud-comment__tab--active" : "cloud-comment__tab";
     button.dataset.authMode = mode;
+    button.dataset.focusKey = `auth-mode:${mode}`;
     button.textContent = mode === "login" ? "Войти" : "Регистрация";
     tabs.append(button);
   }
@@ -1384,6 +1776,7 @@ function renderAuthSection(state: WidgetState, options: Required<CloudCommentWid
   email.className = "cloud-comment__input";
   email.name = "email";
   email.type = "email";
+  email.dataset.focusKey = "auth-email";
   email.autocomplete = "email";
   email.placeholder = "Email";
   email.required = true;
@@ -1393,6 +1786,7 @@ function renderAuthSection(state: WidgetState, options: Required<CloudCommentWid
   password.className = "cloud-comment__input";
   password.name = "password";
   password.type = "password";
+  password.dataset.focusKey = "auth-password";
   password.autocomplete = state.authMode === "login" ? "current-password" : "new-password";
   password.placeholder = "Пароль";
   password.required = true;
@@ -1405,6 +1799,7 @@ function renderAuthSection(state: WidgetState, options: Required<CloudCommentWid
 
     const consent = document.createElement("input");
     consent.type = "checkbox";
+    consent.dataset.focusKey = "auth-consent";
     consent.name = "consent";
     consent.required = true;
 
@@ -1441,6 +1836,7 @@ function renderAuthSection(state: WidgetState, options: Required<CloudCommentWid
   const submit = document.createElement("button");
   submit.className = "cloud-comment__button cloud-comment__button--secondary";
   submit.type = "submit";
+  submit.dataset.focusKey = "auth-submit";
   submit.disabled = state.authenticating;
   submit.textContent = state.authenticating
     ? "Подождите..."
@@ -1481,11 +1877,20 @@ function mergeCreatedReply(
   parentId: string,
   previousComments: PublicComment[]
 ): PublicComment[] {
-  const merged = addReplyToRoot(refreshedComments, parentId, createdComment, true);
+  const merged = addReplyToRoot(
+    refreshedComments,
+    parentId,
+    createdComment,
+    createdComment.status === "APPROVED"
+  );
   if (merged.added) {
     return merged.comments;
   }
   return addReplyToRoot(previousComments, parentId, createdComment).comments;
+}
+
+function editTriggerFocusKey(commentId: string): string {
+  return `edit-trigger:${commentId}`;
 }
 
 function normalizeWidgetStyle(style: WidgetStyle): WidgetStyle {
@@ -1663,6 +2068,7 @@ function updateCommentReactions(
 function clearViewerReactions(comments: PublicComment[]): PublicComment[] {
   return comments.map((comment) => ({
     ...comment,
+    ownedByCurrentUser: false,
     reactions: normalizeReactions(comment.reactions).map((reaction) => ({
       ...reaction,
       reactedByCurrentUser: false
@@ -1751,6 +2157,15 @@ function getErrorMessage(error: unknown): string {
     return error.message;
   }
   return "CloudComment не смог обработать запрос. Попробуйте еще раз.";
+}
+
+function isUnauthorized(error: unknown): error is WidgetApiError {
+  return error instanceof WidgetApiError && error.status === 401;
+}
+
+function normalizeEmail(value: string | null): string | null {
+  const normalized = value?.trim().toLowerCase();
+  return normalized || null;
 }
 
 function formatDate(value: string): string {
