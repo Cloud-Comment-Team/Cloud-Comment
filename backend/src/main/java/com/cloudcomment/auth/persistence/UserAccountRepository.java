@@ -3,6 +3,7 @@ package com.cloudcomment.auth.persistence;
 import com.cloudcomment.auth.application.AuthenticatedUser;
 import com.cloudcomment.auth.application.RegisteredUser;
 import com.cloudcomment.auth.application.UserCredentials;
+import com.cloudcomment.auth.domain.SessionAudience;
 
 import java.time.Instant;
 import java.util.Optional;
@@ -15,13 +16,17 @@ public interface UserAccountRepository {
 
     Optional<UserCredentials> findCredentialsByEmail(String email);
 
-    Optional<AuthenticatedUser> findUserByActiveSessionTokenHash(String tokenHash, Instant now);
+    Optional<AuthenticatedUser> findUserByActiveSessionTokenHash(
+        String tokenHash,
+        SessionAudience audience,
+        Instant now
+    );
 
     RegisteredUser create(String email, String passwordHash, Set<String> roles);
 
-    void createSession(UUID userId, String tokenHash, Instant expiresAt);
+    void createSession(UUID userId, String tokenHash, SessionAudience audience, Instant expiresAt);
 
-    SessionRevocationResult revokeSession(String tokenHash, Instant revokedAt);
+    SessionRevocationResult revokeSession(String tokenHash, SessionAudience audience, Instant revokedAt);
 
     int revokeAllSessions(UUID userId, Instant revokedAt);
 

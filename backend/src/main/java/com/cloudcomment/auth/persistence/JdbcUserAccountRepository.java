@@ -3,6 +3,7 @@ package com.cloudcomment.auth.persistence;
 import com.cloudcomment.auth.application.AuthenticatedUser;
 import com.cloudcomment.auth.application.RegisteredUser;
 import com.cloudcomment.auth.application.UserCredentials;
+import com.cloudcomment.auth.domain.SessionAudience;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -63,13 +64,18 @@ class JdbcUserAccountRepository implements UserAccountRepository {
     }
 
     @Override
-    public Optional<AuthenticatedUser> findUserByActiveSessionTokenHash(String tokenHash, Instant now) {
+    public Optional<AuthenticatedUser> findUserByActiveSessionTokenHash(
+        String tokenHash,
+        SessionAudience audience,
+        Instant now
+    ) {
         List<UserProfileRow> rows = jdbcTemplate.query(
             """
                 select u.id, u.email, u.created_at, u.updated_at
                 from auth_sessions s
                 join app_users u on u.id = s.user_id
                 where s.token_hash = ?
+                  and s.audience = ?
                   and s.revoked_at is null
                   and s.expires_at > ?
                   and u.is_enabled = true
@@ -77,6 +83,7 @@ class JdbcUserAccountRepository implements UserAccountRepository {
                 """,
             this::mapUserProfileRow,
             tokenHash,
+            audience.name(),
             OffsetDateTime.ofInstant(now, ZoneOffset.UTC)
         );
 
@@ -123,31 +130,34 @@ class JdbcUserAccountRepository implements UserAccountRepository {
     }
 
     @Override
-    public void createSession(UUID userId, String tokenHash, Instant expiresAt) {
+    public void createSession(UUID userId, String tokenHash, SessionAudience audience, Instant expiresAt) {
         jdbcTemplate.update(
             """
-                insert into auth_sessions (user_id, token_hash, expires_at)
-                values (?, ?, ?)
+                insert into auth_sessions (user_id, token_hash, audience, expires_at)
+                values (?, ?, ?, ?)
                 """,
             userId,
             tokenHash,
+            audience.name(),
             OffsetDateTime.ofInstant(expiresAt, ZoneOffset.UTC)
         );
     }
 
     @Override
-    public SessionRevocationResult revokeSession(String tokenHash, Instant revokedAt) {
+    public SessionRevocationResult revokeSession(String tokenHash, SessionAudience audience, Instant revokedAt) {
         OffsetDateTime revokedAtOffset = OffsetDateTime.ofInstant(revokedAt, ZoneOffset.UTC);
         int updated = jdbcTemplate.update(
             """
                 update auth_sessions
                 set revoked_at = greatest(?, created_at)
                 where token_hash = ?
+                  and audience = ?
                   and revoked_at is null
                   and expires_at > ?
                 """,
             revokedAtOffset,
             tokenHash,
+            audience.name(),
             revokedAtOffset
         );
         if (updated > 0) {
@@ -160,11 +170,13 @@ class JdbcUserAccountRepository implements UserAccountRepository {
                     select 1
                     from auth_sessions
                     where token_hash = ?
+                      and audience = ?
                       and revoked_at is not null
                 )
                 """,
             Boolean.class,
-            tokenHash
+            tokenHash,
+            audience.name()
         );
         return Boolean.TRUE.equals(alreadyRevoked)
             ? SessionRevocationResult.ALREADY_REVOKED

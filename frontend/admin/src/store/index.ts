@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 
-import { getCurrentUser, login as loginRequest, logout as logoutRequest } from '../api/auth'
-import { getStoredAuthToken, removeStoredAuthToken, storeAuthToken } from '../auth/tokenStorage'
+import { getApiErrorCode, getCurrentUser, login as loginRequest, logout as logoutRequest } from '../api/auth'
+import { notifySessionChanged, notifySessionExpired } from '../auth/sessionEvents'
 import type { AuthUser } from '../types'
 
 type AuthStatus = 'checking' | 'authenticated' | 'unauthenticated'
@@ -11,59 +11,120 @@ interface LoginCredentials {
   password: string
 }
 
+interface AuthCheckOptions {
+  force?: boolean
+  silent?: boolean
+}
+
 interface AuthState {
-  token: string | null
   user: AuthUser | null
   status: AuthStatus
   login: (credentials: LoginCredentials) => Promise<void>
-  checkAuth: () => Promise<void>
+  checkAuth: (options?: AuthCheckOptions) => Promise<void>
   logout: () => Promise<void>
+  clearAuth: () => void
 }
 
-const initialToken = getStoredAuthToken()
+let authCheckPromise: Promise<void> | null = null
+let queuedAuthCheckPromise: Promise<void> | null = null
+let authRevision = 0
+let completedAuthRevision = -1
 
-export const useAuthStore = create<AuthState>((set, get) => ({
-  token: initialToken,
-  user: null,
-  status: initialToken ? 'checking' : 'unauthenticated',
+export const useAuthStore = create<AuthState>((set, get) => {
+  const startAuthCheck = (silent: boolean): Promise<void> => {
+    const requestRevision = authRevision
+    const request = getCurrentUser()
+      .then((user) => {
+        if (requestRevision === authRevision) {
+          set({ user, status: 'authenticated' })
+        }
+      })
+      .catch((error: unknown) => {
+        if (requestRevision !== authRevision) {
+          return
+        }
+        if (silent && get().status !== 'checking' && getApiErrorCode(error) !== 'INVALID_SESSION') {
+          return
+        }
+        set({ user: null, status: 'unauthenticated' })
+      })
+      .finally(() => {
+        completedAuthRevision = Math.max(completedAuthRevision, requestRevision)
+        if (authCheckPromise === request) {
+          authCheckPromise = null
+        }
+      })
 
-  async login(credentials) {
-    const response = await loginRequest(credentials)
+    authCheckPromise = request
+    return request
+  }
 
-    storeAuthToken(response.token)
-    set({
-      token: response.token,
-      user: response.user,
-      status: 'authenticated',
-    })
-  },
-
-  async checkAuth() {
-    const token = get().token ?? getStoredAuthToken()
-
-    if (!token) {
-      removeStoredAuthToken()
-      set({ token: null, user: null, status: 'unauthenticated' })
-      return
+  const queueForcedAuthCheck = (silent: boolean): Promise<void> => {
+    if (!queuedAuthCheckPromise) {
+      const pendingCheck = authCheckPromise
+      queuedAuthCheckPromise = (async () => {
+        if (pendingCheck) {
+          await pendingCheck
+        }
+        while (completedAuthRevision < authRevision) {
+          await startAuthCheck(silent)
+        }
+      })().finally(() => {
+        queuedAuthCheckPromise = null
+      })
     }
 
-    set({ token, status: 'checking' })
+    return queuedAuthCheckPromise
+  }
 
-    try {
-      const user = await getCurrentUser()
-      set({ token, user, status: 'authenticated' })
-    } catch {
-      removeStoredAuthToken()
-      set({ token: null, user: null, status: 'unauthenticated' })
-    }
-  },
+  return {
+    user: null,
+    status: 'checking',
 
-  async logout() {
-    try {
+    async login(credentials) {
+      const response = await loginRequest(credentials)
+
+      authRevision += 1
+      set({
+        user: response.user,
+        status: 'authenticated',
+      })
+      notifySessionChanged()
+    },
+
+    async checkAuth(options) {
+      const force = options?.force === true
+      if (force) {
+        authRevision += 1
+      }
+
+      if (!options?.silent) {
+        set({ user: null, status: 'checking' })
+      } else if (get().status === 'checking') {
+        set({ status: 'checking' })
+      }
+
+      if (queuedAuthCheckPromise) {
+        return queuedAuthCheckPromise
+      }
+
+      if (authCheckPromise) {
+        return force ? queueForcedAuthCheck(options?.silent === true) : authCheckPromise
+      }
+
+      return startAuthCheck(options?.silent === true)
+    },
+
+    async logout() {
       await logoutRequest()
-    } finally {
-      removeStoredAuthToken()
-      set({ token: null, user: null, status: 'unauthenticated' })
-    }
-  },
-}))
+      authRevision += 1
+      set({ user: null, status: 'unauthenticated' })
+      notifySessionExpired()
+    },
+
+    clearAuth() {
+      authRevision += 1
+      set({ user: null, status: 'unauthenticated' })
+    },
+  }
+})

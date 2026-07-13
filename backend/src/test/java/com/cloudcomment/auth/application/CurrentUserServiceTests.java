@@ -1,5 +1,6 @@
 package com.cloudcomment.auth.application;
 
+import com.cloudcomment.auth.domain.SessionAudience;
 import com.cloudcomment.shared.error.ApplicationException;
 import com.cloudcomment.auth.persistence.SessionRevocationResult;
 import com.cloudcomment.auth.persistence.UserAccountRepository;
@@ -34,11 +35,12 @@ class CurrentUserServiceTests {
         CapturingUserAccountRepository repository = new CapturingUserAccountRepository(Optional.of(user));
         CurrentUserService service = new CurrentUserService(repository, new SessionTokenHasher(), FIXED_CLOCK);
 
-        AuthenticatedUser result = service.getCurrentUser("plain-session-token");
+        AuthenticatedUser result = service.getCurrentUser("plain-session-token", SessionAudience.ADMIN);
 
         assertThat(result).isEqualTo(user);
         assertThat(repository.currentTokenHash).matches("[0-9a-f]{64}");
         assertThat(repository.currentTokenHash).isNotEqualTo("plain-session-token");
+        assertThat(repository.currentAudience).isEqualTo(SessionAudience.ADMIN);
         assertThat(repository.currentNow).isEqualTo("2026-06-24T12:00:00Z");
     }
 
@@ -47,11 +49,31 @@ class CurrentUserServiceTests {
         CapturingUserAccountRepository repository = new CapturingUserAccountRepository(Optional.empty());
         CurrentUserService service = new CurrentUserService(repository, new SessionTokenHasher(), FIXED_CLOCK);
 
-        assertThatThrownBy(() -> service.getCurrentUser("expired-session-token"))
+        assertThatThrownBy(() -> service.getCurrentUser("expired-session-token", SessionAudience.ADMIN))
             .isInstanceOf(ApplicationException.class)
             .hasMessage("Invalid or expired session")
             .extracting("code")
             .hasToString("INVALID_SESSION");
+    }
+
+    @Test
+    void currentUserRejectsLegacyAudienceBeforeRepositoryLookup() {
+        Instant timestamp = Instant.parse("2026-06-23T12:00:00Z");
+        AuthenticatedUser user = new AuthenticatedUser(
+            UUID.randomUUID(),
+            "user@example.com",
+            Set.of("COMMENTER"),
+            timestamp,
+            timestamp
+        );
+        CapturingUserAccountRepository repository = new CapturingUserAccountRepository(Optional.of(user));
+        CurrentUserService service = new CurrentUserService(repository, new SessionTokenHasher(), FIXED_CLOCK);
+
+        assertThatThrownBy(() -> service.getCurrentUser("legacy-token", SessionAudience.LEGACY))
+            .isInstanceOf(ApplicationException.class)
+            .hasMessage("Invalid or expired session");
+
+        assertThat(repository.currentAudience).isNull();
     }
 
     private static class CapturingUserAccountRepository implements UserAccountRepository {
@@ -59,6 +81,7 @@ class CurrentUserServiceTests {
         private final Optional<AuthenticatedUser> currentUser;
 
         private String currentTokenHash;
+        private SessionAudience currentAudience;
         private Instant currentNow;
 
         private CapturingUserAccountRepository(Optional<AuthenticatedUser> currentUser) {
@@ -76,8 +99,13 @@ class CurrentUserServiceTests {
         }
 
         @Override
-        public Optional<AuthenticatedUser> findUserByActiveSessionTokenHash(String tokenHash, Instant now) {
+        public Optional<AuthenticatedUser> findUserByActiveSessionTokenHash(
+            String tokenHash,
+            SessionAudience audience,
+            Instant now
+        ) {
             currentTokenHash = tokenHash;
+            currentAudience = audience;
             currentNow = now;
             return currentUser;
         }
@@ -88,12 +116,16 @@ class CurrentUserServiceTests {
         }
 
         @Override
-        public void createSession(UUID userId, String tokenHash, Instant expiresAt) {
+        public void createSession(UUID userId, String tokenHash, SessionAudience audience, Instant expiresAt) {
             throw new UnsupportedOperationException("current user tests do not create sessions");
         }
 
         @Override
-        public SessionRevocationResult revokeSession(String tokenHash, Instant revokedAt) {
+        public SessionRevocationResult revokeSession(
+            String tokenHash,
+            SessionAudience audience,
+            Instant revokedAt
+        ) {
             throw new UnsupportedOperationException("current user tests do not revoke sessions");
         }
 

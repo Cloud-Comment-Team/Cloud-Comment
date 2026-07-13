@@ -2,13 +2,16 @@ import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '@playwright/test'
 
 test.beforeEach(async ({ page }) => {
+  await page.route('**/api/auth/csrf', (route) => route.fulfill({
+    json: { headerName: 'X-CSRF-TOKEN', token: 'offline-csrf-token' },
+  }))
   await page.route('**/api/auth/me', (route) => route.fulfill({
     json: { id: '00000000-0000-0000-0000-000000000001', email: 'owner@example.test', roles: ['OWNER'], createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
   }))
   await page.route('**/api/realtime/tickets', (route) => route.fulfill({ json: { ticket: 'offline-test-ticket' } }))
-  await page.goto('/login')
-  await page.evaluate(() => localStorage.setItem('cloud-comment.admin.authToken', 'test-token'))
+  await page.addInitScript(() => localStorage.setItem('cloud-comment.admin.authToken', 'legacy-token-must-be-removed'))
   await page.goto('/')
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('cloud-comment.admin.authToken'))).toBeNull()
 })
 
 test('desktop-шапка не дублирует sidebar, а мобильная остаётся функциональной', async ({ page }) => {

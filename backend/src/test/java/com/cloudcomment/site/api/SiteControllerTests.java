@@ -53,6 +53,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static com.cloudcomment.support.AdminSecurityTestSupport.adminRequest;
 
 @SpringBootTest(properties = "spring.flyway.enabled=false")
 @AutoConfigureMockMvc
@@ -90,11 +91,11 @@ class SiteControllerTests {
     void listSitesReturnsPaginatedSitesForCurrentUser() throws Exception {
         AuthenticatedUser currentUser = currentUser();
         Site site = site(currentUser.id(), UUID.randomUUID());
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
         when(siteService.listSites(currentUser, 1, 20)).thenReturn(new SitePage(List.of(site), 1, 20, 1));
 
         mockMvc.perform(get("/api/sites")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
+                .with(adminRequest("plain-session-token")))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.items[0].id", is(site.id().toString())))
             .andExpect(jsonPath("$.items[0].ownerId", is(currentUser.id().toString())))
@@ -123,7 +124,7 @@ class SiteControllerTests {
     void installationStatusReturnsOwnerScopedHealthAndChecklist() throws Exception {
         AuthenticatedUser currentUser = currentUser();
         UUID siteId = UUID.randomUUID();
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
         when(installationHealthService.getStatus(currentUser, siteId)).thenReturn(new SiteInstallationStatus(
             InstallationStatus.REJECTED,
             InstallationStatusReason.ORIGIN_REJECTED,
@@ -138,7 +139,7 @@ class SiteControllerTests {
         ));
 
         mockMvc.perform(get("/api/sites/{siteId}/installation-status", siteId)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
+                .with(adminRequest("plain-session-token")))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.status", is("REJECTED")))
             .andExpect(jsonPath("$.reason", is("ORIGIN_REJECTED")))
@@ -153,11 +154,11 @@ class SiteControllerTests {
     @Test
     void listSitesRejectsPageAboveMaximum() throws Exception {
         AuthenticatedUser currentUser = currentUser();
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
 
         mockMvc.perform(get("/api/sites")
                 .param("page", "100001")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
+                .with(adminRequest("plain-session-token")))
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error.code", is("VALIDATION_FAILED")))
             .andExpect(jsonPath("$.error.path", is("/api/sites")))
@@ -170,7 +171,7 @@ class SiteControllerTests {
     void createSiteReturnsCreatedSite() throws Exception {
         AuthenticatedUser currentUser = currentUser();
         Site site = site(currentUser.id(), UUID.randomUUID());
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
         when(siteService.createSite(
             eq(currentUser),
             eq("Example site"),
@@ -182,7 +183,7 @@ class SiteControllerTests {
         )).thenReturn(site);
 
         mockMvc.perform(post("/api/sites")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .with(adminRequest("plain-session-token"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -215,7 +216,7 @@ class SiteControllerTests {
             0
         );
         Site site = site(currentUser.id(), siteId, widgetStyle, autoModeration);
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
         when(siteService.createSite(
             eq(currentUser),
             eq("Example site"),
@@ -227,7 +228,7 @@ class SiteControllerTests {
         )).thenReturn(site);
 
         mockMvc.perform(post("/api/sites")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .with(adminRequest("plain-session-token"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -266,10 +267,10 @@ class SiteControllerTests {
     @Test
     void createSiteRejectsInvalidRequestWithValidationEnvelope() throws Exception {
         AuthenticatedUser currentUser = currentUser();
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
 
         mockMvc.perform(post("/api/sites")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .with(adminRequest("plain-session-token"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -292,10 +293,10 @@ class SiteControllerTests {
     @Test
     void createSiteRejectsInvalidAutoModerationRequest() throws Exception {
         AuthenticatedUser currentUser = currentUser();
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
 
         mockMvc.perform(post("/api/sites")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .with(adminRequest("plain-session-token"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -324,10 +325,10 @@ class SiteControllerTests {
     @Test
     void createSiteRejectsTooManyAllowedOrigins() throws Exception {
         AuthenticatedUser currentUser = currentUser();
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
 
         mockMvc.perform(post("/api/sites")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .with(adminRequest("plain-session-token"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -348,7 +349,7 @@ class SiteControllerTests {
     @Test
     void createSiteReturnsConflictWhenOwnerAlreadyHasDomain() throws Exception {
         AuthenticatedUser currentUser = currentUser();
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
         when(siteService.createSite(
             eq(currentUser),
             eq("Example site"),
@@ -360,7 +361,7 @@ class SiteControllerTests {
         )).thenThrow(new ApplicationException(ApiErrorCode.BUSINESS_ERROR, "Site domain already exists"));
 
         mockMvc.perform(post("/api/sites")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .with(adminRequest("plain-session-token"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -381,12 +382,12 @@ class SiteControllerTests {
     void getSiteReturnsNotFoundForForeignOrMissingSite() throws Exception {
         AuthenticatedUser currentUser = currentUser();
         UUID siteId = UUID.randomUUID();
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
         when(siteService.getSite(currentUser, siteId))
             .thenThrow(new ApplicationException(ApiErrorCode.NOT_FOUND, "Resource not found"));
 
         mockMvc.perform(get("/api/sites/{siteId}", siteId)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
+                .with(adminRequest("plain-session-token")))
             .andExpect(status().isNotFound())
             .andExpect(jsonPath("$.error.code", is("NOT_FOUND")))
             .andExpect(jsonPath("$.error.message", is("Resource not found")))
@@ -411,7 +412,7 @@ class SiteControllerTests {
             CREATED_AT,
             UPDATED_AT
         );
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
         when(siteService.updateSite(
             currentUser,
             siteId,
@@ -424,7 +425,7 @@ class SiteControllerTests {
         )).thenReturn(updatedSite);
 
         mockMvc.perform(patch("/api/sites/{siteId}", siteId)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .with(adminRequest("plain-session-token"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -455,7 +456,7 @@ class SiteControllerTests {
             2
         );
         Site updatedSite = site(currentUser.id(), siteId, widgetStyle, autoModeration);
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
         when(siteService.getSite(currentUser, siteId)).thenReturn(
             site(currentUser.id(), siteId, WidgetStyle.defaultStyle(), AutoModerationSettings.defaultSettings())
         );
@@ -471,7 +472,7 @@ class SiteControllerTests {
         )).thenReturn(updatedSite);
 
         mockMvc.perform(patch("/api/sites/{siteId}", siteId)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .with(adminRequest("plain-session-token"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -498,10 +499,10 @@ class SiteControllerTests {
     void updateSiteRejectsMarkupInWidgetLabels() throws Exception {
         AuthenticatedUser currentUser = currentUser();
         UUID siteId = UUID.randomUUID();
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
 
         mockMvc.perform(patch("/api/sites/{siteId}", siteId)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .with(adminRequest("plain-session-token"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -533,12 +534,12 @@ class SiteControllerTests {
             CREATED_AT,
             UPDATED_AT
         );
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
         when(siteService.replaceAllowedOrigins(currentUser, siteId, List.of("https://admin.example.com")))
             .thenReturn(updatedSite);
 
         mockMvc.perform(put("/api/sites/{siteId}/allowed-origins", siteId)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .with(adminRequest("plain-session-token"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -553,10 +554,10 @@ class SiteControllerTests {
     void replaceAllowedOriginsRejectsTooManyAllowedOrigins() throws Exception {
         AuthenticatedUser currentUser = currentUser();
         UUID siteId = UUID.randomUUID();
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
 
         mockMvc.perform(put("/api/sites/{siteId}/allowed-origins", siteId)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .with(adminRequest("plain-session-token"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -575,7 +576,7 @@ class SiteControllerTests {
     void getEmbedCodeReturnsSnippetAndDataAttributes() throws Exception {
         AuthenticatedUser currentUser = currentUser();
         UUID siteId = UUID.randomUUID();
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
         when(siteService.getEmbedCode(currentUser, siteId)).thenReturn(new EmbedCode(
             siteId,
             "http://localhost/widget/cloud-comment-widget.js",
@@ -587,7 +588,7 @@ class SiteControllerTests {
         ));
 
         mockMvc.perform(get("/api/sites/{siteId}/embed-code", siteId)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
+                .with(adminRequest("plain-session-token")))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.siteId", is(siteId.toString())))
             .andExpect(jsonPath("$.scriptUrl", is("http://localhost/widget/cloud-comment-widget.js")))
@@ -602,7 +603,7 @@ class SiteControllerTests {
     void checkAutoModerationReturnsExplainableDecision() throws Exception {
         AuthenticatedUser currentUser = currentUser();
         UUID siteId = UUID.randomUUID();
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
         when(siteService.checkAutoModeration(currentUser, siteId, "казино ставки"))
             .thenReturn(new AutoModerationDecision(
                 CommentStatus.SPAM,
@@ -612,7 +613,7 @@ class SiteControllerTests {
             ));
 
         mockMvc.perform(post("/api/sites/{siteId}/automoderation/check", siteId)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .with(adminRequest("plain-session-token"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -632,12 +633,12 @@ class SiteControllerTests {
     void checkAutoModerationReturnsNotFoundForForeignOrMissingSite() throws Exception {
         AuthenticatedUser currentUser = currentUser();
         UUID siteId = UUID.randomUUID();
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
         when(siteService.checkAutoModeration(currentUser, siteId, "casino"))
             .thenThrow(new ApplicationException(ApiErrorCode.NOT_FOUND, "Resource not found"));
 
         mockMvc.perform(post("/api/sites/{siteId}/automoderation/check", siteId)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .with(adminRequest("plain-session-token"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -653,10 +654,10 @@ class SiteControllerTests {
     void checkAutoModerationRejectsBlankContent() throws Exception {
         AuthenticatedUser currentUser = currentUser();
         UUID siteId = UUID.randomUUID();
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
 
         mockMvc.perform(post("/api/sites/{siteId}/automoderation/check", siteId)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .with(adminRequest("plain-session-token"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -674,10 +675,10 @@ class SiteControllerTests {
     void deleteSiteReturnsNoContent() throws Exception {
         AuthenticatedUser currentUser = currentUser();
         UUID siteId = UUID.randomUUID();
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
 
         mockMvc.perform(delete("/api/sites/{siteId}", siteId)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
+                .with(adminRequest("plain-session-token")))
             .andExpect(status().isNoContent());
 
         verify(siteService).deleteSite(currentUser, siteId);
@@ -687,13 +688,13 @@ class SiteControllerTests {
     void deleteSiteReturnsNotFoundForForeignOrMissingSite() throws Exception {
         AuthenticatedUser currentUser = currentUser();
         UUID siteId = UUID.randomUUID();
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
         org.mockito.Mockito.doThrow(new ApplicationException(ApiErrorCode.NOT_FOUND, "Resource not found"))
             .when(siteService)
             .deleteSite(currentUser, siteId);
 
         mockMvc.perform(delete("/api/sites/{siteId}", siteId)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
+                .with(adminRequest("plain-session-token")))
             .andExpect(status().isNotFound())
             .andExpect(jsonPath("$.error.code", is("NOT_FOUND")))
             .andExpect(jsonPath("$.error.path", is("/api/sites/" + siteId)));

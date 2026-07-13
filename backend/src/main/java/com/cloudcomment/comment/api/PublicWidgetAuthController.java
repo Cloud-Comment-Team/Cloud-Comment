@@ -10,6 +10,7 @@ import com.cloudcomment.auth.application.LoginService;
 import com.cloudcomment.auth.application.LogoutService;
 import com.cloudcomment.auth.application.RegisteredUser;
 import com.cloudcomment.auth.application.RegistrationService;
+import com.cloudcomment.auth.domain.SessionAudience;
 import com.cloudcomment.comment.application.DomainPolicyService;
 import com.cloudcomment.privacy.application.RegistrationConsent;
 import com.cloudcomment.privacy.domain.ConsentSource;
@@ -71,7 +72,11 @@ class PublicWidgetAuthController {
     ) {
         String origin = requestOriginResolver.resolve(servletRequest);
         domainPolicyService.validate(siteId, origin);
-        return LoginUserResponse.from(loginService.login(request.email(), request.password()));
+        return LoginUserResponse.from(loginService.login(
+            request.email(),
+            request.password(),
+            SessionAudience.WIDGET
+        ));
     }
 
     @GetMapping("/me")
@@ -92,7 +97,7 @@ class PublicWidgetAuthController {
         @RequestHeader(name = HttpHeaders.AUTHORIZATION, required = false) String authorization
     ) {
         domainPolicyService.validate(siteId, requestOriginResolver.resolve(servletRequest));
-        logoutService.logout(bearerTokenResolver.resolve(authorization));
+        logoutService.logout(bearerTokenResolver.resolve(authorization), SessionAudience.WIDGET);
         return ResponseEntity.noContent().build();
     }
 }

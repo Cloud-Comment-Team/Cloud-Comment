@@ -16,8 +16,6 @@ export interface AuthUser {
 }
 
 export interface LoginResponse {
-  token: string;
-  tokenType: string;
   expiresAt: string;
   user: AuthUser;
 }

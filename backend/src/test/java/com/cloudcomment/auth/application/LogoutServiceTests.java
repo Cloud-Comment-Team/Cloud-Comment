@@ -3,6 +3,7 @@ package com.cloudcomment.auth.application;
 import com.cloudcomment.shared.error.ApplicationException;
 import com.cloudcomment.auth.persistence.SessionRevocationResult;
 import com.cloudcomment.auth.persistence.UserAccountRepository;
+import com.cloudcomment.auth.domain.SessionAudience;
 import org.junit.jupiter.api.Test;
 
 import java.time.Clock;
@@ -28,12 +29,13 @@ class LogoutServiceTests {
         CapturingUserAccountRepository repository = new CapturingUserAccountRepository(SessionRevocationResult.REVOKED);
         LogoutService service = new LogoutService(repository, new SessionTokenHasher(), FIXED_CLOCK);
 
-        assertThatCode(() -> service.logout("plain-session-token"))
+        assertThatCode(() -> service.logout("plain-session-token", SessionAudience.WIDGET))
             .doesNotThrowAnyException();
 
         assertThat(repository.revokedTokenHash).matches("[0-9a-f]{64}");
         assertThat(repository.revokedTokenHash).isNotEqualTo("plain-session-token");
         assertThat(repository.revokedAt).isEqualTo("2026-06-24T12:00:00Z");
+        assertThat(repository.revokedAudience).isEqualTo(SessionAudience.WIDGET);
     }
 
     @Test
@@ -43,7 +45,7 @@ class LogoutServiceTests {
         );
         LogoutService service = new LogoutService(repository, new SessionTokenHasher(), FIXED_CLOCK);
 
-        assertThatCode(() -> service.logout("plain-session-token"))
+        assertThatCode(() -> service.logout("plain-session-token", SessionAudience.WIDGET))
             .doesNotThrowAnyException();
     }
 
@@ -54,11 +56,22 @@ class LogoutServiceTests {
         );
         LogoutService service = new LogoutService(repository, new SessionTokenHasher(), FIXED_CLOCK);
 
-        assertThatThrownBy(() -> service.logout("expired-session-token"))
+        assertThatThrownBy(() -> service.logout("expired-session-token", SessionAudience.WIDGET))
             .isInstanceOf(ApplicationException.class)
             .hasMessage("Invalid or expired session")
             .extracting("code")
             .hasToString("INVALID_SESSION");
+    }
+
+    @Test
+    void idempotentAdminLogoutIgnoresMissingOrExpiredSession() {
+        CapturingUserAccountRepository repository = new CapturingUserAccountRepository(
+            SessionRevocationResult.NOT_FOUND_OR_EXPIRED
+        );
+        LogoutService service = new LogoutService(repository, new SessionTokenHasher(), FIXED_CLOCK);
+
+        assertThatCode(() -> service.logoutIfPresent("expired-session-token", SessionAudience.ADMIN))
+            .doesNotThrowAnyException();
     }
 
     private static class CapturingUserAccountRepository implements UserAccountRepository {
@@ -67,6 +80,7 @@ class LogoutServiceTests {
 
         private String revokedTokenHash;
         private Instant revokedAt;
+        private SessionAudience revokedAudience;
 
         private CapturingUserAccountRepository(SessionRevocationResult revocationResult) {
             this.revocationResult = revocationResult;
@@ -83,7 +97,11 @@ class LogoutServiceTests {
         }
 
         @Override
-        public Optional<AuthenticatedUser> findUserByActiveSessionTokenHash(String tokenHash, Instant now) {
+        public Optional<AuthenticatedUser> findUserByActiveSessionTokenHash(
+            String tokenHash,
+            SessionAudience audience,
+            Instant now
+        ) {
             return Optional.empty();
         }
 
@@ -93,13 +111,18 @@ class LogoutServiceTests {
         }
 
         @Override
-        public void createSession(UUID userId, String tokenHash, Instant expiresAt) {
+        public void createSession(UUID userId, String tokenHash, SessionAudience audience, Instant expiresAt) {
             throw new UnsupportedOperationException("logout tests do not create sessions");
         }
 
         @Override
-        public SessionRevocationResult revokeSession(String tokenHash, Instant revokedAt) {
+        public SessionRevocationResult revokeSession(
+            String tokenHash,
+            SessionAudience audience,
+            Instant revokedAt
+        ) {
             this.revokedTokenHash = tokenHash;
+            this.revokedAudience = audience;
             this.revokedAt = revokedAt;
             return revocationResult;
         }

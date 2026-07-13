@@ -39,6 +39,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static com.cloudcomment.support.AdminSecurityTestSupport.adminRequest;
 
 @SpringBootTest(properties = "spring.flyway.enabled=false")
 @AutoConfigureMockMvc
@@ -75,13 +76,13 @@ class AutoModerationControllerTests {
         UUID siteId = UUID.randomUUID();
         AutoModerationPolicyVersion active = policy(siteId, 2, AutoModerationPolicyLifecycle.PUBLISHED);
         AutoModerationPolicyVersion draft = policy(siteId, null, AutoModerationPolicyLifecycle.DRAFT);
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(user);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(user);
         when(policyService.list(user, siteId)).thenReturn(new AutoModerationPolicySet(
             active, draft, List.of(active)
         ));
 
         mockMvc.perform(get("/api/sites/{siteId}/automoderation/policies", siteId)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
+                .with(adminRequest("plain-session-token")))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.activePolicy.id", is(active.id().toString())))
             .andExpect(jsonPath("$.activePolicy.state", is("PUBLISHED")))
@@ -96,10 +97,10 @@ class AutoModerationControllerTests {
         AuthenticatedUser user = user();
         UUID siteId = UUID.randomUUID();
         UUID policyId = UUID.randomUUID();
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(user);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(user);
 
         mockMvc.perform(patch("/api/sites/{siteId}/automoderation/policies/{policyId}", siteId, policyId)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .with(adminRequest("plain-session-token"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -120,7 +121,7 @@ class AutoModerationControllerTests {
         AuthenticatedUser user = user();
         UUID commentId = UUID.randomUUID();
         UUID policyId = UUID.randomUUID();
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(user);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(user);
         when(feedbackService.put(user, commentId, AutoModerationFeedbackType.FALSE_POSITIVE))
             .thenReturn(new AutoModerationFeedback(
                 UUID.randomUUID(), commentId, policyId, user.id(),
@@ -128,7 +129,7 @@ class AutoModerationControllerTests {
             ));
 
         mockMvc.perform(put("/api/moderation/comments/{commentId}/automoderation-feedback", commentId)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .with(adminRequest("plain-session-token"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"type\":\"FALSE_POSITIVE\"}"))
             .andExpect(status().isOk())
@@ -139,7 +140,7 @@ class AutoModerationControllerTests {
         when(feedbackService.put(user, foreignComment, AutoModerationFeedbackType.FALSE_POSITIVE))
             .thenThrow(new ApplicationException(ApiErrorCode.NOT_FOUND, "Resource not found"));
         mockMvc.perform(put("/api/moderation/comments/{commentId}/automoderation-feedback", foreignComment)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .with(adminRequest("plain-session-token"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"type\":\"FALSE_POSITIVE\"}"))
             .andExpect(status().isNotFound())

@@ -25,11 +25,14 @@ import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.is;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static com.cloudcomment.support.AdminSecurityTestSupport.adminSession;
+import static com.cloudcomment.support.AdminSecurityTestSupport.csrf;
 
 @SpringBootTest(properties = "spring.flyway.enabled=false")
 @AutoConfigureMockMvc
@@ -42,7 +45,7 @@ class ApiAuthenticationTests {
     private CurrentUserService currentUserService;
 
     @Test
-    void protectedEndpointRejectsMissingBearerToken() throws Exception {
+    void protectedEndpointRejectsMissingAdminCookie() throws Exception {
         mockMvc.perform(get("/api/protected-test/current"))
             .andExpect(status().isUnauthorized())
             .andExpect(jsonPath("$.error.code", is("INVALID_SESSION")))
@@ -53,7 +56,7 @@ class ApiAuthenticationTests {
     }
 
     @Test
-    void protectedEndpointRejectsMalformedBearerToken() throws Exception {
+    void protectedEndpointRejectsBearerToken() throws Exception {
         mockMvc.perform(get("/api/protected-test/current")
                 .header("Authorization", "Basic plain-session-token"))
             .andExpect(status().isUnauthorized())
@@ -62,11 +65,20 @@ class ApiAuthenticationTests {
             .andExpect(jsonPath("$.error.status", is(401)))
             .andExpect(jsonPath("$.error.path", is("/api/protected-test/current")))
             .andExpect(jsonPath("$.error.fields", empty()));
+
+        verify(currentUserService, never()).getCurrentUser(
+            "plain-session-token",
+            com.cloudcomment.auth.domain.SessionAudience.ADMIN
+        );
     }
 
     @Test
     void protectedEndpointRejectsMissingBearerTokenBeforeMethodMismatchHandling() throws Exception {
         mockMvc.perform(patch("/api/protected-test/current"))
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.error.code", is("INVALID_CSRF_TOKEN")));
+
+        mockMvc.perform(patch("/api/protected-test/current").with(csrf()))
             .andExpect(status().isUnauthorized())
             .andExpect(jsonPath("$.error.code", is("INVALID_SESSION")))
             .andExpect(jsonPath("$.error.message", is("Invalid or expired session")))
@@ -77,14 +89,17 @@ class ApiAuthenticationTests {
 
     @Test
     void protectedEndpointRejectsInvalidOrExpiredSession() throws Exception {
-        when(currentUserService.getCurrentUser(eq("expired-session-token")))
+        when(currentUserService.getCurrentUser(
+            eq("expired-session-token"),
+            eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN)
+        ))
             .thenThrow(new ApplicationException(
                 ApiErrorCode.INVALID_SESSION,
                 "Invalid or expired session"
             ));
 
         mockMvc.perform(get("/api/protected-test/current")
-                .header("Authorization", "Bearer expired-session-token"))
+                .with(adminSession("expired-session-token")))
             .andExpect(status().isUnauthorized())
             .andExpect(jsonPath("$.error.code", is("INVALID_SESSION")))
             .andExpect(jsonPath("$.error.message", is("Invalid or expired session")))
@@ -97,16 +112,22 @@ class ApiAuthenticationTests {
     void protectedEndpointReceivesAuthenticatedUser() throws Exception {
         UUID userId = UUID.randomUUID();
         Instant timestamp = Instant.parse("2026-06-23T12:00:00Z");
-        when(currentUserService.getCurrentUser(eq("plain-session-token")))
+        when(currentUserService.getCurrentUser(
+            eq("plain-session-token"),
+            eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN)
+        ))
             .thenReturn(new AuthenticatedUser(userId, "user@example.com", Set.of("COMMENTER"), timestamp, timestamp));
 
         mockMvc.perform(get("/api/protected-test/current")
-                .header("Authorization", "bearer plain-session-token"))
+                .with(adminSession("plain-session-token")))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.id", is(userId.toString())))
             .andExpect(jsonPath("$.email", is("user@example.com")));
 
-        verify(currentUserService).getCurrentUser("plain-session-token");
+        verify(currentUserService).getCurrentUser(
+            "plain-session-token",
+            com.cloudcomment.auth.domain.SessionAudience.ADMIN
+        );
     }
 
     @TestConfiguration

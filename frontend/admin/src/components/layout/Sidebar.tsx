@@ -1,6 +1,7 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Globe, LayoutDashboard, LogOut, Shield, X } from 'lucide-react'
+import toast from 'react-hot-toast'
 
 import { BrandMark } from '../brand/BrandLogo'
 import { useAuthStore } from '../../store'
@@ -27,9 +28,13 @@ const Sidebar = ({ isOpen, onClose, onNavigationIntent }: SidebarProps) => {
   const initials = user?.email?.slice(0, 2).toUpperCase() ?? 'AD'
 
   async function handleLogout() {
-    await logout()
-    onClose()
-    navigate('/login', { replace: true })
+    try {
+      await logout()
+      onClose()
+      navigate('/login', { replace: true })
+    } catch {
+      toast.error('Не удалось завершить сессию. Проверьте соединение и попробуйте ещё раз.')
+    }
   }
 
   return (

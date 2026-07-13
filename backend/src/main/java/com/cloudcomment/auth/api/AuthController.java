@@ -1,6 +1,7 @@
 package com.cloudcomment.auth.api;
 
-import com.cloudcomment.shared.web.security.BearerTokenResolver;
+import com.cloudcomment.shared.web.security.AdminCsrfTokenService;
+import com.cloudcomment.shared.web.security.AdminSessionCookieService;
 import com.cloudcomment.shared.web.security.CurrentUser;
 import com.cloudcomment.shared.web.security.PublicApi;
 import com.cloudcomment.auth.application.AuthenticatedUser;
@@ -9,16 +10,18 @@ import com.cloudcomment.auth.application.LoginService;
 import com.cloudcomment.auth.application.LogoutService;
 import com.cloudcomment.auth.application.RegisteredUser;
 import com.cloudcomment.auth.application.RegistrationService;
+import com.cloudcomment.auth.domain.SessionAudience;
 import com.cloudcomment.privacy.application.RegistrationConsent;
 import com.cloudcomment.privacy.domain.ConsentSource;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
-import org.springframework.http.HttpHeaders;
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -29,18 +32,21 @@ public class AuthController {
     private final RegistrationService registrationService;
     private final LoginService loginService;
     private final LogoutService logoutService;
-    private final BearerTokenResolver bearerTokenResolver;
+    private final AdminSessionCookieService adminSessionCookieService;
+    private final AdminCsrfTokenService csrfTokenService;
 
     AuthController(
         RegistrationService registrationService,
         LoginService loginService,
         LogoutService logoutService,
-        BearerTokenResolver bearerTokenResolver
+        AdminSessionCookieService adminSessionCookieService,
+        AdminCsrfTokenService csrfTokenService
     ) {
         this.registrationService = registrationService;
         this.loginService = loginService;
         this.logoutService = logoutService;
-        this.bearerTokenResolver = bearerTokenResolver;
+        this.adminSessionCookieService = adminSessionCookieService;
+        this.csrfTokenService = csrfTokenService;
     }
 
     @PublicApi
@@ -57,18 +63,39 @@ public class AuthController {
 
     @PublicApi
     @PostMapping("/login")
-    LoginUserResponse login(@Valid @RequestBody LoginUserRequest request) {
-        LoginResult result = loginService.login(request.email(), request.password());
-        return LoginUserResponse.from(result);
+    AdminLoginResponse login(
+        @Valid @RequestBody LoginUserRequest request,
+        HttpServletRequest servletRequest,
+        HttpServletResponse servletResponse
+    ) {
+        LoginResult result = loginService.loginReplacing(
+            request.email(),
+            request.password(),
+            SessionAudience.ADMIN,
+            adminSessionCookieService.resolveOptional(servletRequest).orElse(null)
+        );
+        adminSessionCookieService.write(servletResponse, result.token(), result.expiresAt());
+        return AdminLoginResponse.from(result);
     }
 
     @PublicApi
     @PostMapping("/logout")
-    ResponseEntity<Void> logout(
-        @RequestHeader(name = HttpHeaders.AUTHORIZATION, required = false) String authorization
-    ) {
-        logoutService.logout(bearerTokenResolver.resolve(authorization));
+    ResponseEntity<Void> logout(HttpServletRequest request, HttpServletResponse response) {
+        try {
+            adminSessionCookieService.resolveOptional(request)
+                .ifPresent(token -> logoutService.logoutIfPresent(token, SessionAudience.ADMIN));
+        } finally {
+            adminSessionCookieService.clear(response);
+        }
         return ResponseEntity.noContent().build();
+    }
+
+    @PublicApi
+    @GetMapping("/csrf")
+    ResponseEntity<CsrfTokenResponse> csrf(HttpServletResponse response) {
+        return ResponseEntity.ok()
+            .cacheControl(CacheControl.noStore())
+            .body(CsrfTokenResponse.from(csrfTokenService.issue(response)));
     }
 
     @GetMapping("/me")

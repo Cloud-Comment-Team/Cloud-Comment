@@ -1,4 +1,5 @@
 import { apiClient } from './client'
+import { clearCsrfCredentials } from './csrf'
 import type { AuthUser, LoginResponse } from '../types'
 
 export interface LoginCredentials {
@@ -19,6 +20,7 @@ export type RegisterResponse = AuthUser
 
 interface ApiErrorResponse {
   error?: {
+    code?: string
     message?: string
     fields?: Array<{
       field: string
@@ -43,7 +45,18 @@ export async function getCurrentUser(): Promise<AuthUser> {
 }
 
 export async function logout(): Promise<void> {
-  await apiClient.post('/auth/logout')
+  try {
+    await apiClient.post('/auth/logout')
+  } finally {
+    clearCsrfCredentials()
+  }
+}
+
+export function getApiErrorCode(error: unknown): string | null {
+  if (!isApiError(error)) {
+    return null
+  }
+  return error.response?.data?.error?.code ?? null
 }
 
 export function getApiErrorMessage(error: unknown, fallbackMessage: string): string {

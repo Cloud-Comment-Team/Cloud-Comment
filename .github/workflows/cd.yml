@@ -72,7 +72,7 @@ jobs:
       - name: Build admin
         working-directory: frontend/admin
         env:
-          VITE_CLOUD_COMMENT_API_BASE_URL: ${{ env.PUBLIC_BASE_URL }}/api
+          VITE_CLOUD_COMMENT_API_BASE_URL: /api
         run: |
           npm ci
           npm run build

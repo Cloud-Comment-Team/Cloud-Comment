@@ -34,6 +34,7 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static com.cloudcomment.support.AdminSecurityTestSupport.adminRequest;
 
 @SpringBootTest(properties = "spring.flyway.enabled=false")
 @AutoConfigureMockMvc
@@ -52,10 +53,10 @@ class ResourceOwnershipMvcTests {
     void protectedEndpointAllowsOwnedResource() throws Exception {
         UUID siteId = UUID.randomUUID();
         AuthenticatedUser currentUser = currentUser();
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
 
         mockMvc.perform(get("/api/test/sites/{siteId}/ownership", siteId)
-                .header("Authorization", "Bearer plain-session-token"))
+                .with(adminRequest("plain-session-token")))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.status", is("owned")));
 
@@ -66,13 +67,13 @@ class ResourceOwnershipMvcTests {
     void protectedEndpointReturnsNotFoundForForeignOrMissingResource() throws Exception {
         UUID siteId = UUID.randomUUID();
         AuthenticatedUser currentUser = currentUser();
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
         doThrow(new ApplicationException(ApiErrorCode.NOT_FOUND, "Resource not found"))
             .when(resourceOwnershipService)
             .assertSiteOwnedBy(currentUser, siteId);
 
         mockMvc.perform(get("/api/test/sites/{siteId}/ownership", siteId)
-                .header("Authorization", "Bearer plain-session-token"))
+                .with(adminRequest("plain-session-token")))
             .andExpect(status().isNotFound())
             .andExpect(jsonPath("$.error.code", is("NOT_FOUND")))
             .andExpect(jsonPath("$.error.message", is("Resource not found")))
@@ -82,7 +83,7 @@ class ResourceOwnershipMvcTests {
     }
 
     @Test
-    void protectedEndpointStillRequiresBearerTokenBeforeOwnershipCheck() throws Exception {
+    void protectedEndpointStillRequiresAdminCookieBeforeOwnershipCheck() throws Exception {
         UUID siteId = UUID.randomUUID();
 
         mockMvc.perform(get("/api/test/sites/{siteId}/ownership", siteId))

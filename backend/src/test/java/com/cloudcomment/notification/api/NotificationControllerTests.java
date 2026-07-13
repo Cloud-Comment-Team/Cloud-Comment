@@ -31,6 +31,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static com.cloudcomment.support.AdminSecurityTestSupport.adminRequest;
 
 @SpringBootTest(properties = "spring.flyway.enabled=false")
 @AutoConfigureMockMvc
@@ -58,12 +59,12 @@ class NotificationControllerTests {
     void listsOwnerNotificationsAndUnreadCount() throws Exception {
         AuthenticatedUser user = currentUser();
         OwnerNotificationView notification = notification();
-        when(currentUserService.getCurrentUser(eq("session-token"))).thenReturn(user);
+        when(currentUserService.getCurrentUser(eq("session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(user);
         when(service.list(user, 1, 20)).thenReturn(new OwnerNotificationPage(List.of(notification), 1, 20, 1));
         when(service.unreadCount(user)).thenReturn(1L);
 
         mockMvc.perform(get("/api/notifications")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer session-token"))
+                .with(adminRequest("session-token")))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.items[0].id", is(notification.id().toString())))
             .andExpect(jsonPath("$.items[0].commentId", is(notification.commentId().toString())))
@@ -73,7 +74,7 @@ class NotificationControllerTests {
             .andExpect(jsonPath("$.totalItems", is(1)));
 
         mockMvc.perform(get("/api/notifications/unread-count")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer session-token"))
+                .with(adminRequest("session-token")))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.unreadCount", is(1)));
     }
@@ -87,16 +88,16 @@ class NotificationControllerTests {
             notification.pageId(), notification.pageUrl(), notification.parentId(), notification.authorEmail(),
             notification.content(), notification.status(), CREATED_AT.plusSeconds(60), notification.createdAt()
         );
-        when(currentUserService.getCurrentUser(eq("session-token"))).thenReturn(user);
+        when(currentUserService.getCurrentUser(eq("session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(user);
         when(service.markRead(user, notification.id())).thenReturn(read);
 
         mockMvc.perform(patch("/api/notifications/{notificationId}/read", notification.id())
-                .header(HttpHeaders.AUTHORIZATION, "Bearer session-token"))
+                .with(adminRequest("session-token")))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.readAt", is("2026-07-12T12:01:00Z")));
 
         mockMvc.perform(post("/api/notifications/read-all")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer session-token"))
+                .with(adminRequest("session-token")))
             .andExpect(status().isNoContent());
         verify(service).markAllRead(user);
     }
@@ -105,12 +106,12 @@ class NotificationControllerTests {
     void masksForeignNotificationAsNotFound() throws Exception {
         AuthenticatedUser user = currentUser();
         UUID notificationId = UUID.randomUUID();
-        when(currentUserService.getCurrentUser(eq("session-token"))).thenReturn(user);
+        when(currentUserService.getCurrentUser(eq("session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(user);
         when(service.markRead(user, notificationId))
             .thenThrow(new ApplicationException(ApiErrorCode.NOT_FOUND, "Resource not found"));
 
         mockMvc.perform(patch("/api/notifications/{notificationId}/read", notificationId)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer session-token"))
+                .with(adminRequest("session-token")))
             .andExpect(status().isNotFound())
             .andExpect(jsonPath("$.error.code", is("NOT_FOUND")));
     }

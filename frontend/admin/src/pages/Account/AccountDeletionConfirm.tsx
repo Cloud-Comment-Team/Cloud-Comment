@@ -4,7 +4,8 @@ import { AlertCircle, CheckCircle2, KeyRound, Loader2, LogIn, UserPlus } from 'l
 
 import { confirmAccountDeletion } from '../../api/account'
 import { getApiErrorMessage } from '../../api/auth'
-import { removeStoredAuthToken } from '../../auth/tokenStorage'
+import { clearCsrfCredentials } from '../../api/csrf'
+import { notifySessionExpired } from '../../auth/sessionEvents'
 import { AuthFormShell } from '../../components/auth/AuthFormShell'
 import { useAuthStore } from '../../store'
 
@@ -40,8 +41,9 @@ const AccountDeletionConfirm = () => {
 
     try {
       await confirmAccountDeletion(confirmationToken)
-      removeStoredAuthToken()
-      useAuthStore.setState({ token: null, user: null, status: 'unauthenticated' })
+      clearCsrfCredentials()
+      useAuthStore.getState().clearAuth()
+      notifySessionExpired()
       setState('success')
     } catch (confirmationError) {
       setError(getConfirmationError(confirmationError))

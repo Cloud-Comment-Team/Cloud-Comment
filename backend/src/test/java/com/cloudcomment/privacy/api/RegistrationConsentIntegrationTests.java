@@ -23,6 +23,7 @@ import static org.hamcrest.Matchers.is;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static com.cloudcomment.support.AdminSecurityTestSupport.csrf;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -43,6 +44,7 @@ class RegistrationConsentIntegrationTests {
     void registerStoresConsentForAdminAndWidgetSources() throws Exception {
         String adminEmail = "admin-consent-" + UUID.randomUUID() + "@example.com";
         mockMvc.perform(post("/api/auth/register")
+                .with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(registerRequestJson(adminEmail, "strong-password")))
             .andExpect(status().isCreated());
@@ -68,6 +70,7 @@ class RegistrationConsentIntegrationTests {
     @Test
     void registerWithoutConsentReturnsValidationFailed() throws Exception {
         mockMvc.perform(post("/api/auth/register")
+                .with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(registerRequestJsonWithoutConsent(
                     "missing-consent-" + UUID.randomUUID() + "@example.com",
@@ -81,6 +84,7 @@ class RegistrationConsentIntegrationTests {
     @Test
     void registerRejectsOutdatedConsentVersion() throws Exception {
         mockMvc.perform(post("/api/auth/register")
+                .with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {

@@ -15,6 +15,12 @@ spring:
       add-mappings: false
 
 cloud-comment:
+  auth:
+    admin-session:
+      cookie-name: ${CLOUD_COMMENT_ADMIN_SESSION_COOKIE_NAME:cloud_comment_admin_session}
+      csrf-cookie-name: ${CLOUD_COMMENT_ADMIN_CSRF_COOKIE_NAME:cloud_comment_admin_csrf}
+      csrf-header-name: ${CLOUD_COMMENT_ADMIN_CSRF_HEADER_NAME:X-CSRF-Token}
+      secure: ${CLOUD_COMMENT_ADMIN_COOKIE_SECURE:false}
   embed:
     script-url: ${CLOUD_COMMENT_WIDGET_SCRIPT_URL:http://localhost/widget/cloud-comment-widget.js}
     api-base-url: ${CLOUD_COMMENT_PUBLIC_API_BASE_URL:http://localhost/api}

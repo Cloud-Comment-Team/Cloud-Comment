@@ -13,6 +13,9 @@ const OWNER_ID = '00000000-0000-0000-0000-000000000001'
 const SITE_ID = '00000000-0000-0000-0000-000000000132'
 
 async function authenticate(page: Page) {
+  await page.route('**/api/auth/csrf', (route) => route.fulfill({
+    json: { headerName: 'X-CSRF-TOKEN', token: 'offline-csrf-token' },
+  }))
   await page.route('**/api/auth/me', (route) => route.fulfill({
     json: {
       id: OWNER_ID,
@@ -27,8 +30,7 @@ async function authenticate(page: Page) {
   await page.route('**/api/notifications?*', (route) => route.fulfill({
     json: { items: [], page: 1, pageSize: 20, totalItems: 0, totalPages: 0 },
   }))
-  await page.goto('/login')
-  await page.evaluate(() => localStorage.setItem('cloud-comment.admin.authToken', 'test-token'))
+  await page.goto('/')
 }
 
 function point(bucket: string, total: number, pending = 0, spam = 0): CommentTimePoint {
