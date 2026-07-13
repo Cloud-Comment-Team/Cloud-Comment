@@ -1,5 +1,5 @@
-import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
+import { expectNoSeriousAccessibilityViolations } from './accessibility'
 
 import type {
   AnalyticsBucketGranularity,
@@ -138,11 +138,6 @@ function analytics({
     }] : [],
     activeCommenters: [],
   }
-}
-
-async function expectNoSeriousAccessibilityViolations(page: Page) {
-  const results = await new AxeBuilder({ page }).disableRules(['color-contrast']).analyze()
-  expect(results.violations.filter((violation) => ['critical', 'serious'].includes(violation.impact ?? ''))).toEqual([])
 }
 
 test('панель передаёт часовой пояс и остаётся доступной для одного и двух интервалов', async ({ page }) => {

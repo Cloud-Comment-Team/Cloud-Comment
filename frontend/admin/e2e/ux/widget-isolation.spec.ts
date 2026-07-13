@@ -1,6 +1,6 @@
 import { resolve } from 'node:path'
-import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '@playwright/test'
+import { expectNoSeriousAccessibilityViolations } from './accessibility'
 
 test('autoInit канонизирует текущий pageUrl перед запросом комментариев', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop-light', 'Проверку контракта URL достаточно выполнить в одном профиле')
@@ -110,12 +110,16 @@ test('manual init одинаково канонизирует pageUrl для GET
   expect(requestedGetPageUrls.every((pageUrl) => pageUrl === expectedPageUrl)).toBe(true)
 })
 
-test('виджет изолирован от стилей страницы через Shadow DOM', async ({ page }) => {
+test('виджет изолирован от стилей страницы через Shadow DOM', async ({ page }, testInfo) => {
+  const theme = testInfo.project.name === 'tablet-dark' ? 'DARK' : 'LIGHT'
   await page.route('**/public/sites/**/config', (route) => route.fulfill({
-    json: { siteId: '00000000-0000-0000-0000-000000000001', moderationMode: 'POST_MODERATION', style: { theme: 'LIGHT', accentColor: '#0f766e', cornerRadius: 'MEDIUM' } },
+    json: { siteId: '00000000-0000-0000-0000-000000000001', moderationMode: 'POST_MODERATION', style: { theme, accentColor: '#0f766e', cornerRadius: 'MEDIUM' } },
   }))
   await page.route('**/public/sites/**/pages/comments**', (route) => route.fulfill({
     json: { items: [], page: 1, pageSize: 20, totalItems: 0, totalPages: 0 },
+  }))
+  await page.route('**/privacy/consent-requirements', (route) => route.fulfill({
+    json: { privacyPolicyVersion: 'test', termsVersion: 'test', privacyPolicyUrl: '#', termsUrl: '#', personalDataNoticeUrl: '#', dataExportInfoUrl: '#' },
   }))
   await page.goto('/login')
   await page.evaluate(() => {
@@ -157,8 +161,8 @@ test('виджет изолирован от стилей страницы че�
   })
   expect(responsiveState?.noHorizontalOverflow).toBe(true)
   expect(responsiveState?.formColumns.split(' ')).toHaveLength(1)
-  const accessibility = await new AxeBuilder({ page }).disableRules(['color-contrast']).analyze()
-  expect(accessibility.violations.filter((violation) => ['critical', 'serious'].includes(violation.impact ?? ''))).toEqual([])
+  await expect(host).not.toContainText('Загружаем комментарии...')
+  await expectNoSeriousAccessibilityViolations(page)
 })
 
 test('виджет стабильно отображает сто комментариев', async ({ page }, testInfo) => {

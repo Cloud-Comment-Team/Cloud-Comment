@@ -1,5 +1,5 @@
-import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '@playwright/test'
+import { expectNoSeriousAccessibilityViolations } from './accessibility'
 
 test('экран входа доступен с клавиатуры и не содержит серьёзных нарушений', async ({ page }) => {
   await page.goto('/login')
@@ -8,8 +8,7 @@ test('экран входа доступен с клавиатуры и не с�
   const focused = page.locator(':focus-visible')
   await expect(focused).toBeVisible()
 
-  const results = await new AxeBuilder({ page }).disableRules(['color-contrast']).analyze()
-  expect(results.violations.filter((violation) => ['critical', 'serious'].includes(violation.impact ?? ''))).toEqual([])
+  await expectNoSeriousAccessibilityViolations(page)
   await expect(page).toHaveScreenshot('login.png', { animations: 'disabled', fullPage: true })
 })
 

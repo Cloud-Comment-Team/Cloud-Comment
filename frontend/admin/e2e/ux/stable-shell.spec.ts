@@ -1,5 +1,5 @@
-import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '@playwright/test'
+import { expectNoSeriousAccessibilityViolations } from './accessibility'
 
 test.beforeEach(async ({ page }) => {
   await page.route('**/api/auth/csrf', (route) => route.fulfill({
@@ -33,8 +33,7 @@ test('desktop-шапка не дублирует sidebar, а мобильная 
     await expect(header.getByRole('button', { name: 'Открыть меню' })).toBeVisible()
   }
 
-  const results = await new AxeBuilder({ page }).disableRules(['color-contrast']).analyze()
-  expect(results.violations.filter((violation) => ['critical', 'serious'].includes(violation.impact ?? ''))).toEqual([])
+  await expectNoSeriousAccessibilityViolations(page)
 })
 
 test('кнопка уведомлений не меняет положение при открытии панели', async ({ page }) => {
