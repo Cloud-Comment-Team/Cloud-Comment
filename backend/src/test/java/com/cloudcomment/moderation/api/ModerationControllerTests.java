@@ -309,6 +309,41 @@ class ModerationControllerTests {
     }
 
     @Test
+    void undoOperationReturnsOwnerScopedPartialResult() throws Exception {
+        AuthenticatedUser currentUser = currentUser();
+        UUID operationId = UUID.randomUUID();
+        UUID restoredCommentId = UUID.randomUUID();
+        UUID conflictCommentId = UUID.randomUUID();
+        ModerationAction undo = new ModerationAction(
+            UUID.randomUUID(), restoredCommentId, ModerationActionType.UNDO,
+            CommentStatus.APPROVED, CommentStatus.PENDING, "Отмена действия",
+            currentUser.id(), currentUser.email(), UUID.randomUUID(), UUID.randomUUID(), TIMESTAMP
+        );
+        when(currentUserService.getCurrentUser(
+            eq("plain-session-token"),
+            eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN)
+        )).thenReturn(currentUser);
+        when(moderationService.undoOperation(currentUser, operationId)).thenReturn(List.of(
+            BulkModerationResult.success(restoredCommentId, undo),
+            BulkModerationResult.failure(
+                conflictCommentId,
+                "UNDO_CONFLICT",
+                "Не удалось отменить действие: оно уже отменено, изменено или срок истёк"
+            )
+        ));
+
+        mockMvc.perform(post("/api/moderation/operations/{operationId}/undo", operationId)
+                .with(adminRequest("plain-session-token")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.items[0].commentId", is(restoredCommentId.toString())))
+            .andExpect(jsonPath("$.items[0].success", is(true)))
+            .andExpect(jsonPath("$.items[0].action.action", is("UNDO")))
+            .andExpect(jsonPath("$.items[1].commentId", is(conflictCommentId.toString())))
+            .andExpect(jsonPath("$.items[1].success", is(false)))
+            .andExpect(jsonPath("$.items[1].errorCode", is("UNDO_CONFLICT")));
+    }
+
+    @Test
     void getCommentReturnsNotFoundForForeignOrMissingComment() throws Exception {
         AuthenticatedUser currentUser = currentUser();
         UUID commentId = UUID.randomUUID();

@@ -109,6 +109,16 @@ class ModerationController {
         );
     }
 
+    @PostMapping("/operations/{operationId}/undo")
+    BulkModerationResponse undoOperation(
+        @CurrentUser AuthenticatedUser currentUser,
+        @PathVariable UUID operationId
+    ) {
+        return BulkModerationResponse.from(
+            moderationService.undoOperation(currentUser, operationId)
+        );
+    }
+
     @GetMapping("/comments/{commentId}")
     CommentResponse getComment(
         @CurrentUser AuthenticatedUser currentUser,

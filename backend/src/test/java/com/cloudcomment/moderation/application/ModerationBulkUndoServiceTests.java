@@ -130,6 +130,72 @@ class ModerationBulkUndoServiceTests {
     }
 
     @Test
+    void undoOperationRestoresEligibleGroupAndReportsConflictsPerComment() {
+        CommentRepository comments = mock(CommentRepository.class);
+        ModerationActionRepository actions = mock(ModerationActionRepository.class);
+        UUID operationId = UUID.randomUUID();
+        UUID firstCommentId = UUID.randomUUID();
+        UUID secondCommentId = UUID.randomUUID();
+        UUID conflictCommentId = UUID.randomUUID();
+        ModerationAction first = action(
+            UUID.randomUUID(), firstCommentId, ModerationActionType.APPROVE,
+            CommentStatus.PENDING, CommentStatus.APPROVED, operationId, null, NOW
+        );
+        ModerationAction second = action(
+            UUID.randomUUID(), secondCommentId, ModerationActionType.APPROVE,
+            CommentStatus.PENDING, CommentStatus.APPROVED, operationId, null, NOW
+        );
+        ModerationAction conflict = action(
+            UUID.randomUUID(), conflictCommentId, ModerationActionType.APPROVE,
+            CommentStatus.PENDING, CommentStatus.APPROVED, operationId, null, NOW
+        );
+        when(actions.findByOperationIdAndOwnerId(operationId, currentUser().id()))
+            .thenReturn(List.of(first, second, conflict));
+        when(actions.findLatestNotReverted(firstCommentId)).thenReturn(Optional.of(first));
+        when(actions.findLatestNotReverted(secondCommentId)).thenReturn(Optional.of(second));
+        when(actions.findLatestNotReverted(conflictCommentId)).thenReturn(Optional.of(conflict));
+        when(comments.findById(firstCommentId)).thenReturn(Optional.of(comment(firstCommentId, CommentStatus.APPROVED)));
+        when(comments.findById(secondCommentId)).thenReturn(Optional.of(comment(secondCommentId, CommentStatus.APPROVED)));
+        when(comments.findById(conflictCommentId)).thenReturn(Optional.of(comment(conflictCommentId, CommentStatus.SPAM)));
+        when(comments.updateStatus(firstCommentId, CommentStatus.APPROVED, CommentStatus.PENDING, "Отмена действия"))
+            .thenReturn(Optional.of(comment(firstCommentId, CommentStatus.PENDING)));
+        when(comments.updateStatus(secondCommentId, CommentStatus.APPROVED, CommentStatus.PENDING, "Отмена действия"))
+            .thenReturn(Optional.of(comment(secondCommentId, CommentStatus.PENDING)));
+        when(actions.create(
+            eq(firstCommentId), eq(currentUser().id()), eq(ModerationActionType.UNDO),
+            eq(CommentStatus.APPROVED), eq(CommentStatus.PENDING), eq("Отмена действия"),
+            any(UUID.class), eq(first.id())
+        )).thenAnswer(invocation -> action(
+            UUID.randomUUID(), firstCommentId, ModerationActionType.UNDO,
+            CommentStatus.APPROVED, CommentStatus.PENDING,
+            invocation.getArgument(6, UUID.class), first.id(), NOW
+        ));
+        when(actions.create(
+            eq(secondCommentId), eq(currentUser().id()), eq(ModerationActionType.UNDO),
+            eq(CommentStatus.APPROVED), eq(CommentStatus.PENDING), eq("Отмена действия"),
+            any(UUID.class), eq(second.id())
+        )).thenAnswer(invocation -> action(
+            UUID.randomUUID(), secondCommentId, ModerationActionType.UNDO,
+            CommentStatus.APPROVED, CommentStatus.PENDING,
+            invocation.getArgument(6, UUID.class), second.id(), NOW
+        ));
+        ModerationService service = service(comments, actions, (ownerId, type, resourceId) -> true);
+
+        List<BulkModerationResult> results = service.undoOperation(currentUser(), operationId);
+
+        assertThat(results).hasSize(3);
+        assertThat(results.get(0).success()).isTrue();
+        assertThat(results.get(1).success()).isTrue();
+        assertThat(results.get(0).action().operationId())
+            .isEqualTo(results.get(1).action().operationId())
+            .isNotEqualTo(operationId);
+        assertThat(results.get(2).success()).isFalse();
+        assertThat(results.get(2).errorCode()).isEqualTo("UNDO_CONFLICT");
+        assertThat(results.get(2).message())
+            .isEqualTo("Не удалось отменить действие: оно уже отменено, изменено или срок истёк");
+    }
+
+    @Test
     void undoRejectsExpiredActionAndLaterStatusChange() {
         CommentRepository comments = mock(CommentRepository.class);
         ModerationActionRepository actions = mock(ModerationActionRepository.class);
@@ -186,7 +252,8 @@ class ModerationBulkUndoServiceTests {
             comments,
             actions,
             new ResourceOwnershipService(ownership),
-            mock(ApplicationEventPublisher.class)
+            mock(ApplicationEventPublisher.class),
+            operation -> operation.get()
         );
     }
 

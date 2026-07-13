@@ -652,6 +652,12 @@ views {
 
     cloudComment.backendApi.persistenceModule -> cloudComment.postgres 'INSERT moderation_actions (UNDO, reverts_action_id)'
 
+    websiteOwner -> cloudComment.adminWebApp.moderationPages 'Отменяет допустимую часть массовой операции'
+
+    cloudComment.adminWebApp.adminApiClient -> cloudComment.backendApi.adminApiController 'POST /api/moderation/operations/{operationId}/undo'
+
+    cloudComment.backendApi.moderationModule -> cloudComment.backendApi.persistenceModule 'Проверяет владельца и откатывает элементы в независимых транзакциях'
+
     websiteOwner -> cloudComment.adminWebApp.moderationPages 'Отмечает ложное срабатывание или пропуск'
 
     cloudComment.adminWebApp.adminApiClient -> cloudComment.backendApi.adminApiController 'PUT /api/moderation/comments/{commentId}/automoderation-feedback'
