@@ -33,6 +33,7 @@ import { Badge } from '../../components/common/Badge'
 import { PaginationControls } from '../../components/common/PaginationControls'
 import { ActionBar, DataRow, Drawer, PageHeader } from '../../components/common/Workspace'
 import { useRealtimeEvent } from '../../components/realtime/useRealtime'
+import { useAuthStore } from '../../store'
 import type {
   Comment,
   AutoModerationFeedback,
@@ -64,7 +65,13 @@ interface UndoSummary {
   conflicts: Array<{ commentId: string; message: string }>
 }
 
-const FILTERS_KEY = 'cloud-comment:moderation-filters:v2'
+interface BulkFailure {
+  commentId: string
+  message: string
+}
+
+const FILTERS_KEY_PREFIX = 'cloud-comment:moderation-filters:v3'
+const LEGACY_FILTERS_KEY = 'cloud-comment:moderation-filters:v2'
 const emptyFilters: SavedFilters = { siteId: '', pageUrl: '', search: '', favorite: false }
 
 const statusLabels: Record<CommentStatus, string> = {
@@ -105,9 +112,10 @@ const viewStatuses: Record<QueueView, CommentStatus[]> = {
   history: ['APPROVED', 'REJECTED', 'HIDDEN'],
 }
 
-function readSavedFilters(): SavedFilters {
+function readSavedFilters(filtersKey: string): SavedFilters {
   try {
-    const parsed = JSON.parse(localStorage.getItem(FILTERS_KEY) ?? '') as Partial<SavedFilters>
+    localStorage.removeItem(LEGACY_FILTERS_KEY)
+    const parsed = JSON.parse(localStorage.getItem(filtersKey) ?? '') as Partial<SavedFilters>
     return {
       siteId: typeof parsed.siteId === 'string' ? parsed.siteId : '',
       pageUrl: typeof parsed.pageUrl === 'string' ? parsed.pageUrl : '',
@@ -119,8 +127,8 @@ function readSavedFilters(): SavedFilters {
   }
 }
 
-function readInitialFilters(searchParams: URLSearchParams): SavedFilters {
-  const saved = readSavedFilters()
+function readInitialFilters(searchParams: URLSearchParams, filtersKey: string): SavedFilters {
+  const saved = readSavedFilters(filtersKey)
   const analyticsSource = searchParams.get('source') === 'analytics'
   if (analyticsSource) {
     return {
@@ -156,7 +164,9 @@ function authorName(comment: Comment): string {
 
 const Moderation = () => {
   const [searchParams, setSearchParams] = useSearchParams()
-  const [initialFilters] = useState(() => readInitialFilters(searchParams))
+  const ownerId = useAuthStore((state) => state.user?.id ?? 'anonymous')
+  const filtersKey = `${FILTERS_KEY_PREFIX}:${ownerId}`
+  const [initialFilters] = useState(() => readInitialFilters(searchParams, filtersKey))
   const requestedView = searchParams.get('view')
   const requestedStatus = searchParams.get('status')
   const exactStatus = isCommentStatus(requestedStatus) ? requestedStatus : null
@@ -179,6 +189,7 @@ const Moderation = () => {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [undoTarget, setUndoTarget] = useState<UndoTarget | null>(null)
   const [undoSummary, setUndoSummary] = useState<UndoSummary | null>(null)
+  const [bulkFailures, setBulkFailures] = useState<BulkFailure[]>([])
   const [reason, setReason] = useState('')
   const [filters, setFilters] = useState(initialFilters)
   const [appliedFilters, setAppliedFilters] = useState(initialFilters)
@@ -267,10 +278,12 @@ const Moderation = () => {
     if (commentIds.length === 0) return
     setBusy(true)
     setUndoSummary(null)
+    setBulkFailures([])
     try {
       if (commentIds.length === 1) {
         const result = await applyModerationAction(commentIds[0], { action, reason: reason.trim() || null })
         setUndoTarget({ kind: 'action', id: result.id, affected: 1 })
+        setSelectedIds(new Set())
         toast.success('Действие выполнено')
       } else {
         const operationId = crypto.randomUUID()
@@ -281,14 +294,20 @@ const Moderation = () => {
           reason: reason.trim() || null,
         })
         const successful = result.items.filter((item) => item.success)
-        const failed = result.items.length - successful.length
+        const failedItems = result.items
+          .filter((item) => !item.success)
+          .map((item) => ({
+            commentId: item.commentId,
+            message: item.message || 'Не удалось применить действие',
+          }))
+        setBulkFailures(failedItems)
+        setSelectedIds(new Set(failedItems.map((item) => item.commentId)))
         setUndoTarget(successful.length > 0
           ? { kind: 'operation', id: operationId, affected: successful.length }
           : null)
-        toast.success(`Обработано: ${successful.length}${failed ? `, не удалось: ${failed}` : ''}`)
+        toast.success(`Обработано: ${successful.length}${failedItems.length ? `, не удалось: ${failedItems.length}` : ''}`)
       }
       setReason('')
-      setSelectedIds(new Set())
       setReloadKey((current) => current + 1)
     } catch (actionError) {
       toast.error(getApiErrorMessage(actionError, 'Не удалось выполнить действие модерации.'))
@@ -396,7 +415,7 @@ const Moderation = () => {
 
   function applyFilters(event: FormEvent) {
     event.preventDefault()
-    localStorage.setItem(FILTERS_KEY, JSON.stringify(filters))
+    localStorage.setItem(filtersKey, JSON.stringify(filters))
     setAppliedFilters(filters)
     setPage(1)
     const next = new URLSearchParams(searchParams)
@@ -410,7 +429,7 @@ const Moderation = () => {
   }
 
   function resetFilters() {
-    localStorage.removeItem(FILTERS_KEY)
+    localStorage.removeItem(filtersKey)
     setFilters(emptyFilters)
     setAppliedFilters(emptyFilters)
     setPage(1)
@@ -516,7 +535,7 @@ const Moderation = () => {
         <button className="cc-button-secondary" type="button" onClick={resetFilters}>Сбросить</button>
       </form>
 
-      {(selectedIds.size > 0 || undoTarget || undoSummary) && (
+      {(selectedIds.size > 0 || undoTarget || undoSummary || bulkFailures.length > 0) && (
         <ActionBar label="Массовые действия">
           <div className="flex flex-wrap items-center gap-2">
             {selectedIds.size > 0 && <strong className="text-sm">Выбрано: {selectedIds.size}</strong>}
@@ -559,6 +578,22 @@ const Moderation = () => {
               >
                 Скрыть результат
               </button>
+            </div>
+          )}
+          {bulkFailures.length > 0 && (
+            <div className="min-w-64 text-sm" role="alert">
+              <strong>Не обработано: {bulkFailures.length}</strong>
+              <ul className="mt-1 list-disc pl-5">
+                {bulkFailures.map((failure) => (
+                  <li key={failure.commentId}>Комментарий …{failure.commentId.slice(-8)}: {failure.message}</li>
+                ))}
+              </ul>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button type="button" className="cc-button-secondary" onClick={() => setSelectedIds(new Set(bulkFailures.map((failure) => failure.commentId)))}>
+                  Выбрать неудавшиеся
+                </button>
+                <button type="button" className="cc-button-ghost" onClick={() => setBulkFailures([])}>Скрыть результат</button>
+              </div>
             </div>
           )}
         </ActionBar>

@@ -21,6 +21,9 @@ const moderationApi = vi.hoisted(() => ({
 vi.mock('../../api/moderation', () => moderationApi)
 vi.mock('../../api/sites', () => ({ listAllSites: vi.fn().mockResolvedValue([]) }))
 vi.mock('../../components/realtime/useRealtime', () => ({ useRealtimeEvent: vi.fn() }))
+vi.mock('../../store', () => ({
+  useAuthStore: (selector: (state: { user: { id: string } }) => unknown) => selector({ user: { id: 'owner-test-id' } }),
+}))
 
 function CurrentLocation() {
   const location = useLocation()
@@ -207,6 +210,7 @@ describe('страница модерации', () => {
       status: 'PENDING',
     })))
     expect(screen.getByTestId('current-location')).toHaveTextContent('/moderation?view=pending&status=PENDING')
+    expect(localStorage.getItem('cloud-comment:moderation-filters:v3:owner-test-id')).toContain('важный текст')
   })
 
   it('применяет одно массовое действие к выбранным строкам', async () => {
@@ -221,6 +225,26 @@ describe('страница модерации', () => {
       commentIds: comments.map((comment) => comment.id),
       action: 'APPROVE',
     })))
+  })
+
+  it('показывает частичные ошибки массового действия и оставляет неудавшиеся строки выбранными', async () => {
+    moderationApi.applyBulkModerationAction.mockResolvedValue({
+      items: [
+        { commentId: comments[0].id, success: true, action: null, errorCode: null, message: null },
+        { commentId: comments[1].id, success: false, action: null, errorCode: 'CONFLICT', message: 'Комментарий уже изменён' },
+      ],
+    })
+    render(<MemoryRouter initialEntries={['/moderation?view=pending']}><Moderation /></MemoryRouter>)
+    await screen.findByText('Первый комментарий')
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Выбрать комментарий Анна' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Выбрать комментарий Борис' }))
+    fireEvent.click(screen.getByRole('button', { name: /Одобрить/ }))
+
+    expect(await screen.findByText('Не обработано: 1')).toBeInTheDocument()
+    expect(screen.getByText(/Комментарий …00000012: Комментарий уже изменён/)).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'Выбрать комментарий Борис' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'Выбрать комментарий Анна' })).not.toBeChecked()
   })
 
   it('отменяет массовую операцию целиком и перечисляет конфликты', async () => {

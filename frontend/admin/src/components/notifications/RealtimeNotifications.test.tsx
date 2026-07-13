@@ -140,6 +140,33 @@ describe('постоянный центр уведомлений', () => {
     expect(screen.getByText('Непрочитанных: 1')).toBeInTheDocument()
   })
 
+  it('догружает историю без дублей и не теряет локальную отметку о прочтении', async () => {
+    const older: OwnerNotification = {
+      ...stored,
+      id: '00000000-0000-0000-0000-000000000004',
+      commentId: '00000000-0000-0000-0000-000000000014',
+      contentPreview: 'Более старое уведомление',
+      createdAt: '2026-07-11T12:00:00Z',
+    }
+    notificationApi.listNotifications
+      .mockResolvedValueOnce({ items: [stored], page: 1, pageSize: 20, totalItems: 2, totalPages: 2 })
+      .mockResolvedValueOnce({ items: [{ ...stored, readAt: null }, older], page: 2, pageSize: 20, totalItems: 2, totalPages: 2 })
+
+    renderNotifications()
+    await waitFor(() => expect(notificationApi.listNotifications).toHaveBeenCalledOnce())
+    fireEvent.click(screen.getByRole('button', { name: 'Уведомления' }))
+    fireEvent.click(await screen.findByRole('button', { name: /Постоянное уведомление/ }))
+    await waitFor(() => expect(notificationApi.markNotificationRead).toHaveBeenCalledWith(stored.id))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Уведомления' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Показать ещё' }))
+
+    expect(await screen.findByText('Более старое уведомление')).toBeInTheDocument()
+    expect(screen.getAllByText('Постоянное уведомление')).toHaveLength(1)
+    expect(screen.getAllByLabelText('Не прочитано')).toHaveLength(1)
+    expect(notificationApi.listNotifications).toHaveBeenLastCalledWith(2)
+  })
+
   it('отмечает все уведомления прочитанными оптимистично', async () => {
     renderNotifications()
     await waitFor(() => expect(notificationApi.getUnreadNotificationCount).toHaveBeenCalledOnce())

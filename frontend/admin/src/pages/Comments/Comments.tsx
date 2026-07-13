@@ -128,6 +128,8 @@ const Comments = () => {
   const [replyError, setReplyError] = useState<{ rootCommentId: string; message: string } | null>(null)
   const [replyNotice, setReplyNotice] = useState<{ rootCommentId: string; message: string } | null>(null)
   const replyInputRef = useRef<HTMLTextAreaElement>(null)
+  const threadHeadingRef = useRef<HTMLHeadingElement>(null)
+  const selectedRowRef = useRef<HTMLButtonElement | null>(null)
 
   const activeThread = thread?.summary.rootCommentId === selectedId ? thread : null
   const activeDetailError = detailError?.id === selectedId ? detailError.message : null
@@ -209,6 +211,10 @@ const Comments = () => {
     }
   }, [detailReloadKey, realtimeRevision, selectedId])
 
+  useEffect(() => {
+    if (activeThread) threadHeadingRef.current?.focus({ preventScroll: true })
+  }, [activeThread])
+
   function updateRoute(values: Record<string, string | null>) {
     const next = new URLSearchParams(searchParams)
     Object.entries(values).forEach(([key, value]) => {
@@ -219,7 +225,13 @@ const Comments = () => {
   }
 
   function selectDiscussion(rootCommentId: string) {
+    selectedRowRef.current = document.querySelector<HTMLButtonElement>(`[data-discussion-id="${CSS.escape(rootCommentId)}"]`)
     updateRoute({ discussion: rootCommentId })
+  }
+
+  function closeDiscussion() {
+    updateRoute({ discussion: null })
+    window.requestAnimationFrame(() => selectedRowRef.current?.focus({ preventScroll: true }))
   }
 
   function changeView(nextView: DiscussionFilter) {
@@ -381,7 +393,7 @@ const Comments = () => {
           </div>
         )}
 
-        <div className="grid min-h-[34rem] xl:grid-cols-[360px_minmax(0,1fr)]">
+        <div className="grid min-h-[36rem] xl:grid-cols-[340px_minmax(0,1fr)]">
           <section className={`${selectedId ? 'hidden xl:flex' : 'flex'} min-w-0 flex-col border-r`} style={{ borderColor: 'var(--border)' }} aria-label="Список обсуждений">
             {listLoading && items.length === 0 ? <ListSkeleton /> : null}
             {!listLoading && items.length === 0 && !listError ? (
@@ -402,7 +414,8 @@ const Comments = () => {
                     <button
                       key={discussion.rootCommentId}
                       type="button"
-                      className="group relative w-full px-4 py-4 text-left transition-colors"
+                      data-discussion-id={discussion.rootCommentId}
+                      className="group relative w-full px-4 py-3 text-left transition-colors"
                       style={{ backgroundColor: active ? 'var(--accent-bg)' : 'transparent' }}
                       aria-current={active ? 'true' : undefined}
                       aria-label={`Открыть обсуждение: ${pageLabel(discussion)}`}
@@ -417,10 +430,10 @@ const Comments = () => {
                         {discussion.pinned && <Pin className="h-3.5 w-3.5 shrink-0" style={{ color: 'var(--accent)' }} aria-label="Закреплено" />}
                         <strong className="truncate text-sm" style={{ color: 'var(--text-h)' }}>{pageLabel(discussion)}</strong>
                       </div>
-                      <p className="mt-2 line-clamp-2 text-sm leading-5" style={{ color: 'var(--text)' }}>
+                      <p className="mt-1 line-clamp-1 text-sm leading-5" style={{ color: 'var(--text)' }}>
                         <span className="font-medium">{discussion.lastAuthor.displayName}:</span> {discussion.lastMessage}
                       </p>
-                      <div className="mt-3 flex items-center justify-between gap-2">
+                      <div className="mt-2 flex items-center justify-between gap-2">
                         <Badge tone={statusTone(discussion)}>{statusLabel(discussion)}</Badge>
                         <span className="text-xs" style={{ color: 'var(--text)' }}>{discussion.replyCount} ответов</span>
                       </div>
@@ -456,7 +469,7 @@ const Comments = () => {
             {selectedId && (
               <>
                 <header className="border-b px-4 py-4 sm:px-6" style={{ borderColor: 'var(--border)' }}>
-                  <button type="button" className="cc-button-secondary mb-4 xl:hidden" onClick={() => updateRoute({ discussion: null })}>
+                  <button type="button" className="cc-button-secondary mb-4 xl:hidden" onClick={closeDiscussion}>
                     <Undo2 className="h-4 w-4" aria-hidden="true" />
                     К списку
                   </button>
@@ -464,7 +477,7 @@ const Comments = () => {
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div className="min-w-0">
                         <p className="text-xs font-semibold" style={{ color: 'var(--text)' }}>{selectedSummary.siteName}</p>
-                        <h2 className="mt-1 truncate text-lg font-semibold" style={{ color: 'var(--text-h)' }}>{pageLabel(selectedSummary)}</h2>
+                        <h2 ref={threadHeadingRef} tabIndex={-1} className="mt-1 truncate text-lg font-semibold outline-none" style={{ color: 'var(--text-h)' }}>{pageLabel(selectedSummary)}</h2>
                         <p className="mt-1 truncate text-sm" style={{ color: 'var(--text)' }}>{selectedSummary.pageUrl}</p>
                       </div>
                       <div className="flex shrink-0 flex-wrap gap-2">

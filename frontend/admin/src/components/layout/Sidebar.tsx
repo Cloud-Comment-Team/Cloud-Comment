@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { Globe, LayoutDashboard, LogOut, MessageSquareText, Shield, X } from 'lucide-react'
+import { BarChart3, CalendarCheck2, Globe, LogOut, MessageSquareText, Shield, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { ReactNode } from 'react'
 
@@ -9,10 +9,11 @@ import { ThemeToggle } from '../../theme'
 import { preloadRoute } from '../../routes/lazyPages'
 
 const navigation = [
-  { name: 'Дашборд', href: '/', icon: LayoutDashboard },
+  { name: 'Сегодня', href: '/', icon: CalendarCheck2 },
   { name: 'Сайты', href: '/sites', icon: Globe },
   { name: 'Обсуждения', href: '/comments', icon: MessageSquareText },
   { name: 'К разбору', href: '/moderation', icon: Shield },
+  { name: 'Аналитика', href: '/analytics', icon: BarChart3 },
 ]
 
 interface SidebarProps {
@@ -45,7 +46,7 @@ const Sidebar = ({ isOpen, onClose, onNavigationIntent, actions, showThemeToggle
       {isOpen && (
         <button
           type="button"
-          className="fixed inset-0 z-40 bg-slate-950/45 backdrop-blur-sm lg:hidden"
+          className="fixed inset-0 z-40 bg-slate-950/45 lg:hidden"
           aria-label="Закрыть меню"
           onClick={onClose}
         />

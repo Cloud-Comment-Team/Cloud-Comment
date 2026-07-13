@@ -55,6 +55,9 @@ export function RealtimeNotifications() {
   const [unreadCount, setUnreadCount] = useState(0)
   const [isOpen, setIsOpen] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [page, setPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [markingAll, setMarkingAll] = useState(false)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -81,6 +84,8 @@ export function RealtimeNotifications() {
           return merged
         })
         setUnreadCount((current) => Math.max(current, count))
+        setPage(response.page)
+        setTotalPages(response.totalPages)
         setLoadError(null)
       })
       .catch((error) => {
@@ -99,7 +104,7 @@ export function RealtimeNotifications() {
     const incoming = fromRealtime(event.payload)
     if (knownIdsRef.current.has(incoming.id)) return
     knownIdsRef.current.add(incoming.id)
-    setNotifications((current) => [incoming, ...current].slice(0, 20))
+    setNotifications((current) => page === 1 ? [incoming, ...current].slice(0, 20) : [incoming, ...current])
     setUnreadCount((current) => current + 1)
     toast.success(`Новый комментарий: ${incoming.siteName}`)
   })
@@ -168,6 +173,29 @@ export function RealtimeNotifications() {
     }
   }
 
+  async function loadMore() {
+    if (loadingMore || page >= totalPages) return
+    setLoadingMore(true)
+    try {
+      const response = await listNotifications(page + 1)
+      setNotifications((current) => {
+        const byId = new Map(current.map((item) => [item.id, item]))
+        response.items.forEach((item) => {
+          const existing = byId.get(item.id)
+          byId.set(item.id, existing?.readAt && !item.readAt ? { ...item, readAt: existing.readAt } : item)
+        })
+        return [...byId.values()].sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      })
+      response.items.forEach((item) => knownIdsRef.current.add(item.id))
+      setPage(response.page)
+      setTotalPages(response.totalPages)
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Не удалось загрузить следующие уведомления.'))
+    } finally {
+      setLoadingMore(false)
+    }
+  }
+
   if (authStatus !== 'authenticated') return null
 
   return (
@@ -199,7 +227,7 @@ export function RealtimeNotifications() {
           aria-modal="true"
           aria-label="Центр уведомлений"
           tabIndex={-1}
-          className="fixed inset-x-4 top-[4.5rem] z-50 max-h-[calc(100vh-5.5rem)] overflow-hidden rounded-lg border shadow-xl sm:left-auto sm:right-4 sm:w-[400px] lg:right-6"
+          className="fixed inset-0 z-50 overflow-hidden border shadow-xl sm:inset-x-4 sm:bottom-auto sm:left-auto sm:right-4 sm:top-[4.5rem] sm:max-h-[calc(100vh-5.5rem)] sm:w-[400px] sm:rounded-lg lg:bottom-4 lg:left-[14.5rem] lg:right-auto lg:top-auto"
           style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}
         >
           <div className="flex items-center justify-between gap-3 border-b p-4" style={{ borderColor: 'var(--border)' }}>
@@ -248,6 +276,12 @@ export function RealtimeNotifications() {
                 </p>
               </button>
             ))}
+            {page < totalPages && !loading && !loadError && (
+              <button type="button" className="cc-button-secondary my-2 w-full" disabled={loadingMore} onClick={() => void loadMore()}>
+                {loadingMore ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
+                {loadingMore ? 'Загружаем…' : 'Показать ещё'}
+              </button>
+            )}
           </div>
 
           {connectionStatus !== 'connected' && (
