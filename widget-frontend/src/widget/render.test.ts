@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { optimisticReactions, updateRepliesInTree } from "./render";
+import { getPublicAuthorLabel, optimisticReactions, updateRepliesInTree } from "./render";
 import type { CommentReaction, PublicComment } from "./types";
 
 const reactions: CommentReaction[] = [
@@ -16,7 +16,7 @@ function comment(id: string, replies: PublicComment[] = [], replyCount = replies
     siteId: "site",
     pageId: "page",
     parentId: null,
-    author: { id: "user", email: "user@example.com", displayName: null },
+    author: { id: "user", displayName: null },
     content: id,
     status: "APPROVED",
     createdAt: "2026-07-12T00:00:00Z",
@@ -31,6 +31,12 @@ function comment(id: string, replies: PublicComment[] = [], replyCount = replies
 }
 
 describe("адаптивный виджет", () => {
+  it("не использует email-подобное значение как публичное имя", () => {
+    expect(getPublicAuthorLabel({ id: "user", displayName: null })).toBe("Участник");
+    expect(getPublicAuthorLabel({ id: "user", displayName: "visitor@example.com" })).toBe("Участник");
+    expect(getPublicAuthorLabel({ id: "user", displayName: "  Анна  " })).toBe("Анна");
+  });
+
   it("оптимистично переключает единственную реакцию", () => {
     const next = optimisticReactions(reactions, "LOVE");
 

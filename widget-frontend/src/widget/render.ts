@@ -4,6 +4,7 @@ import { widgetStyles } from "./styles";
 import type {
   CloudCommentWidgetInstance,
   CloudCommentWidgetOptions,
+  CommentAuthor,
   CommentReaction,
   CommentReactionType,
   ConsentRequirements,
@@ -309,7 +310,7 @@ export function renderWidget(
     const parentId = state.replyingTo?.id ?? null;
     const replyAuthor = state.replyingTo?.authorLabel ?? null;
     const previousComments = state.comments;
-    const optimisticComment = createOptimisticComment(content, parentId, state.userEmail);
+    const optimisticComment = createOptimisticComment(content, parentId);
     state.comments = parentId
       ? addReplyToRoot(state.comments, parentId, optimisticComment).comments
       : [optimisticComment, ...state.comments];
@@ -1466,7 +1467,12 @@ function renderMessage(message: string, tone: "error" | "notice" | "muted"): HTM
 }
 
 function getAuthorLabel(comment: PublicComment): string {
-  return comment.author.displayName || comment.author.email;
+  return getPublicAuthorLabel(comment.author);
+}
+
+export function getPublicAuthorLabel(author: CommentAuthor): string {
+  const displayName = author.displayName?.trim();
+  return !displayName || displayName.includes("@") ? "Участник" : displayName;
 }
 
 function mergeCreatedReply(
@@ -1510,8 +1516,7 @@ function normalizeWidgetStyle(style: WidgetStyle): WidgetStyle {
 
 function createOptimisticComment(
   content: string,
-  parentId: string | null,
-  email: string | null
+  parentId: string | null
 ): PublicComment {
   const now = new Date().toISOString();
   return {
@@ -1519,7 +1524,7 @@ function createOptimisticComment(
     siteId: "",
     pageId: "",
     parentId,
-    author: { id: "", email: email ?? "Вы", displayName: null },
+    author: { id: "", displayName: "Вы" },
     content,
     status: "PENDING",
     createdAt: now,

@@ -60,7 +60,10 @@ test('виджет стабильно отображает сто коммент
     siteId: '00000000-0000-0000-0000-000000000001',
     pageId: '00000000-0000-0000-0000-000000000002',
     parentId: null,
-    author: { id: '00000000-0000-0000-0000-000000000003', email: 'author@example.com', displayName: `Автор ${index + 1}` },
+    author: {
+      id: '00000000-0000-0000-0000-000000000003',
+      displayName: index === 0 ? 'author@example.com' : `Автор ${index + 1}`,
+    },
     content: `Комментарий ${index + 1}`,
     status: 'APPROVED',
     createdAt: '2026-07-12T00:00:00Z',
@@ -94,6 +97,8 @@ test('виджет стабильно отображает сто коммент
 
   const host = page.locator('#comments')
   await expect(host.locator('.cloud-comment__comment')).toHaveCount(100)
+  await expect(host).toContainText('Участник')
+  await expect(host).not.toContainText('author@example.com')
   expect(Date.now() - startedAt).toBeLessThan(3000)
   expect(await host.evaluate((element) => {
     const shell = element.shadowRoot?.querySelector<HTMLElement>('.cloud-comment')
