@@ -6,6 +6,7 @@ import com.cloudcomment.shared.web.security.PublicApi;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -19,7 +20,12 @@ class PrivacyController {
     }
 
     @PublicApi
-    @CrossOrigin(origins = "*")
+    @CrossOrigin(
+        origins = "*",
+        allowedHeaders = "Accept",
+        methods = RequestMethod.GET,
+        maxAge = 3600
+    )
     @GetMapping("/consent-requirements")
     ConsentRequirementsResponse consentRequirements() {
         return ConsentRequirementsResponse.from(consentService.currentRequirements());

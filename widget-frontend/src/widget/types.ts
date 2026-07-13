@@ -1,6 +1,9 @@
+import type { WidgetApiClient } from "./api";
+
 export type CloudCommentWidgetOptions = {
   siteId: string;
   apiBaseUrl?: string;
+  frameBaseUrl?: string;
   pageUrl?: string;
   target?: string | HTMLElement;
   theme?: WidgetTheme;
@@ -148,5 +151,8 @@ export type AccountDeletionRequest = {
 declare global {
   interface Window {
     CloudCommentWidget?: CloudCommentWidgetApi;
+    CloudCommentWidgetFrame?: {
+      previewInit: (api: WidgetApiClient) => CloudCommentWidgetInstance;
+    };
   }
 }

@@ -4,7 +4,10 @@ set -euo pipefail
 APP_DIR="${APP_DIR:-/home/team13/cloud-comment}"
 APP_USER="${APP_USER:-team13}"
 PUBLIC_BASE_URL="${CLOUD_COMMENT_PUBLIC_BASE_URL:-https://team13.st.ifbest.org}"
+WIDGET_BASE_URL="${CLOUD_COMMENT_WIDGET_BASE_URL:-}"
+EDGE_PROXY_CIDRS="${CLOUD_COMMENT_CADDY_TRUSTED_PROXIES:-}"
 SITE_ADDRESS="${CLOUD_COMMENT_SITE_ADDRESS:-http://team13.st.ifbest.org}"
+WIDGET_SITE_ADDRESS="${CLOUD_COMMENT_WIDGET_SITE_ADDRESS:-http://widget.team13.st.ifbest.org}"
 
 CURRENT_DIR="$APP_DIR/current"
 SHARED_DIR="$APP_DIR/shared"
@@ -16,6 +19,22 @@ if [ "$(id -u)" -ne 0 ]; then
   echo "bootstrap.sh must be run as root" >&2
   exit 1
 fi
+
+if [ -z "$WIDGET_BASE_URL" ] || [ "$WIDGET_BASE_URL" = "$PUBLIC_BASE_URL" ]; then
+  echo "CLOUD_COMMENT_WIDGET_BASE_URL must be a dedicated origin" >&2
+  exit 1
+fi
+
+if [ -z "$EDGE_PROXY_CIDRS" ]; then
+  echo "CLOUD_COMMENT_CADDY_TRUSTED_PROXIES must contain the exact edge proxy CIDR list" >&2
+  exit 1
+fi
+for cidr in $EDGE_PROXY_CIDRS; do
+  if [[ ! "$cidr" =~ ^[0-9A-Fa-f:.]+/[0-9]{1,3}$ ]]; then
+    echo "Invalid trusted edge proxy CIDR: $cidr" >&2
+    exit 1
+  fi
+done
 
 install_packages() {
   local missing=0
@@ -57,7 +76,9 @@ ensure_env_file() {
   fi
 
   local db_password
+  local edge_proxy_cidrs_escaped
   db_password="$(generate_password)"
+  printf -v edge_proxy_cidrs_escaped '%q' "$EDGE_PROXY_CIDRS"
   cat >"$ENV_FILE" <<EOF
 SPRING_PROFILES_ACTIVE=prod
 SERVER_PORT=8080
@@ -69,15 +90,53 @@ SPRING_DATASOURCE_PASSWORD=$db_password
 CLOUD_COMMENT_PUBLIC_BASE_URL=$PUBLIC_BASE_URL
 CLOUD_COMMENT_WIDGET_SCRIPT_URL=$PUBLIC_BASE_URL/widget/cloud-comment-widget.js
 CLOUD_COMMENT_PUBLIC_API_BASE_URL=$PUBLIC_BASE_URL/api
+CLOUD_COMMENT_WIDGET_BASE_URL=$WIDGET_BASE_URL
+CLOUD_COMMENT_CADDY_TRUSTED_PROXIES=$edge_proxy_cidrs_escaped
 CLOUD_COMMENT_ACCOUNT_DELETION_CONFIRM_URL=$PUBLIC_BASE_URL/account/deletion-confirm
 
 CLOUD_COMMENT_MAIL_MODE=log
 CLOUD_COMMENT_MAIL_FROM=noreply@team13.st.ifbest.org
 
 CLOUD_COMMENT_SITE_ADDRESS=$SITE_ADDRESS
+CLOUD_COMMENT_WIDGET_SITE_ADDRESS=$WIDGET_SITE_ADDRESS
 CLOUD_COMMENT_ADMIN_ROOT=$CURRENT_DIR/www/admin
 CLOUD_COMMENT_WIDGET_ROOT=$CURRENT_DIR/www/widget
 EOF
+  chmod 600 "$ENV_FILE"
+  chown "$APP_USER:$APP_USER" "$ENV_FILE"
+}
+
+upsert_managed_env_value() {
+  local key="$1"
+  local value="$2"
+  local escaped_value
+  local shell_value
+
+  if [[ "$value" == *$'\n'* || "$value" == *$'\r'* ]]; then
+    echo "Invalid newline in managed environment value: $key" >&2
+    exit 1
+  fi
+
+  printf -v shell_value '%q' "$value"
+  escaped_value="$(printf '%s' "$shell_value" | sed -e 's/[\\&|]/\\&/g')"
+  if grep -q "^${key}=" "$ENV_FILE"; then
+    sed -i "s|^${key}=.*$|${key}=${escaped_value}|" "$ENV_FILE"
+  else
+    printf '%s=%s\n' "$key" "$shell_value" >>"$ENV_FILE"
+  fi
+}
+
+sync_managed_env_values() {
+  upsert_managed_env_value CLOUD_COMMENT_PUBLIC_BASE_URL "$PUBLIC_BASE_URL"
+  upsert_managed_env_value CLOUD_COMMENT_WIDGET_SCRIPT_URL "$PUBLIC_BASE_URL/widget/cloud-comment-widget.js"
+  upsert_managed_env_value CLOUD_COMMENT_PUBLIC_API_BASE_URL "$PUBLIC_BASE_URL/api"
+  upsert_managed_env_value CLOUD_COMMENT_WIDGET_BASE_URL "$WIDGET_BASE_URL"
+  upsert_managed_env_value CLOUD_COMMENT_CADDY_TRUSTED_PROXIES "$EDGE_PROXY_CIDRS"
+  upsert_managed_env_value CLOUD_COMMENT_ACCOUNT_DELETION_CONFIRM_URL "$PUBLIC_BASE_URL/account/deletion-confirm"
+  upsert_managed_env_value CLOUD_COMMENT_SITE_ADDRESS "$SITE_ADDRESS"
+  upsert_managed_env_value CLOUD_COMMENT_WIDGET_SITE_ADDRESS "$WIDGET_SITE_ADDRESS"
+  upsert_managed_env_value CLOUD_COMMENT_ADMIN_ROOT "$CURRENT_DIR/www/admin"
+  upsert_managed_env_value CLOUD_COMMENT_WIDGET_ROOT "$CURRENT_DIR/www/widget"
   chmod 600 "$ENV_FILE"
   chown "$APP_USER:$APP_USER" "$ENV_FILE"
 }
@@ -184,6 +243,7 @@ restart_supervisor() {
 install_packages
 ensure_directories
 ensure_env_file
+sync_managed_env_values
 load_env
 ensure_postgres
 write_supervisor_config

@@ -41,6 +41,15 @@ describe("pageUrl виджета", () => {
       .toBe("https://site.example/article");
   });
 
+  it("канонизирует origin как backend: регистр, default port и корневой path", () => {
+    expect(resolvePageUrl("HTTPS://Example.TEST:443", "https://fallback.example/"))
+      .toBe("https://example.test/");
+    expect(resolvePageUrl("http://Example.TEST:80?tab=comments", "https://fallback.example/"))
+      .toBe("http://example.test/?tab=comments");
+    expect(resolvePageUrl("https://Example.TEST:8443", "https://fallback.example/"))
+      .toBe("https://example.test:8443/");
+  });
+
   it("удаляет только зафиксированные tracking и sensitive имена", () => {
     expect(resolvePageUrl(
       "https://site.example/article?campaign=summer&tokenize=true&custom_token=secret&mc_eid=mail&gbraid=a&wbraid=b&srsltid=c&gad_source=d&gad_campaignid=e&client_secret=secret&secret=value&signature=s&sig=s&otp=1&jsessionid=3&phpsessid=4&x-amz-signature=aws&x-goog-credential=goog&x-amazing=keep&filter=recent",

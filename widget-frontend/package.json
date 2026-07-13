@@ -4,13 +4,15 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
-    "build": "vite build --config vite.widget.config.ts",
-    "build:widget": "vite build --config vite.widget.config.ts",
+    "build": "vite build --config vite.widget.config.ts && vite build --config vite.widget-frame.config.ts",
+    "build:widget": "vite build --config vite.widget.config.ts && vite build --config vite.widget-frame.config.ts",
     "check": "tsc --noEmit",
     "test": "vitest run"
   },
   "devDependencies": {
+    "@types/node": "^24.10.1",
     "jsdom": "^29.1.1",
+    "lightningcss": "^1.32.0",
     "typescript": "^5.9.3",
     "vite": "^8.1.4",
     "vitest": "^4.1.10"

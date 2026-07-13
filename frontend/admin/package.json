@@ -9,6 +9,7 @@
     "e2e:cors": "playwright test --config playwright.cors.config.ts",
     "e2e:local": "playwright test --config playwright.local.config.ts",
     "e2e:ux": "playwright test --config playwright.ux.config.ts",
+    "e2e:widget-isolation": "playwright test --config playwright.widget-isolation.config.ts",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",

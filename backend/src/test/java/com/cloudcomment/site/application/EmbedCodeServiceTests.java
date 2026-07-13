@@ -12,7 +12,8 @@ class EmbedCodeServiceTests {
     void buildReturnsConfiguredUrlsAndEscapesHtmlAttributes() {
         EmbedCodeService service = new EmbedCodeService(new EmbedCodeProperties(
             "https://cdn.example.com/widget.js?tenant=<cloud>",
-            "https://api.example.com/api?source=<admin>"
+            "https://api.example.com/api?source=<admin>",
+            "https://frame.example.com"
         ));
         UUID siteId = UUID.randomUUID();
 
@@ -22,10 +23,12 @@ class EmbedCodeServiceTests {
         assertThat(embedCode.scriptUrl()).isEqualTo("https://cdn.example.com/widget.js?tenant=<cloud>");
         assertThat(embedCode.dataAttributes())
             .containsEntry("siteId", siteId.toString())
-            .containsEntry("apiBaseUrl", "https://api.example.com/api?source=<admin>");
+            .containsEntry("apiBaseUrl", "https://api.example.com/api?source=<admin>")
+            .containsEntry("frameBaseUrl", "https://frame.example.com");
         assertThat(embedCode.embedCode())
             .contains("tenant=&lt;cloud&gt;")
             .contains("data-site-id=\"" + siteId + "\"")
-            .contains("source=&lt;admin&gt;");
+            .contains("source=&lt;admin&gt;")
+            .contains("data-frame-base-url=\"https://frame.example.com\"");
     }
 }

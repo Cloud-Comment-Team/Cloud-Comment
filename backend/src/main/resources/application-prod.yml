@@ -5,6 +5,8 @@ spring:
     password: ${SPRING_DATASOURCE_PASSWORD}
 
 cloud-comment:
+  embed:
+    widget-base-url: ${CLOUD_COMMENT_WIDGET_BASE_URL}
   auth:
     admin-session:
       cookie-name: ${CLOUD_COMMENT_ADMIN_SESSION_COOKIE_NAME:__Host-cloud_comment_admin_session}

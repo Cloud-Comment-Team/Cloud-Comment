@@ -19,6 +19,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class LogoutServiceTests {
 
+    private static final UUID SITE_ID = UUID.fromString("00000000-0000-0000-0000-000000000169");
+    private static final String ORIGIN = "https://example.com";
+
     private static final Clock FIXED_CLOCK = Clock.fixed(
         Instant.parse("2026-06-24T12:00:00Z"),
         ZoneOffset.UTC
@@ -29,7 +32,7 @@ class LogoutServiceTests {
         CapturingUserAccountRepository repository = new CapturingUserAccountRepository(SessionRevocationResult.REVOKED);
         LogoutService service = new LogoutService(repository, new SessionTokenHasher(), FIXED_CLOCK);
 
-        assertThatCode(() -> service.logout("plain-session-token", SessionAudience.WIDGET))
+        assertThatCode(() -> service.logoutWidget("plain-session-token", SITE_ID, ORIGIN))
             .doesNotThrowAnyException();
 
         assertThat(repository.revokedTokenHash).matches("[0-9a-f]{64}");
@@ -45,7 +48,7 @@ class LogoutServiceTests {
         );
         LogoutService service = new LogoutService(repository, new SessionTokenHasher(), FIXED_CLOCK);
 
-        assertThatCode(() -> service.logout("plain-session-token", SessionAudience.WIDGET))
+        assertThatCode(() -> service.logoutWidget("plain-session-token", SITE_ID, ORIGIN))
             .doesNotThrowAnyException();
     }
 
@@ -56,7 +59,7 @@ class LogoutServiceTests {
         );
         LogoutService service = new LogoutService(repository, new SessionTokenHasher(), FIXED_CLOCK);
 
-        assertThatThrownBy(() -> service.logout("expired-session-token", SessionAudience.WIDGET))
+        assertThatThrownBy(() -> service.logoutWidget("expired-session-token", SITE_ID, ORIGIN))
             .isInstanceOf(ApplicationException.class)
             .hasMessage("Invalid or expired session")
             .extracting("code")
@@ -125,6 +128,17 @@ class LogoutServiceTests {
             this.revokedAudience = audience;
             this.revokedAt = revokedAt;
             return revocationResult;
+        }
+
+        @Override
+        public SessionRevocationResult revokeSession(
+            String tokenHash,
+            SessionAudience audience,
+            UUID siteId,
+            String origin,
+            Instant revokedAt
+        ) {
+            return revokeSession(tokenHash, audience, revokedAt);
         }
 
         @Override

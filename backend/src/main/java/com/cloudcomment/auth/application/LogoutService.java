@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.util.UUID;
 
 @Service
 public class LogoutService {
@@ -29,9 +30,14 @@ public class LogoutService {
 
     @Transactional
     public void logout(String token, SessionAudience audience) {
+        if (audience == SessionAudience.WIDGET) {
+            throw invalidSession();
+        }
         SessionRevocationResult result = userAccountRepository.revokeSession(
             sessionTokenHasher.hash(token),
             audience,
+            null,
+            null,
             clock.instant()
         );
 
@@ -42,11 +48,34 @@ public class LogoutService {
 
     @Transactional
     public void logoutIfPresent(String token, SessionAudience audience) {
+        if (audience == SessionAudience.WIDGET) {
+            return;
+        }
         userAccountRepository.revokeSession(
             sessionTokenHasher.hash(token),
             audience,
+            null,
+            null,
             clock.instant()
         );
+    }
+
+    @Transactional
+    public void logoutWidget(
+        String token,
+        UUID siteId,
+        String origin
+    ) {
+        SessionRevocationResult result = userAccountRepository.revokeSession(
+            sessionTokenHasher.hash(token),
+            SessionAudience.WIDGET,
+            siteId,
+            origin,
+            clock.instant()
+        );
+        if (result == SessionRevocationResult.NOT_FOUND_OR_EXPIRED) {
+            throw invalidSession();
+        }
     }
 
     private ApplicationException invalidSession() {

@@ -24,6 +24,7 @@ cloud-comment:
   embed:
     script-url: ${CLOUD_COMMENT_WIDGET_SCRIPT_URL:http://localhost/widget/cloud-comment-widget.js}
     api-base-url: ${CLOUD_COMMENT_PUBLIC_API_BASE_URL:http://localhost/api}
+    widget-base-url: ${CLOUD_COMMENT_WIDGET_BASE_URL:http://widget.localhost}
   mail:
     mode: ${CLOUD_COMMENT_MAIL_MODE:log}
     from: ${CLOUD_COMMENT_MAIL_FROM:noreply@cloud-comment.local}
@@ -48,6 +49,11 @@ cloud-comment:
     retention-cleanup-cron: ${CLOUD_COMMENT_NOTIFICATION_RETENTION_CLEANUP_CRON:0 30 3 * * *}
   installation-health:
     retention-cleanup-cron: ${CLOUD_COMMENT_INSTALLATION_HEALTH_CLEANUP_CRON:0 45 3 * * *}
+  widget-context:
+    retention-hours: ${CLOUD_COMMENT_WIDGET_CONTEXT_RETENTION_HOURS:24}
+    retention-cleanup-cron: ${CLOUD_COMMENT_WIDGET_CONTEXT_RETENTION_CLEANUP_CRON:0 */15 * * * *}
+  security:
+    trusted-proxies: ${CLOUD_COMMENT_TRUSTED_PROXIES:127.0.0.1/32,::1/128}
   demo:
     seed:
       enabled: ${CLOUD_COMMENT_DEMO_SEED_ENABLED:false}

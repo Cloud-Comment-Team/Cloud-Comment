@@ -1,9 +1,33 @@
-import { expect, test, type APIRequestContext } from '@playwright/test'
+import { expect, test, type APIRequestContext, type FrameLocator } from '@playwright/test'
 
 const ADMIN_ORIGIN = (process.env.E2E_BASE_URL ?? 'http://localhost').replace(/\/+$/, '')
 const API_BASE_URL = `${ADMIN_ORIGIN}/api`
+const WIDGET_ORIGIN = (process.env.E2E_WIDGET_BASE_URL ?? 'http://widget.localhost').replace(/\/+$/, '')
+const WIDGET_CONNECT_ORIGIN = (process.env.E2E_WIDGET_CONNECT_BASE_URL
+  ?? (process.platform === 'win32' && WIDGET_ORIGIN === 'http://widget.localhost'
+    ? 'http://127.0.0.1'
+    : WIDGET_ORIGIN)).replace(/\/+$/, '')
+const WIDGET_API_BASE_URL = `${WIDGET_CONNECT_ORIGIN}/api`
+const WIDGET_HOST_HEADER = WIDGET_CONNECT_ORIGIN === WIDGET_ORIGIN
+  ? {}
+  : { Host: new URL(WIDGET_ORIGIN).host }
 const PASSWORD = 'Password123!'
 const WIDGET_ACCENT_COLOR = '#7c3aed'
+
+type ModerationComment = {
+  id: string
+  siteId: string
+  parentId: string | null
+  content: string
+  status: string
+  author: { email: string }
+  autoModeration?: {
+    policyVersionId: string
+    executionMode: string
+    decision: string
+    feedback: unknown
+  } | null
+}
 
 async function issueAdminCsrf(adminRequest: APIRequestContext): Promise<Record<string, string>> {
   const response = await adminRequest.get(`${API_BASE_URL}/auth/csrf`)
@@ -12,11 +36,115 @@ async function issueAdminCsrf(adminRequest: APIRequestContext): Promise<Record<s
   return { [csrf.headerName]: csrf.token }
 }
 
-test('local MVP flow: auth, site admin, public comments API and widget script', async ({ page, request, context }) => {
+function toBase64Url(value: ArrayBuffer): string {
+  let binary = ''
+  for (const byte of new Uint8Array(value)) {
+    binary += String.fromCharCode(byte)
+  }
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
+}
+
+async function createWidgetContext(
+  request: APIRequestContext,
+  siteId: string,
+  parentOrigin: string,
+  pageUrl: string,
+): Promise<Record<string, string>> {
+  const keyPair = await crypto.subtle.generateKey(
+    { name: 'ECDSA', namedCurve: 'P-256' },
+    false,
+    ['sign', 'verify'],
+  )
+  const publicKeySpki = await crypto.subtle.exportKey('spki', keyPair.publicKey)
+  const publicKey = toBase64Url(publicKeySpki)
+  const fingerprint = toBase64Url(await crypto.subtle.digest('SHA-256', publicKeySpki))
+  const normalizedParentOrigin = new URL(parentOrigin).origin
+
+  const bootstrapResponse = await request.post(
+    `${WIDGET_API_BASE_URL}/public/sites/${siteId}/widget-context/bootstrap`,
+    {
+      headers: { ...WIDGET_HOST_HEADER, Origin: normalizedParentOrigin },
+      data: { publicKey, pageUrl },
+    },
+  )
+  await expect(bootstrapResponse).toBeOK()
+  const bootstrap = await bootstrapResponse.json() as {
+    ticket: string
+    canonicalPageUrl: string
+    publicKeyFingerprint: string
+  }
+  expect(bootstrap.publicKeyFingerprint).toBe(fingerprint)
+
+  const canonicalPayload = [
+    'CLOUDCOMMENT_WIDGET_BOOTSTRAP_V1',
+    siteId,
+    normalizedParentOrigin,
+    bootstrap.canonicalPageUrl,
+    bootstrap.publicKeyFingerprint,
+    bootstrap.ticket,
+  ].join('\n')
+  const signature = await crypto.subtle.sign(
+    { name: 'ECDSA', hash: 'SHA-256' },
+    keyPair.privateKey,
+    new TextEncoder().encode(canonicalPayload),
+  )
+  expect(signature.byteLength).toBe(64)
+  const proof = toBase64Url(signature)
+
+  const exchangeResponse = await request.post(
+    `${WIDGET_API_BASE_URL}/public/sites/${siteId}/widget-context/exchange`,
+    {
+      headers: { ...WIDGET_HOST_HEADER, Origin: WIDGET_ORIGIN },
+      data: { ticket: bootstrap.ticket, proof },
+    },
+  )
+  await expect(exchangeResponse).toBeOK()
+  const exchange = await exchangeResponse.json() as { contextToken: string }
+  return {
+    ...WIDGET_HOST_HEADER,
+    Origin: WIDGET_ORIGIN,
+    'X-CloudComment-Widget-Context': exchange.contextToken,
+    'X-CloudComment-Page-Url': bootstrap.canonicalPageUrl,
+  }
+}
+
+async function submitWidgetComment(widget: FrameLocator, content: string): Promise<void> {
+  await widget.getByRole('textbox', { name: 'Написать комментарий' }).fill(content)
+  await widget.locator('form[data-cloud-comment-form="comment"]')
+    .getByRole('button', { name: 'Отправить' })
+    .click()
+  await expect(widget.getByText(content, { exact: true })).toBeVisible()
+}
+
+async function submitWidgetReply(widget: FrameLocator, rootContent: string, replyContent: string): Promise<void> {
+  const rootComment = widget.locator('.cloud-comment__comment').filter({
+    has: widget.locator('.cloud-comment__comment-content', { hasText: rootContent }),
+  }).first()
+  await rootComment.getByRole('button', { name: 'Ответить' }).click()
+  await submitWidgetComment(widget, replyContent)
+}
+
+async function findModerationComment(
+  adminRequest: APIRequestContext,
+  siteId: string,
+  content: string,
+): Promise<ModerationComment> {
+  const response = await adminRequest.get(`${API_BASE_URL}/moderation/comments`, {
+    params: { siteId, search: content, page: '1', pageSize: '20' },
+  })
+  await expect(response).toBeOK()
+  const page = await response.json() as { items: ModerationComment[] }
+  const comment = page.items.find((item) => item.content === content)
+  expect(comment, `Комментарий «${content}» должен быть доступен владельцу`).toBeDefined()
+  return comment!
+}
+
+test('local MVP flow: auth, site admin, public API and isolated iframe widget', async ({ page, request, context }) => {
   test.setTimeout(60_000)
   const adminRequest = context.request
   const suffix = Date.now().toString(36)
   const email = `e2e-${suffix}@example.com`
+  const widgetEmail = `widget-${suffix}@example.com`
   const otherEmail = `e2e-other-${suffix}@example.com`
   const siteName = `E2E Site ${suffix}`
   const domain = `e2e-${suffix}.example.com`
@@ -26,8 +154,6 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   const ownerReplyText = `E2E owner reply ${suffix}`
   const pendingWidgetReplyText = `E2E widget pending reply ${suffix}`
   const deleteCommentText = `E2E comment to delete ${suffix}`
-  const crossOriginCommentText = `E2E cross-origin comment ${suffix}`
-  const crossOriginEditedText = `E2E cross-origin edited ${suffix}`
   const blockedWord = `blocked-${suffix}`
   const spamCommentText = `Automod should catch ${blockedWord}`
   const pageUrl = `${ADMIN_ORIGIN}/demo-page.html`
@@ -98,6 +224,9 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   await expect(page.getByText(domain, { exact: true }).first()).toBeVisible()
   const siteId = page.url().match(/\/sites\/([0-9a-f-]{36})$/)?.[1]
   expect(siteId, 'created site id should be present in URL').toBeTruthy()
+  if (!siteId) {
+    throw new Error('Created site id is missing')
+  }
   await expect(page.getByRole('heading', { name: 'Виджет ещё не подключался' })).toBeVisible()
   await page.getByRole('button', { name: 'Установка' }).click()
   await expect(page.getByText(`data-site-id="${siteId}"`)).toBeVisible()
@@ -115,22 +244,32 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   expect(await wrongCsrfResponse.json()).toMatchObject({ error: { code: 'INVALID_CSRF_TOKEN' } })
   await expect(await adminRequest.post(`${API_BASE_URL}/realtime/tickets`, { headers: adminCsrfHeaders })).toBeOK()
 
-  const widgetLoginResponse = await request.post(`${API_BASE_URL}/public/sites/${siteId}/auth/login`, {
+  const legacyWidgetLoginResponse = await request.post(`${API_BASE_URL}/public/sites/${siteId}/auth/login`, {
     headers: { Origin: ADMIN_ORIGIN },
-    data: { email, password: PASSWORD },
+    data: { email: widgetEmail, password: PASSWORD },
   })
-  await expect(widgetLoginResponse).toBeOK()
-  const widgetToken = (await widgetLoginResponse.json()).token as string
-  expect(widgetToken).toEqual(expect.any(String))
-  await page.evaluate((token) => window.localStorage.setItem('cloud-comment.widget.authToken', token), widgetToken)
+  expect(legacyWidgetLoginResponse.status()).toBe(401)
+  expect(await legacyWidgetLoginResponse.json()).toMatchObject({ error: { code: 'INVALID_WIDGET_CONTEXT' } })
 
   const adminCookieOnPublicWrite = await adminRequest.post(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
     headers: { Origin: ADMIN_ORIGIN },
     data: { pageUrl, parentId: null, content: 'Cookie не должна авторизовать публичную запись' },
   })
   expect(adminCookieOnPublicWrite.status()).toBe(401)
+  expect(await adminCookieOnPublicWrite.json()).toMatchObject({ error: { code: 'INVALID_WIDGET_CONTEXT' } })
+
+  const bearerOnlyPublicApiResponse = await request.get(
+    `${API_BASE_URL}/public/sites/${siteId}/pages/comments`,
+    {
+      headers: { Authorization: 'Bearer legacy-parent-token', Origin: ADMIN_ORIGIN },
+      params: { pageUrl, page: '1', pageSize: '20' },
+    },
+  )
+  expect(bearerOnlyPublicApiResponse.status()).toBe(401)
+  expect(await bearerOnlyPublicApiResponse.json()).toMatchObject({ error: { code: 'INVALID_WIDGET_CONTEXT' } })
+
   const widgetBearerOnAdminApi = await request.get(`${API_BASE_URL}/sites`, {
-    headers: { Authorization: `Bearer ${widgetToken}` },
+    headers: { Authorization: 'Bearer legacy-parent-token' },
   })
   expect(widgetBearerOnAdminApi.status()).toBe(401)
 
@@ -173,54 +312,62 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
     lastSuccessfulOrigin: ADMIN_ORIGIN,
   })
 
-  const createCommentResponse = await request.post(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
-    headers: {
-      Authorization: `Bearer ${widgetToken}`,
-      Origin: ADMIN_ORIGIN,
-    },
-    data: {
-      pageUrl,
-      parentId: null,
-      content: commentText,
-    },
-  })
-  expect(createCommentResponse.status()).toBe(201)
-  await expect(createCommentResponse).toBeOK()
-  const createdComment = await createCommentResponse.json()
+  const widgetContextHeaders = await createWidgetContext(request, siteId, ADMIN_ORIGIN, pageUrl)
+
+  await page.goto(`/demo-page.html?siteId=${siteId}`)
+  const widget = page.frameLocator('#comments iframe[title="Комментарии CloudComment"]')
+  await expect(widget.locator('.cloud-comment__title')).toHaveText('Комментарии')
+  await expect(page.locator('#comments .cloud-comment')).toHaveCount(0)
+  expect(await page.evaluate(() => Object.keys(window.localStorage).filter((key) => key.includes('widget.authToken'))))
+    .toEqual([])
+
+  await widget.getByRole('button', { name: 'Войти, чтобы участвовать' }).click()
+  await widget.getByRole('button', { name: 'Регистрация', exact: true }).click()
+  await expect(widget.getByRole('link', { name: 'политика', exact: true }))
+    .toHaveAttribute('href', /\/legal\/privacy-policy\.html$/)
+  await expect(widget.getByRole('link', { name: 'условия', exact: true }))
+    .toHaveAttribute('href', /\/legal\/terms\.html$/)
+  const registrationForm = widget.locator('form[data-cloud-comment-form="auth"]')
+  await registrationForm.locator('input[name="email"]').fill(widgetEmail)
+  await registrationForm.locator('input[name="password"]').fill(PASSWORD)
+  await registrationForm.getByRole('checkbox').check()
+  await registrationForm.getByRole('button', { name: 'Создать аккаунт' }).click()
+  await expect(widget.getByRole('button', { name: 'Меню профиля' })).toBeVisible()
+  await expect(widget.getByText(`Вы вошли как ${widgetEmail}`)).toBeVisible()
+  expect(await page.evaluate(() => Object.keys(window.localStorage).filter((key) => key.includes('widget.authToken'))))
+    .toEqual([])
+
+  await widget.getByRole('button', { name: 'Меню профиля' }).click()
+  await widget.getByRole('button', { name: 'Выйти', exact: true }).click()
+  await expect(widget.getByRole('button', { name: 'Войти, чтобы участвовать' })).toBeVisible()
+  await widget.getByRole('button', { name: 'Войти, чтобы участвовать' }).click()
+  const loginForm = widget.locator('form[data-cloud-comment-form="auth"]')
+  await loginForm.locator('input[name="email"]').fill(widgetEmail)
+  await loginForm.locator('input[name="password"]').fill(PASSWORD)
+  await loginForm.getByRole('button', { name: 'Войти', exact: true }).click()
+  await expect(widget.getByRole('button', { name: 'Меню профиля' })).toBeVisible()
+
+  await submitWidgetComment(widget, commentText)
+  const createdComment = await findModerationComment(adminRequest, siteId, commentText)
   expect(createdComment).toMatchObject({
     siteId,
     content: commentText,
     status: 'APPROVED',
-    author: { displayName: 'Участник' },
+    author: { email: widgetEmail },
   })
-  expect(createdComment.author).not.toHaveProperty('email')
 
-  const createReplyResponse = await request.post(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
-    headers: {
-      Authorization: `Bearer ${widgetToken}`,
-      Origin: ADMIN_ORIGIN,
-    },
-    data: {
-      pageUrl,
-      parentId: createdComment.id,
-      content: apiReplyText,
-    },
-  })
-  await expect(createReplyResponse).toBeOK()
-  const createdReply = await createReplyResponse.json()
+  await submitWidgetReply(widget, commentText, apiReplyText)
+  const createdReply = await findModerationComment(adminRequest, siteId, apiReplyText)
   expect(createdReply).toMatchObject({
     siteId,
     parentId: createdComment.id,
     content: apiReplyText,
     status: 'APPROVED',
-    author: { displayName: 'Участник' },
+    author: { email: widgetEmail },
   })
-  expect(createdReply.author).not.toHaveProperty('email')
 
-  const listCommentsResponse = await request.get(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
-    headers: {
-      Origin: ADMIN_ORIGIN,
-    },
+  const listCommentsResponse = await request.get(`${WIDGET_API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
+    headers: widgetContextHeaders,
     params: {
       pageUrl,
       page: '1',
@@ -249,19 +396,15 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   await expect(moderationDetailResponse).toBeOK()
   expect(await moderationDetailResponse.json()).toMatchObject({
     id: createdComment.id,
-    author: { email },
+    author: { email: widgetEmail },
   })
 
   for (const index of [2, 3, 4]) {
-    const response = await request.post(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
-      headers: { Authorization: `Bearer ${widgetToken}`, Origin: ADMIN_ORIGIN },
-      data: { pageUrl, parentId: createdComment.id, content: `${apiReplyText} ${index}` },
-    })
-    await expect(response).toBeOK()
+    await submitWidgetReply(widget, commentText, `${apiReplyText} ${index}`)
   }
 
-  const limitedRepliesResponse = await request.get(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
-    headers: { Origin: ADMIN_ORIGIN },
+  const limitedRepliesResponse = await request.get(`${WIDGET_API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
+    headers: widgetContextHeaders,
     params: { pageUrl, page: '1', pageSize: '20', replyLimit: '1' },
   })
   await expect(limitedRepliesResponse).toBeOK()
@@ -270,44 +413,20 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   expect(limitedRepliesPage.items[0].replies).toHaveLength(1)
 
   const repliesPageResponse = await request.get(
-    `${API_BASE_URL}/public/sites/${siteId}/comments/${createdComment.id}/replies`,
-    { headers: { Origin: ADMIN_ORIGIN }, params: { page: '2', pageSize: '2' } },
+    `${WIDGET_API_BASE_URL}/public/sites/${siteId}/comments/${createdComment.id}/replies`,
+    { headers: widgetContextHeaders, params: { page: '2', pageSize: '2' } },
   )
   await expect(repliesPageResponse).toBeOK()
   const repliesPage = await repliesPageResponse.json()
   expect(repliesPage.totalItems).toBe(4)
   expect(repliesPage.items).toHaveLength(2)
 
-  const reactionResponse = await request.put(`${API_BASE_URL}/public/sites/${siteId}/comments/${createdComment.id}/reaction`, {
-    headers: {
-      Authorization: `Bearer ${widgetToken}`,
-      Origin: ADMIN_ORIGIN,
-    },
-    data: {
-      type: 'LOVE',
-    },
-  })
-  await expect(reactionResponse).toBeOK()
-  const reactionSummary = await reactionResponse.json()
-  expect(reactionSummary.reactions).toEqual(expect.arrayContaining([
-    expect.objectContaining({
-      type: 'LOVE',
-      count: 1,
-      reactedByCurrentUser: true,
-    }),
-  ]))
-
-  const viewerCommentsResponse = await request.get(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
-    headers: {
-      Authorization: `Bearer ${widgetToken}`,
-      Origin: ADMIN_ORIGIN,
-    },
-    params: {
-      pageUrl,
-      page: '1',
-      pageSize: '20',
-    },
-  })
+  const initialLoveButton = widget.locator(
+    `button[data-reaction-comment-id="${createdComment.id}"][data-reaction-type="LOVE"]`,
+  )
+  await initialLoveButton.click()
+  await expect(initialLoveButton).toHaveClass(/cloud-comment__reaction--active/)
+  await expect(initialLoveButton.locator('.cloud-comment__reaction-count')).toHaveText('1')
 
   const rejectedOriginResponse = await request.get(`${API_BASE_URL}/public/sites/${siteId}/config`, {
     headers: {
@@ -323,38 +442,21 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
     lastRejectedOrigin: `${ADMIN_ORIGIN}.evil.example`,
     lastSuccessfulOrigin: ADMIN_ORIGIN,
   })
-  await expect(viewerCommentsResponse).toBeOK()
-  const viewerComments = await viewerCommentsResponse.json()
-  expect(viewerComments.items[0]).toMatchObject({
-    id: createdComment.id,
-    ownedByCurrentUser: true,
-  })
-  expect(viewerComments.items[0].reactions).toEqual(expect.arrayContaining([
-    expect.objectContaining({
-      type: 'LOVE',
-      count: 1,
-      reactedByCurrentUser: true,
-    }),
-  ]))
-
-  const editCommentResponse = await request.patch(`${API_BASE_URL}/public/sites/${siteId}/comments/${createdComment.id}`, {
-    headers: {
-      Authorization: `Bearer ${widgetToken}`,
-      Origin: ADMIN_ORIGIN,
-    },
-    data: {
-      content: editedCommentText,
-    },
-  })
-  await expect(editCommentResponse).toBeOK()
-  const editedComment = await editCommentResponse.json()
+  await widget.locator(
+    `button[data-comment-action="edit"][data-comment-id="${createdComment.id}"]`,
+  ).click()
+  const editCommentForm = widget.locator(
+    `form[data-cloud-comment-form="edit-comment"][data-comment-id="${createdComment.id}"]`,
+  )
+  await editCommentForm.getByRole('textbox', { name: 'Редактировать комментарий' }).fill(editedCommentText)
+  await editCommentForm.getByRole('button', { name: 'Сохранить' }).click()
+  await expect(widget.getByText(editedCommentText, { exact: true })).toBeVisible()
+  const editedComment = await findModerationComment(adminRequest, siteId, editedCommentText)
   expect(editedComment).toMatchObject({
     id: createdComment.id,
     content: editedCommentText,
     status: 'APPROVED',
-    ownedByCurrentUser: true,
   })
-  expect(editedComment.editedAt).toEqual(expect.any(String))
 
   const updateFlagsResponse = await adminRequest.patch(`${API_BASE_URL}/moderation/comments/${createdComment.id}/flags`, {
     headers: await issueAdminCsrf(adminRequest),
@@ -378,10 +480,8 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
     expect.objectContaining({ id: createdComment.id, pinned: true, favorite: true }),
   ]))
 
-  const pinnedPublicResponse = await request.get(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
-    headers: {
-      Origin: ADMIN_ORIGIN,
-    },
+  const pinnedPublicResponse = await request.get(`${WIDGET_API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
+    headers: widgetContextHeaders,
     params: {
       pageUrl,
       sort: 'TOP_REACTIONS',
@@ -394,51 +494,16 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   expect(pinnedPublicComments.items[0]).toMatchObject({ id: createdComment.id, pinned: true })
   expect(pinnedPublicComments.items[0]).not.toHaveProperty('favorite')
 
-  const commentsAfterEditResponse = await request.get(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
-    headers: {
-      Authorization: `Bearer ${widgetToken}`,
-      Origin: ADMIN_ORIGIN,
-    },
-    params: {
-      pageUrl,
-      page: '1',
-      pageSize: '20',
-    },
-  })
-  await expect(commentsAfterEditResponse).toBeOK()
-  const commentsAfterEdit = await commentsAfterEditResponse.json()
-  expect(commentsAfterEdit.items[0]).toMatchObject({
-    id: createdComment.id,
-    content: editedCommentText,
-    ownedByCurrentUser: true,
-  })
+  await submitWidgetComment(widget, deleteCommentText)
+  const deletedWidgetComment = widget.locator('.cloud-comment__comment').filter({
+    has: widget.getByText(deleteCommentText, { exact: true }),
+  }).first()
+  await deletedWidgetComment.getByRole('button', { name: 'Удалить', exact: true }).click()
+  await deletedWidgetComment.getByRole('button', { name: 'Да, удалить' }).click()
+  await expect(widget.getByText(deleteCommentText, { exact: true })).toHaveCount(0)
 
-  const createDeletedCommentResponse = await request.post(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
-    headers: {
-      Authorization: `Bearer ${widgetToken}`,
-      Origin: ADMIN_ORIGIN,
-    },
-    data: {
-      pageUrl,
-      parentId: null,
-      content: deleteCommentText,
-    },
-  })
-  await expect(createDeletedCommentResponse).toBeOK()
-  const deletedCommentCandidate = await createDeletedCommentResponse.json()
-
-  const deleteCommentResponse = await request.delete(`${API_BASE_URL}/public/sites/${siteId}/comments/${deletedCommentCandidate.id}`, {
-    headers: {
-      Authorization: `Bearer ${widgetToken}`,
-      Origin: ADMIN_ORIGIN,
-    },
-  })
-  expect(deleteCommentResponse.status()).toBe(204)
-
-  const commentsAfterDeleteResponse = await request.get(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
-    headers: {
-      Origin: ADMIN_ORIGIN,
-    },
+  const commentsAfterDeleteResponse = await request.get(`${WIDGET_API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
+    headers: widgetContextHeaders,
     params: {
       pageUrl,
       page: '1',
@@ -463,28 +528,15 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   })
   await expect(enableAutomodResponse).toBeOK()
 
-  const createSpamCommentResponse = await request.post(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
-    headers: {
-      Authorization: `Bearer ${widgetToken}`,
-      Origin: ADMIN_ORIGIN,
-    },
-    data: {
-      pageUrl,
-      parentId: null,
-      content: spamCommentText,
-    },
-  })
-  expect(createSpamCommentResponse.status()).toBe(201)
-  const spamComment = await createSpamCommentResponse.json()
+  await submitWidgetComment(widget, spamCommentText)
+  const spamComment = await findModerationComment(adminRequest, siteId, spamCommentText)
   expect(spamComment).toMatchObject({
     content: spamCommentText,
     status: 'SPAM',
   })
 
-  const commentsAfterAutomodResponse = await request.get(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
-    headers: {
-      Origin: ADMIN_ORIGIN,
-    },
+  const commentsAfterAutomodResponse = await request.get(`${WIDGET_API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
+    headers: widgetContextHeaders,
     params: {
       pageUrl,
       page: '1',
@@ -562,14 +614,9 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   expect(shadowPolicy).toMatchObject({ executionMode: 'SHADOW', active: true })
 
   const shadowCommentText = `E2E shadow ${shadowBlockedWord}`
-  const createShadowCommentResponse = await request.post(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
-    headers: { Authorization: `Bearer ${widgetToken}`, Origin: ADMIN_ORIGIN },
-    data: { pageUrl, parentId: null, content: shadowCommentText },
-  })
-  expect(createShadowCommentResponse.status()).toBe(201)
-  const shadowComment = await createShadowCommentResponse.json()
+  await submitWidgetComment(widget, shadowCommentText)
+  const shadowComment = await findModerationComment(adminRequest, siteId, shadowCommentText)
   expect(shadowComment).toMatchObject({ content: shadowCommentText, status: 'APPROVED' })
-  expect(shadowComment).not.toHaveProperty('autoModeration')
 
   const shadowModerationResponse = await adminRequest.get(`${API_BASE_URL}/moderation/comments/${shadowComment.id}`)
   await expect(shadowModerationResponse).toBeOK()
@@ -616,12 +663,9 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   expect(livePolicy).toMatchObject({ executionMode: 'LIVE', active: true })
 
   const liveCommentText = `E2E live ${shadowBlockedWord}`
-  const createLiveCommentResponse = await request.post(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
-    headers: { Authorization: `Bearer ${widgetToken}`, Origin: ADMIN_ORIGIN },
-    data: { pageUrl, parentId: null, content: liveCommentText },
-  })
-  expect(createLiveCommentResponse.status()).toBe(201)
-  expect(await createLiveCommentResponse.json()).toMatchObject({ content: liveCommentText, status: 'SPAM' })
+  await submitWidgetComment(widget, liveCommentText)
+  expect(await findModerationComment(adminRequest, siteId, liveCommentText))
+    .toMatchObject({ content: liveCommentText, status: 'SPAM' })
 
   const rollbackShadowResponse = await adminRequest.post(
     `${API_BASE_URL}/sites/${siteId}/automoderation/versions/${shadowPolicy.id}/rollback`,
@@ -652,19 +696,8 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   await expect(moderationPage.getByRole('dialog', { name: 'Центр уведомлений' })).toBeVisible()
 
   const realtimeCommentText = `E2E realtime comment ${suffix}`
-  const realtimeCommentResponse = await request.post(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
-    headers: {
-      Authorization: `Bearer ${widgetToken}`,
-      Origin: ADMIN_ORIGIN,
-    },
-    data: {
-      pageUrl,
-      parentId: null,
-      content: realtimeCommentText,
-    },
-  })
-  expect(realtimeCommentResponse.status()).toBe(201)
-  const realtimeComment = await realtimeCommentResponse.json()
+  await submitWidgetComment(widget, realtimeCommentText)
+  const realtimeComment = await findModerationComment(adminRequest, siteId, realtimeCommentText)
   await expect(moderationPage.getByText(realtimeCommentText)).toBeVisible({ timeout: 15_000 })
 
   const storedNotificationsResponse = await adminRequest.get(`${API_BASE_URL}/notifications`)
@@ -817,15 +850,17 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   })
   expect(invalidTimeZoneResponse.status()).toBe(400)
 
-  await page.goto(`/demo-page.html?siteId=${siteId}`)
-
-  const widget = page.locator('#comments')
+  await page.reload()
   const widgetShell = widget.locator('.cloud-comment')
   await expect(widget.locator('.cloud-comment__title')).toHaveText('Комментарии')
+  await expect(widget.getByRole('button', { name: 'Меню профиля' })).toBeVisible()
+  await expect(page.locator('#comments .cloud-comment')).toHaveCount(0)
+  expect(await page.evaluate(() => Object.keys(window.localStorage).filter((key) => key.includes('widget.authToken'))))
+    .toEqual([])
   await expect(widget.locator('.cloud-comment__comment-content')).toContainText([editedCommentText, apiReplyText])
   const publicAuthorLabels = widget.locator('.cloud-comment__comment-header strong')
   await expect(publicAuthorLabels.first()).toHaveText('Участник')
-  expect((await publicAuthorLabels.allTextContents()).join(' ')).not.toContain(email)
+  expect((await publicAuthorLabels.allTextContents()).join(' ')).not.toContain(widgetEmail)
   await expect(widget.getByRole('button', { name: 'Показать ещё ответы (1)' })).toBeVisible()
   await widget.getByRole('button', { name: 'Показать ещё ответы (1)' }).click()
   await expect(widget.locator('.cloud-comment__replies .cloud-comment__comment')).toHaveCount(4)
@@ -862,10 +897,8 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   await expect(widget.getByText(pendingWidgetReplyText)).toBeVisible()
   await expect(widget.getByText(pendingWidgetReplyText).locator('..').locator('.cloud-comment__status')).toBeVisible()
 
-  const publicCommentsAfterPendingReply = await request.get(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
-    headers: {
-      Origin: ADMIN_ORIGIN,
-    },
+  const publicCommentsAfterPendingReply = await request.get(`${WIDGET_API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
+    headers: widgetContextHeaders,
     params: {
       pageUrl,
       page: '1',
@@ -1011,78 +1044,25 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
 
   const externalPage = await context.newPage()
   await externalPage.goto(`http://127.0.0.1/demo-page.html?siteId=${siteId}`)
-  await externalPage.evaluate(
-    ({ currentSiteId, apiBaseUrl }) => {
-      window.CloudCommentWidget.init({
-        siteId: currentSiteId,
-        apiBaseUrl,
-        pageUrl: 'http://127.0.0.1/demo-page.html',
-        target: '#comments',
-      })
-    },
-    { currentSiteId: siteId!, apiBaseUrl: API_BASE_URL },
-  )
-  const externalWidget = externalPage.locator('#comments')
+  const externalWidget = externalPage.frameLocator('#comments iframe[title="Комментарии CloudComment"]')
   await expect(externalWidget.locator('.cloud-comment__title')).toHaveText('Комментарии')
+  await expect(externalPage.locator('#comments .cloud-comment')).toHaveCount(0)
   await externalWidget.getByRole('button', { name: 'Войти, чтобы участвовать' }).click()
-  await externalWidget.getByRole('button', { name: 'Регистрация' }).click()
+  await externalWidget.getByRole('button', { name: 'Регистрация', exact: true }).click()
   await expect(externalWidget.getByRole('link', { name: 'политика' })).toHaveAttribute(
     'href',
-    `${ADMIN_ORIGIN}/legal/privacy-policy.html`,
+    /\/legal\/privacy-policy\.html$/,
   )
   await expect(externalWidget.getByRole('link', { name: 'условия' })).toHaveAttribute(
     'href',
-    `${ADMIN_ORIGIN}/legal/terms.html`,
+    /\/legal\/terms\.html$/,
   )
 
-  const crossOriginCreateResponse = await request.post(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
-    headers: { Authorization: `Bearer ${widgetToken}`, Origin: 'http://127.0.0.1' },
-    data: {
-      pageUrl: 'http://127.0.0.1/demo-page.html',
-      parentId: null,
-      content: crossOriginCommentText,
-    },
-  })
-  await expect(crossOriginCreateResponse).toBeOK()
-  const crossOriginComment = await crossOriginCreateResponse.json() as { id: string }
-
-  const crossOriginPatch = await externalPage.evaluate(async ({ apiBaseUrl, currentSiteId, commentId, token, content }) => {
-    const response = await fetch(`${apiBaseUrl}/public/sites/${currentSiteId}/comments/${commentId}`, {
-      method: 'PATCH',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content }),
-    })
-    return { status: response.status, body: await response.json() }
-  }, {
-    apiBaseUrl: API_BASE_URL,
-    currentSiteId: siteId!,
-    commentId: crossOriginComment.id,
-    token: widgetToken,
-    content: crossOriginEditedText,
-  })
-  expect(crossOriginPatch).toMatchObject({
-    status: 200,
-    body: { id: crossOriginComment.id, content: crossOriginEditedText },
-  })
-
-  const crossOriginDeleteStatus = await externalPage.evaluate(async ({ apiBaseUrl, currentSiteId, commentId, token }) => {
-    const response = await fetch(`${apiBaseUrl}/public/sites/${currentSiteId}/comments/${commentId}`, {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${token}` },
-    })
-    return response.status
-  }, {
-    apiBaseUrl: API_BASE_URL,
-    currentSiteId: siteId!,
-    commentId: crossOriginComment.id,
-    token: widgetToken,
-  })
-  expect(crossOriginDeleteStatus).toBe(204)
-
-  const widgetLogoutResponse = await request.post(`${API_BASE_URL}/public/sites/${siteId}/auth/logout`, {
-    headers: { Authorization: `Bearer ${widgetToken}`, Origin: ADMIN_ORIGIN },
-  })
-  expect(widgetLogoutResponse.status()).toBe(204)
+  await widget.getByRole('button', { name: 'Меню профиля' }).click()
+  await widget.getByRole('button', { name: 'Выйти', exact: true }).click()
+  await expect(widget.getByRole('button', { name: 'Войти, чтобы участвовать' })).toBeVisible()
+  expect(await page.evaluate(() => Object.keys(window.localStorage).filter((key) => key.includes('widget.authToken'))))
+    .toEqual([])
   await expect(await adminRequest.get(`${API_BASE_URL}/auth/me`)).toBeOK()
 
   const openPanelBackdrop = moderationPage.getByRole('button', { name: 'Закрыть панель по фону' })

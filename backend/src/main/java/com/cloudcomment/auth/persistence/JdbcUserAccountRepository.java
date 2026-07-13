@@ -4,6 +4,7 @@ import com.cloudcomment.auth.application.AuthenticatedUser;
 import com.cloudcomment.auth.application.RegisteredUser;
 import com.cloudcomment.auth.application.UserCredentials;
 import com.cloudcomment.auth.domain.SessionAudience;
+import com.cloudcomment.site.domain.SiteInputRules;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -69,6 +70,18 @@ class JdbcUserAccountRepository implements UserAccountRepository {
         SessionAudience audience,
         Instant now
     ) {
+        return findUserByActiveSessionTokenHash(tokenHash, audience, null, null, now);
+    }
+
+    @Override
+    public Optional<AuthenticatedUser> findUserByActiveSessionTokenHash(
+        String tokenHash,
+        SessionAudience audience,
+        UUID siteId,
+        String origin,
+        Instant now
+    ) {
+        validateSessionScope(audience, siteId, origin);
         List<UserProfileRow> rows = jdbcTemplate.query(
             """
                 select u.id, u.email, u.created_at, u.updated_at
@@ -76,14 +89,18 @@ class JdbcUserAccountRepository implements UserAccountRepository {
                 join app_users u on u.id = s.user_id
                 where s.token_hash = ?
                   and s.audience = ?
+                  and s.site_id is not distinct from ?
+                  and s.origin is not distinct from ?
                   and s.revoked_at is null
                   and s.expires_at > ?
                   and u.is_enabled = true
                   and u.deleted_at is null
-                """,
+            """,
             this::mapUserProfileRow,
             tokenHash,
-            audience.name(),
+            databaseAudience(audience),
+            siteId,
+            origin,
             OffsetDateTime.ofInstant(now, ZoneOffset.UTC)
         );
 
@@ -131,20 +148,52 @@ class JdbcUserAccountRepository implements UserAccountRepository {
 
     @Override
     public void createSession(UUID userId, String tokenHash, SessionAudience audience, Instant expiresAt) {
+        createSession(userId, tokenHash, audience, null, null, expiresAt);
+    }
+
+    @Override
+    public void createSession(
+        UUID userId,
+        String tokenHash,
+        SessionAudience audience,
+        UUID siteId,
+        String origin,
+        Instant expiresAt
+    ) {
+        validateSessionScope(audience, siteId, origin);
         jdbcTemplate.update(
             """
-                insert into auth_sessions (user_id, token_hash, audience, expires_at)
-                values (?, ?, ?, ?)
+                insert into auth_sessions (
+                    user_id, token_hash, audience, site_id, origin, expires_at
+                ) values (?, ?, ?, ?, ?, ?)
                 """,
             userId,
             tokenHash,
-            audience.name(),
+            databaseAudience(audience),
+            siteId,
+            origin,
             OffsetDateTime.ofInstant(expiresAt, ZoneOffset.UTC)
         );
     }
 
     @Override
-    public SessionRevocationResult revokeSession(String tokenHash, SessionAudience audience, Instant revokedAt) {
+    public SessionRevocationResult revokeSession(
+        String tokenHash,
+        SessionAudience audience,
+        Instant revokedAt
+    ) {
+        return revokeSession(tokenHash, audience, null, null, revokedAt);
+    }
+
+    @Override
+    public SessionRevocationResult revokeSession(
+        String tokenHash,
+        SessionAudience audience,
+        UUID siteId,
+        String origin,
+        Instant revokedAt
+    ) {
+        validateSessionScope(audience, siteId, origin);
         OffsetDateTime revokedAtOffset = OffsetDateTime.ofInstant(revokedAt, ZoneOffset.UTC);
         int updated = jdbcTemplate.update(
             """
@@ -152,12 +201,16 @@ class JdbcUserAccountRepository implements UserAccountRepository {
                 set revoked_at = greatest(?, created_at)
                 where token_hash = ?
                   and audience = ?
+                  and site_id is not distinct from ?
+                  and origin is not distinct from ?
                   and revoked_at is null
                   and expires_at > ?
                 """,
             revokedAtOffset,
             tokenHash,
-            audience.name(),
+            databaseAudience(audience),
+            siteId,
+            origin,
             revokedAtOffset
         );
         if (updated > 0) {
@@ -171,12 +224,16 @@ class JdbcUserAccountRepository implements UserAccountRepository {
                     from auth_sessions
                     where token_hash = ?
                       and audience = ?
+                      and site_id is not distinct from ?
+                      and origin is not distinct from ?
                       and revoked_at is not null
                 )
                 """,
             Boolean.class,
             tokenHash,
-            audience.name()
+            databaseAudience(audience),
+            siteId,
+            origin
         );
         return Boolean.TRUE.equals(alreadyRevoked)
             ? SessionRevocationResult.ALREADY_REVOKED
@@ -290,6 +347,28 @@ class JdbcUserAccountRepository implements UserAccountRepository {
 
     private Instant toInstant(ResultSet resultSet, String column) throws SQLException {
         return resultSet.getObject(column, OffsetDateTime.class).toInstant();
+    }
+
+    private void validateSessionScope(
+        SessionAudience audience,
+        UUID siteId,
+        String origin
+    ) {
+        if (audience == SessionAudience.WIDGET) {
+            String normalizedOrigin = SiteInputRules.normalizeOrigin(origin)
+                .orElseThrow(() -> new IllegalArgumentException("Widget session origin must be normalized"));
+            if (siteId == null || !normalizedOrigin.equals(origin)) {
+                throw new IllegalArgumentException("Widget session requires site and normalized origin");
+            }
+            return;
+        }
+        if (siteId != null || origin != null) {
+            throw new IllegalArgumentException("Admin and legacy sessions must not have widget scope");
+        }
+    }
+
+    private String databaseAudience(SessionAudience audience) {
+        return audience == SessionAudience.WIDGET ? "WIDGET_FRAME" : audience.name();
     }
 
     private record UserCredentialsRow(

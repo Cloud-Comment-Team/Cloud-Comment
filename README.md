@@ -85,6 +85,8 @@ docker compose down -v
 | `POSTGRES_USER` | Docker Compose / PostgreSQL | `cloud_comment` |
 | `POSTGRES_PASSWORD` | Docker Compose / PostgreSQL | `cloud_comment` |
 | `VITE_CLOUD_COMMENT_API_BASE_URL` | widget и admin frontend | `http://localhost/api` |
+| `CLOUD_COMMENT_WIDGET_BASE_URL` | Docker Compose / backend / сборка loader | `http://widget.localhost` |
+| `VITE_CLOUD_COMMENT_WIDGET_BASE_URL` | прямой Vite build loader | обязательный отдельный origin, не совпадающий с origin API |
 
 ## Backend
 
@@ -114,10 +116,12 @@ npm --prefix widget-frontend run check
 npm --prefix widget-frontend run build
 ```
 
-Готовый скрипт создается здесь:
+Сборка создаёт тонкий loader и отдельный iframe-runtime:
 
 ```text
 widget-frontend/dist/widget/cloud-comment-widget.js
+widget-frontend/dist/widget/cloud-comment-widget-frame.js
+widget-frontend/dist/widget/cloud-comment-widget.css
 ```
 
 Когда Caddy запущен через Docker Compose, скрипт доступен по адресу:
@@ -126,13 +130,18 @@ widget-frontend/dist/widget/cloud-comment-widget.js
 http://localhost/widget/cloud-comment-widget.js
 ```
 
+Loader не рендерит форму и не хранит bearer на странице клиента. Он создаёт sandboxed iframe, получает одноразовый bootstrap-ticket по browser-observed `Origin` и передаёт его внутрь через закрытый `MessageChannel`. Отдельный `widget`-origin обязателен; локальный Compose использует `http://widget.localhost`. Если origin iframe совпадает с origin API, loader не создаёт iframe и показывает безопасную ошибку конфигурации.
+
+В production `CLOUD_COMMENT_CADDY_TRUSTED_PROXIES` обязан содержать точный, разделённый пробелами список CIDR внешних edge-прокси. Широкий `private_ranges` допустим только в локальном Docker Compose. Backend остаётся за локальным Caddy и доверяет только loopback через `CLOUD_COMMENT_TRUSTED_PROXIES=127.0.0.1/32,::1/128`; адрес контейнера или частной сети нельзя переносить в production как гарантированное значение.
+
 Пример автоматического подключения:
 
 ```html
 <script
   src="http://localhost/widget/cloud-comment-widget.js"
-  data-site-id="demo-site"
+  data-site-id="c680d246-8876-4049-975c-73ccf029408f"
   data-api-base-url="http://localhost/api"
+  data-frame-base-url="http://widget.localhost"
 ></script>
 ```
 
@@ -143,9 +152,10 @@ http://localhost/widget/cloud-comment-widget.js
 <script src="http://localhost/widget/cloud-comment-widget.js"></script>
 <script>
   window.CloudCommentWidget.init({
-    siteId: "demo-site",
+    siteId: "c680d246-8876-4049-975c-73ccf029408f",
     target: "#comments",
-    apiBaseUrl: "http://localhost/api"
+    apiBaseUrl: "http://localhost/api",
+    frameBaseUrl: "http://widget.localhost"
   });
 </script>
 ```

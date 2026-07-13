@@ -16,11 +16,12 @@ class EmbedCodeService {
     EmbedCode build(UUID siteId) {
         String siteIdValue = siteId.toString();
         String embedCode = """
-            <script src="%s" data-site-id="%s" data-api-base-url="%s"></script>\
+            <script src="%s" data-site-id="%s" data-api-base-url="%s" data-frame-base-url="%s"></script>\
             """.formatted(
             HtmlUtils.htmlEscape(properties.scriptUrl()),
             HtmlUtils.htmlEscape(siteIdValue),
-            HtmlUtils.htmlEscape(properties.apiBaseUrl())
+            HtmlUtils.htmlEscape(properties.apiBaseUrl()),
+            HtmlUtils.htmlEscape(properties.widgetBaseUrl())
         );
 
         return new EmbedCode(
@@ -29,7 +30,8 @@ class EmbedCodeService {
             embedCode,
             Map.of(
                 "siteId", siteIdValue,
-                "apiBaseUrl", properties.apiBaseUrl()
+                "apiBaseUrl", properties.apiBaseUrl(),
+                "frameBaseUrl", properties.widgetBaseUrl()
             )
         );
     }

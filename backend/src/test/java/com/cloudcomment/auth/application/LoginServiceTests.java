@@ -20,6 +20,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class LoginServiceTests {
 
+    private static final UUID SITE_ID = UUID.fromString("00000000-0000-0000-0000-000000000169");
+    private static final String ORIGIN = "https://example.com";
+
     private static final Clock FIXED_CLOCK = Clock.fixed(
         Instant.parse("2026-06-24T12:00:00Z"),
         ZoneOffset.UTC
@@ -41,21 +44,25 @@ class LoginServiceTests {
         )));
         LoginService service = new LoginService(repository, passwordEncoder, FIXED_CLOCK, new SessionTokenHasher());
 
-        LoginResult result = service.login(" User@Example.COM ", "strong-password", SessionAudience.WIDGET);
+        LoginResult result = service.loginWidget(
+            " User@Example.COM ", "strong-password", SITE_ID, ORIGIN
+        );
 
         assertThat(repository.lookupEmail).isEqualTo("user@example.com");
         assertThat(result.token()).isNotBlank();
         assertThat(result.token()).isNotEqualTo(repository.createdTokenHash);
         assertThat(result.tokenType()).isEqualTo("Bearer");
-        assertThat(result.expiresAt()).isEqualTo("2026-07-01T12:00:00Z");
+        assertThat(result.expiresAt()).isEqualTo("2026-06-24T13:00:00Z");
         assertThat(result.user().id()).isEqualTo(userId);
         assertThat(result.user().email()).isEqualTo("user@example.com");
         assertThat(result.user().roles()).containsExactly("COMMENTER");
         assertThat(repository.sessionUserId).isEqualTo(userId);
         assertThat(repository.createdTokenHash)
             .matches("[0-9a-f]{64}");
-        assertThat(repository.sessionExpiresAt).isEqualTo("2026-07-01T12:00:00Z");
+        assertThat(repository.sessionExpiresAt).isEqualTo("2026-06-24T13:00:00Z");
         assertThat(repository.createdAudience).isEqualTo(SessionAudience.WIDGET);
+        assertThat(repository.createdSiteId).isEqualTo(SITE_ID);
+        assertThat(repository.createdOrigin).isEqualTo(ORIGIN);
     }
 
     @Test
@@ -64,8 +71,8 @@ class LoginServiceTests {
         CapturingUserAccountRepository repository = new CapturingUserAccountRepository(Optional.empty());
         LoginService service = new LoginService(repository, passwordEncoder, FIXED_CLOCK, new SessionTokenHasher());
 
-        assertThatThrownBy(() -> service.login(
-            "missing@example.com", "strong-password", SessionAudience.WIDGET
+        assertThatThrownBy(() -> service.loginWidget(
+            "missing@example.com", "strong-password", SITE_ID, ORIGIN
         ))
             .isInstanceOf(ApplicationException.class)
             .hasMessage("Invalid email or password")
@@ -88,8 +95,8 @@ class LoginServiceTests {
         )));
         LoginService service = new LoginService(repository, passwordEncoder, FIXED_CLOCK, new SessionTokenHasher());
 
-        assertThatThrownBy(() -> service.login(
-            "user@example.com", "wrong-password", SessionAudience.WIDGET
+        assertThatThrownBy(() -> service.loginWidget(
+            "user@example.com", "wrong-password", SITE_ID, ORIGIN
         ))
             .isInstanceOf(ApplicationException.class)
             .hasMessage("Invalid email or password");
@@ -110,8 +117,8 @@ class LoginServiceTests {
         )));
         LoginService service = new LoginService(repository, passwordEncoder, FIXED_CLOCK, new SessionTokenHasher());
 
-        assertThatThrownBy(() -> service.login(
-            "user@example.com", "strong-password", SessionAudience.WIDGET
+        assertThatThrownBy(() -> service.loginWidget(
+            "user@example.com", "strong-password", SITE_ID, ORIGIN
         ))
             .isInstanceOf(ApplicationException.class)
             .hasMessage("Invalid email or password");
@@ -162,6 +169,8 @@ class LoginServiceTests {
         private Instant revokedAt;
         private SessionAudience createdAudience;
         private SessionAudience revokedAudience;
+        private UUID createdSiteId;
+        private String createdOrigin;
         private final List<String> operations = new ArrayList<>();
 
         private CapturingUserAccountRepository(Optional<UserCredentials> credentials) {
@@ -200,6 +209,20 @@ class LoginServiceTests {
             sessionUserId = userId;
             createdTokenHash = tokenHash;
             sessionExpiresAt = expiresAt;
+        }
+
+        @Override
+        public void createSession(
+            UUID userId,
+            String tokenHash,
+            SessionAudience audience,
+            UUID siteId,
+            String origin,
+            Instant expiresAt
+        ) {
+            createSession(userId, tokenHash, audience, expiresAt);
+            createdSiteId = siteId;
+            createdOrigin = origin;
         }
 
         @Override

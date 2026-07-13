@@ -10,6 +10,9 @@ RUN npm run build
 
 FROM node:24-alpine AS widget-build
 
+ARG VITE_CLOUD_COMMENT_WIDGET_BASE_URL=http://widget.localhost
+ENV VITE_CLOUD_COMMENT_WIDGET_BASE_URL=$VITE_CLOUD_COMMENT_WIDGET_BASE_URL
+
 WORKDIR /workspace/widget-frontend
 
 COPY widget-frontend/package*.json ./

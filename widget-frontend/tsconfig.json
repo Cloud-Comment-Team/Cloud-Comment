@@ -11,10 +11,10 @@
     "forceConsistentCasingInFileNames": true,
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "types": ["vite/client"],
+    "types": ["node", "vite/client"],
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true
   },
-  "include": ["src", "vite.widget.config.ts"]
+  "include": ["src", "vite.widget.config.ts", "vite.widget-frame.config.ts"]
 }

@@ -76,6 +76,26 @@ class CurrentUserServiceTests {
         assertThat(repository.currentAudience).isNull();
     }
 
+    @Test
+    void widgetUserLookupUsesOnlySiteAndOriginScope() {
+        UUID siteId = UUID.randomUUID();
+        String origin = "https://customer.example";
+        AuthenticatedUser user = new AuthenticatedUser(
+            UUID.randomUUID(),
+            "visitor@example.com",
+            Set.of("COMMENTER"),
+            FIXED_CLOCK.instant(),
+            FIXED_CLOCK.instant()
+        );
+        CapturingUserAccountRepository repository = new CapturingUserAccountRepository(Optional.of(user));
+        CurrentUserService service = new CurrentUserService(repository, new SessionTokenHasher(), FIXED_CLOCK);
+
+        assertThat(service.getWidgetCurrentUser("widget-token", siteId, origin)).isEqualTo(user);
+        assertThat(repository.currentAudience).isEqualTo(SessionAudience.WIDGET);
+        assertThat(repository.currentSiteId).isEqualTo(siteId);
+        assertThat(repository.currentOrigin).isEqualTo(origin);
+    }
+
     private static class CapturingUserAccountRepository implements UserAccountRepository {
 
         private final Optional<AuthenticatedUser> currentUser;
@@ -83,6 +103,8 @@ class CurrentUserServiceTests {
         private String currentTokenHash;
         private SessionAudience currentAudience;
         private Instant currentNow;
+        private UUID currentSiteId;
+        private String currentOrigin;
 
         private CapturingUserAccountRepository(Optional<AuthenticatedUser> currentUser) {
             this.currentUser = currentUser;
@@ -106,6 +128,22 @@ class CurrentUserServiceTests {
         ) {
             currentTokenHash = tokenHash;
             currentAudience = audience;
+            currentNow = now;
+            return currentUser;
+        }
+
+        @Override
+        public Optional<AuthenticatedUser> findUserByActiveSessionTokenHash(
+            String tokenHash,
+            SessionAudience audience,
+            UUID siteId,
+            String origin,
+            Instant now
+        ) {
+            currentTokenHash = tokenHash;
+            currentAudience = audience;
+            currentSiteId = siteId;
+            currentOrigin = origin;
             currentNow = now;
             return currentUser;
         }

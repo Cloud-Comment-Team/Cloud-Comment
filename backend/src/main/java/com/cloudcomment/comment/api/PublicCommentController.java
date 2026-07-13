@@ -2,18 +2,20 @@ package com.cloudcomment.comment.api;
 
 import com.cloudcomment.auth.application.AuthenticatedUser;
 import com.cloudcomment.auth.application.CurrentUserService;
-import com.cloudcomment.auth.domain.SessionAudience;
 import com.cloudcomment.comment.api.validation.ValidPageUrl;
 import com.cloudcomment.comment.application.CommentPage;
 import com.cloudcomment.comment.application.PublicCommentService;
 import com.cloudcomment.comment.application.PublicWidgetConfig;
 import com.cloudcomment.comment.domain.CommentView;
 import com.cloudcomment.comment.domain.PublicCommentSort;
+import com.cloudcomment.shared.error.ApiErrorCode;
 import com.cloudcomment.shared.error.ApplicationException;
 import com.cloudcomment.shared.web.PaginatedResponse;
 import com.cloudcomment.shared.web.security.CurrentUser;
 import com.cloudcomment.shared.web.security.BearerTokenResolver;
 import com.cloudcomment.shared.web.security.PublicApi;
+import com.cloudcomment.shared.web.security.WidgetRequestContext;
+import com.cloudcomment.widgetcontext.application.WidgetContextService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
@@ -49,6 +51,7 @@ class PublicCommentController {
     private final WidgetRequestOriginResolver requestOriginResolver;
     private final BearerTokenResolver bearerTokenResolver;
     private final CurrentUserService currentUserService;
+    private final WidgetContextService widgetContextService;
 
     @PublicApi
     @GetMapping("/config")
@@ -72,6 +75,7 @@ class PublicCommentController {
         @RequestParam(defaultValue = "20") @Min(1) @Max(100) int pageSize,
         @RequestParam(required = false) @Min(0) @Max(100) Integer replyLimit
     ) {
+        requireMatchingContextPage(request, pageUrl);
         String origin = requestOriginResolver.resolve(request);
         CommentPage comments = publicCommentService.listComments(
             siteId,
@@ -100,6 +104,7 @@ class PublicCommentController {
         @RequestParam(defaultValue = "1") @Min(1) @Max(100_000) int page,
         @RequestParam(defaultValue = "20") @Min(1) @Max(100) int pageSize
     ) {
+        requireCommentBoundToContextPage(request, siteId, commentId);
         CommentPage replies = publicCommentService.listReplies(
             siteId,
             requestOriginResolver.resolve(request),
@@ -123,6 +128,7 @@ class PublicCommentController {
         HttpServletRequest request,
         @Valid @RequestBody CreateCommentRequest body
     ) {
+        requireMatchingContextPage(request, body.pageUrl());
         CommentView comment = publicCommentService.createComment(
             currentUser,
             siteId,
@@ -142,6 +148,7 @@ class PublicCommentController {
         HttpServletRequest request,
         @RequestBody CommentReactionRequest body
     ) {
+        requireCommentBoundToContextPage(request, siteId, commentId);
         return CommentReactionsResponse.from(publicCommentService.setReaction(
             currentUser,
             siteId,
@@ -159,6 +166,7 @@ class PublicCommentController {
         HttpServletRequest request,
         @Valid @RequestBody UpdateCommentRequest body
     ) {
+        requireCommentBoundToContextPage(request, siteId, commentId);
         return CommentResponse.from(publicCommentService.updateOwnComment(
             currentUser,
             siteId,
@@ -175,6 +183,7 @@ class PublicCommentController {
         @PathVariable UUID commentId,
         HttpServletRequest request
     ) {
+        requireCommentBoundToContextPage(request, siteId, commentId);
         publicCommentService.deleteOwnComment(
             currentUser,
             siteId,
@@ -188,13 +197,36 @@ class PublicCommentController {
         if (request.getHeader(HttpHeaders.AUTHORIZATION) == null) {
             return Optional.empty();
         }
-        try {
-            return Optional.of(currentUserService.getCurrentUser(
-                bearerTokenResolver.resolve(request),
-                SessionAudience.WIDGET
-            ).id());
-        } catch (ApplicationException exception) {
-            return Optional.empty();
-        }
+        WidgetRequestContext context = WidgetRequestContext.require(request);
+        return Optional.of(currentUserService.getWidgetCurrentUser(
+            bearerTokenResolver.resolve(request),
+            context.siteId(),
+            context.origin()
+        ).id());
+    }
+
+    private void requireMatchingContextPage(HttpServletRequest request, String pageUrl) {
+        WidgetRequestContext.resolve(request).ifPresent(context -> {
+            if (!widgetContextService.matchesPageHash(context.pageUrlHash(), pageUrl)) {
+                throw new ApplicationException(
+                    ApiErrorCode.INVALID_WIDGET_CONTEXT,
+                    "Invalid widget context"
+                );
+            }
+        });
+    }
+
+    private void requireCommentBoundToContextPage(
+        HttpServletRequest request,
+        UUID siteId,
+        UUID commentId
+    ) {
+        WidgetRequestContext.resolve(request).ifPresent(context ->
+            publicCommentService.assertCommentBelongsToContextPage(
+                siteId,
+                commentId,
+                context.canonicalPageUrl()
+            )
+        );
     }
 }

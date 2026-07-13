@@ -19,6 +19,10 @@ public interface PublicCommentRepository {
 
     boolean isAllowedOrigin(UUID siteId, String normalizedOrigin);
 
+    default List<String> findAllowedOriginsForActiveSite(UUID siteId) {
+        return List.of();
+    }
+
     Optional<UUID> findPageId(UUID siteId, String pageUrl);
 
     UUID findOrCreatePage(UUID siteId, String pageUrl);
@@ -113,6 +117,10 @@ public interface PublicCommentRepository {
     }
 
     default boolean existsApprovedCommentInSite(UUID siteId, UUID commentId) {
+        return false;
+    }
+
+    default boolean commentBelongsToPage(UUID siteId, UUID commentId, String canonicalPageUrl) {
         return false;
     }
 

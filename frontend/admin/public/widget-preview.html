@@ -17,65 +17,74 @@
         let style = null;
         let instance = null;
         let scenario = 'thread';
-        const json = (body) => Promise.resolve(new Response(JSON.stringify(body), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        }));
-        const comment = {
-          id: '00000000-0000-0000-0000-000000000002', siteId: SITE_ID,
-          pageId: '00000000-0000-0000-0000-000000000003', parentId: null,
-          author: { id: '00000000-0000-0000-0000-000000000004', displayName: 'Анна' },
-          content: 'Так выглядит комментарий с выбранным оформлением.', status: 'APPROVED',
-          createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), editedAt: null,
-          pinned: true, ownedByCurrentUser: false,
-          reactions: [
-            { type: 'LIKE', emoji: '👍', label: 'Нравится', count: 4, reactedByCurrentUser: false },
-            { type: 'LOVE', emoji: '❤️', label: 'Любовь', count: 2, reactedByCurrentUser: false },
-            { type: 'LAUGH', emoji: '😄', label: 'Смешно', count: 1, reactedByCurrentUser: false },
-            { type: 'WOW', emoji: '😮', label: 'Удивление', count: 0, reactedByCurrentUser: false },
-          ],
-          replyCount: 0, replies: [],
-        };
-        window.fetch = (input) => {
-          const url = String(input);
-          if (url.endsWith('/config')) return json({ siteId: SITE_ID, moderationMode: 'POST_MODERATION', style });
-          if (url.includes('/pages/comments')) {
-            if (scenario === 'error') return Promise.resolve(new Response('{"message":"preview error"}', { status: 503, headers: { 'Content-Type': 'application/json' } }));
-            const items = scenario === 'empty' ? [] : [comment];
-            return json({ items, page: 0, pageSize: 20, totalItems: items.length, totalPages: items.length ? 1 : 0 });
-          }
-          if (url.endsWith('/privacy/consent-requirements')) return json({
-            privacyPolicyVersion: 'preview', termsVersion: 'preview', privacyPolicyUrl: '#', termsUrl: '#',
-            personalDataNoticeUrl: '#', dataExportInfoUrl: '#',
-          });
-          return Promise.resolve(new Response('{}', { status: 404 }));
-        };
+        const unsupported = async () => { throw new Error('Недоступно в предварительном просмотре.'); };
+
+        function createPreviewApi() {
+          const now = new Date().toISOString();
+          const comment = {
+            id: '00000000-0000-0000-0000-000000000002', siteId: SITE_ID,
+            pageId: '00000000-0000-0000-0000-000000000003', parentId: null,
+            author: { id: '00000000-0000-0000-0000-000000000004', displayName: 'Анна' },
+            content: 'Так выглядит комментарий с выбранным оформлением.', status: 'APPROVED',
+            createdAt: now, updatedAt: now, editedAt: null,
+            pinned: true, ownedByCurrentUser: false,
+            reactions: [
+              { type: 'LIKE', emoji: '👍', label: 'Нравится', count: 4, reactedByCurrentUser: false },
+              { type: 'LOVE', emoji: '❤️', label: 'Любовь', count: 2, reactedByCurrentUser: false },
+              { type: 'LAUGH', emoji: '😄', label: 'Смешно', count: 1, reactedByCurrentUser: false },
+              { type: 'WOW', emoji: '😮', label: 'Удивление', count: 0, reactedByCurrentUser: false },
+            ],
+            replyCount: 0, replies: [],
+          };
+          return {
+            getConfig: async () => ({ siteId: SITE_ID, moderationMode: 'POST_MODERATION', style }),
+            getConsentRequirements: async () => ({
+              privacyPolicyVersion: 'preview', termsVersion: 'preview', privacyPolicyUrl: '#', termsUrl: '#',
+              personalDataNoticeUrl: '#', dataExportInfoUrl: '#',
+            }),
+            listComments: async () => {
+              if (scenario === 'error') throw new Error('preview error');
+              const items = scenario === 'empty' ? [] : [comment];
+              return { items, page: 1, pageSize: 20, totalItems: items.length, totalPages: items.length ? 1 : 0 };
+            },
+            listReplies: async () => ({ items: [], page: 1, pageSize: 20, totalItems: 0, totalPages: 0 }),
+            createComment: unsupported,
+            updateComment: unsupported,
+            deleteComment: unsupported,
+            setReaction: unsupported,
+            getCurrentUser: unsupported,
+            login: unsupported,
+            register: unsupported,
+            logout: unsupported,
+            requestAccountDeletion: unsupported,
+            exportPersonalData: unsupported,
+          };
+        }
+
         function render() {
-          if (!style || !window.CloudCommentWidget) return;
+          if (!style || !window.CloudCommentWidgetFrame) return;
           instance?.destroy();
           document.getElementById('cloud-comment-preview').replaceChildren();
-          instance = window.CloudCommentWidget.init({
-            siteId: SITE_ID, apiBaseUrl: 'https://preview.invalid/api',
-            pageUrl: 'https://preview.invalid/article', target: '#cloud-comment-preview',
-          });
+          instance = window.CloudCommentWidgetFrame.previewInit(createPreviewApi());
           if (scenario === 'auth') {
             window.setTimeout(() => {
               const target = document.getElementById('cloud-comment-preview');
-              const button = target?.shadowRoot?.querySelector('[data-auth-action="expand"]');
-              button?.click();
+              target?.shadowRoot?.querySelector('[data-auth-action="expand"]')?.click();
             }, 50);
           }
         }
+
         window.addEventListener('message', (event) => {
-          if (event.source !== parent || event.data?.type !== 'cloud-comment-preview') return;
+          if (event.source !== parent || event.origin !== window.location.origin || event.data?.type !== 'cloud-comment-preview') return;
           style = event.data.style;
           scenario = event.data.scenario ?? 'thread';
           document.documentElement.style.colorScheme = event.data.theme === 'DARK' ? 'dark' : 'light';
           document.documentElement.style.background = event.data.theme === 'DARK' ? '#0f172a' : '#f8fafc';
           render();
         });
+
         const script = document.createElement('script');
-        script.src = '/widget/cloud-comment-widget.js';
+        script.src = '/widget/cloud-comment-widget-frame.js';
         script.addEventListener('load', render);
         document.head.append(script);
       })();

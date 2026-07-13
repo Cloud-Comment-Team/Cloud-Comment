@@ -59,17 +59,25 @@ public class ApiAuthenticationFilter extends OncePerRequestFilter {
         }
 
         try {
-            String token = apiEndpointSecurity.usesPublicWidgetBearer(request)
+            boolean widgetRequest = apiEndpointSecurity.usesPublicWidgetBearer(request);
+            String token = widgetRequest
                 ? bearerTokenResolver.resolve(request)
                 : adminSessionCookieService.resolve(request);
-            SessionAudience audience = apiEndpointSecurity.usesPublicWidgetBearer(request)
-                ? SessionAudience.WIDGET
-                : SessionAudience.ADMIN;
-            AuthenticatedUser user = currentUserService.getCurrentUser(token, audience);
+            AuthenticatedUser user;
+            if (widgetRequest) {
+                WidgetRequestContext widgetContext = WidgetRequestContext.require(request);
+                user = currentUserService.getWidgetCurrentUser(
+                    token,
+                    widgetContext.siteId(),
+                    widgetContext.origin()
+                );
+            } else {
+                user = currentUserService.getCurrentUser(token, SessionAudience.ADMIN);
+            }
             SecurityContext context = SecurityContextHolder.createEmptyContext();
             context.setAuthentication(new ApiAuthentication(user));
             SecurityContextHolder.setContext(context);
-            if (!apiEndpointSecurity.usesPublicWidgetBearer(request)) {
+            if (!widgetRequest) {
                 response.setHeader(HttpHeaders.CACHE_CONTROL, CacheControl.noStore().getHeaderValue());
             }
             filterChain.doFilter(request, response);

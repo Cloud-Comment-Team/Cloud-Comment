@@ -1,9 +1,8 @@
-import { createWidgetApiClient, WidgetApiError } from "./api";
-import { ADMIN_AUTH_TOKEN_KEY, WIDGET_AUTH_TOKEN_KEY } from "./config";
-import { widgetStyles } from "./styles";
+import { createWidgetApiClient, WidgetApiError, type WidgetApiClient } from "./api";
+import { getWidgetAuthStorageKey } from "./config";
+import { widgetStyles, widgetStylesUrl } from "./styles";
 import type {
   CloudCommentWidgetInstance,
-  CloudCommentWidgetOptions,
   CommentAuthor,
   CommentReaction,
   CommentReactionType,
@@ -44,6 +43,18 @@ type ExpiredDraftContext = {
   composerDraft: string;
   replyingTo: ReplyTarget | null;
   editingComment: EditingComment | null;
+};
+
+export type RenderWidgetOptions = {
+  siteId: string;
+  apiBaseUrl: string;
+  pageUrl: string;
+  target: string | HTMLElement;
+  theme: WidgetTheme;
+  contextToken?: string;
+  parentOrigin?: string;
+  authStorageKey?: string;
+  onAuthCleared?: () => void;
 };
 
 type SessionRequest = {
@@ -88,22 +99,36 @@ type WidgetState = {
 
 export function renderWidget(
   root: HTMLElement,
-  options: Required<CloudCommentWidgetOptions>
+  options: RenderWidgetOptions,
+  apiOverride?: WidgetApiClient
 ): CloudCommentWidgetInstance {
   const shadowRoot = root.shadowRoot ?? root.attachShadow({ mode: "open" });
   shadowRoot.replaceChildren();
 
-  const style = document.createElement("style");
-  style.textContent = widgetStyles;
+  const stylesheet = document.createElement(widgetStylesUrl ? "link" : "style");
+  if (widgetStylesUrl) {
+    stylesheet.setAttribute("rel", "stylesheet");
+    stylesheet.setAttribute("href", widgetStylesUrl);
+  } else {
+    stylesheet.textContent = widgetStyles;
+  }
 
   const shell = document.createElement("section");
   shell.className = "cloud-comment";
   shell.setAttribute("aria-label", "Комментарии CloudComment");
   const themeController = createThemeController(shell, options.theme);
 
-  shadowRoot.append(style, shell);
+  shadowRoot.append(stylesheet, shell);
 
-  const api = createWidgetApiClient(options.apiBaseUrl, options.siteId, options.pageUrl);
+  if (!apiOverride && !options.contextToken) {
+    throw new Error("CloudComment frame context is required");
+  }
+  const api = apiOverride
+    ?? createWidgetApiClient(options.apiBaseUrl, options.siteId, options.pageUrl, options.contextToken!);
+  const authStorageKey = options.authStorageKey ?? getWidgetAuthStorageKey(
+    options.siteId,
+    options.parentOrigin ?? resolveOrigin(options.pageUrl)
+  );
   const state: WidgetState = {
     loading: true,
     submitting: false,
@@ -118,7 +143,7 @@ export function renderWidget(
     sort: "PINNED_FIRST",
     config: null,
     consentRequirements: null,
-    token: getStoredAuthToken(),
+    token: getStoredAuthToken(authStorageKey),
     userEmail: null,
     error: null,
     authError: null,
@@ -249,7 +274,6 @@ export function renderWidget(
       sessionEpoch += 1;
       state.token = loginResponse.token;
       state.userEmail = loginResponse.user.email;
-      state.accountBusy = false;
       state.submitting = false;
       state.reactingCommentId = null;
       state.updatingCommentId = null;
@@ -257,7 +281,7 @@ export function renderWidget(
       state.loadingRepliesId = null;
       state.loading = false;
       state.authExpanded = false;
-      storeAuthToken(loginResponse.token);
+      storeAuthToken(authStorageKey, loginResponse.token);
       if (queryEpoch === commentsQueryEpoch) {
         replaceComments(comments);
       }
@@ -265,7 +289,6 @@ export function renderWidget(
       state.error = null;
       state.notice = "Вы вошли и можете оставить комментарий.";
       state.accountError = null;
-      state.deleteConfirming = false;
     } catch (error) {
       state.authError = getErrorMessage(error);
     } finally {
@@ -393,12 +416,10 @@ export function renderWidget(
     sessionEpoch += 1;
     state.token = null;
     state.userEmail = null;
-    state.deleteConfirming = false;
     state.replyingTo = null;
     state.editingComment = null;
     state.confirmingCommentDeleteId = null;
     state.profileOpen = false;
-    state.accountBusy = false;
     state.submitting = false;
     state.reactingCommentId = null;
     state.updatingCommentId = null;
@@ -413,7 +434,8 @@ export function renderWidget(
       state.composerDraft = "";
     }
     state.comments = clearViewerReactions(state.comments);
-    removeStoredAuthToken();
+    removeStoredAuthToken(authStorageKey);
+    options.onAuthCleared?.();
   }
 
   function captureSessionRequest(): SessionRequest {
@@ -877,13 +899,7 @@ export function renderWidget(
     }
   });
 
-  shell.addEventListener("submit", (event) => {
-    const form = event.target;
-    if (!(form instanceof HTMLFormElement)) {
-      return;
-    }
-    event.preventDefault();
-
+  function handleFormSubmit(form: HTMLFormElement): void {
     if (form.dataset.cloudCommentForm === "auth") {
       const formData = new FormData(form);
       void authenticate(
@@ -925,6 +941,33 @@ export function renderWidget(
       }
       void updateComment(commentId, content);
     }
+  }
+
+  shell.addEventListener("submit", (event) => {
+    const form = event.target;
+    if (!(form instanceof HTMLFormElement)) {
+      return;
+    }
+    event.preventDefault();
+    handleFormSubmit(form);
+  });
+
+  shell.addEventListener("keydown", (event) => {
+    const target = event.target;
+    if (event.key !== "Enter"
+      || event.altKey
+      || event.ctrlKey
+      || event.metaKey
+      || event.shiftKey
+      || !(target instanceof HTMLInputElement)) {
+      return;
+    }
+    const form = target.closest<HTMLFormElement>("form[data-cloud-comment-form='auth']");
+    if (!form || !form.reportValidity()) {
+      return;
+    }
+    event.preventDefault();
+    handleFormSubmit(form);
   });
 
   shell.addEventListener("click", (event) => {
@@ -943,6 +986,15 @@ export function renderWidget(
 
     const button = target.closest("button");
     if (!(button instanceof HTMLButtonElement) || !shell.contains(button)) {
+      return;
+    }
+
+    if (button.dataset.cloudCommentSubmit) {
+      const form = button.closest<HTMLFormElement>("form[data-cloud-comment-form]");
+      if (form?.reportValidity()) {
+        event.preventDefault();
+        handleFormSubmit(form);
+      }
       return;
     }
 
@@ -1070,28 +1122,6 @@ export function renderWidget(
       return;
     }
 
-    if (button.dataset.accountAction === "delete") {
-      state.deleteConfirming = true;
-      state.accountError = null;
-      render();
-      return;
-    }
-
-    if (button.dataset.accountAction === "cancel-delete") {
-      state.deleteConfirming = false;
-      state.accountError = null;
-      render();
-      return;
-    }
-
-    if (button.dataset.accountAction === "request-delete") {
-      void requestAccountDeletion();
-      return;
-    }
-
-    if (button.dataset.accountAction === "export-data") {
-      void exportPersonalData();
-    }
   });
 
   render();
@@ -1332,7 +1362,7 @@ function normalizeThemeName(value: string | undefined): ResolvedWidgetTheme | nu
 }
 
 function renderHeader(
-  options: Required<CloudCommentWidgetOptions>,
+  options: RenderWidgetOptions,
   state: WidgetState
 ): HTMLElement | null {
   const style = state.config?.style;
@@ -1362,7 +1392,7 @@ function renderHeader(
   return header;
 }
 
-function renderBody(state: WidgetState, options: Required<CloudCommentWidgetOptions>): HTMLElement {
+function renderBody(state: WidgetState, options: RenderWidgetOptions): HTMLElement {
   const body = document.createElement("div");
   body.className = "cloud-comment__body";
 
@@ -1630,7 +1660,8 @@ function renderEditCommentForm(comment: PublicComment, state: WidgetState): HTML
   cancel.textContent = "Отмена";
 
   const save = document.createElement("button");
-  save.type = "submit";
+  save.type = "button";
+  save.dataset.cloudCommentSubmit = "edit-comment";
   save.className = "cloud-comment__button";
   save.disabled = state.updatingCommentId === comment.id;
   save.textContent = state.updatingCommentId === comment.id ? "Сохраняем..." : "Сохранить";
@@ -1753,7 +1784,8 @@ function renderCommentForm(state: WidgetState): HTMLElement {
 
   const button = document.createElement("button");
   button.className = "cloud-comment__button";
-  button.type = "submit";
+  button.type = "button";
+  button.dataset.cloudCommentSubmit = "comment";
   button.disabled = state.submitting || !state.token;
   button.textContent = state.submitting ? "Отправляем..." : "Отправить";
 
@@ -1764,7 +1796,7 @@ function renderCommentForm(state: WidgetState): HTMLElement {
 
 function renderAccountSection(
   state: WidgetState,
-  options: Required<CloudCommentWidgetOptions>
+  options: RenderWidgetOptions
 ): HTMLElement {
   const section = document.createElement("section");
   section.className = "cloud-comment__account";
@@ -1793,18 +1825,14 @@ function renderAccountSection(
   title.textContent = state.userEmail ?? "Аккаунт комментатора";
 
   const caption = document.createElement("span");
-  caption.textContent = "Управление аккаунтом и персональными данными";
+  caption.textContent = "Сессия комментатора";
 
   text.append(title, caption);
   summary.append(avatar, text);
 
   const actions = document.createElement("div");
   actions.className = "cloud-comment__account-actions";
-  actions.append(
-    renderAccountButton("Скачать данные", "export-data", state.accountBusy),
-    renderAccountButton("Выйти", "logout", state.accountBusy),
-    renderAccountButton("Удалить аккаунт", "delete", state.accountBusy, true)
-  );
+  actions.append(renderAccountButton("Выйти", "logout"));
 
   const links = document.createElement("div");
   links.className = "cloud-comment__account-links";
@@ -1829,40 +1857,17 @@ function renderAccountSection(
     section.append(renderMessage(state.accountError, "error"));
   }
 
-  if (state.deleteConfirming) {
-    const confirmation = document.createElement("div");
-    confirmation.className = "cloud-comment__delete-confirm";
-
-    const message = document.createElement("p");
-    message.textContent = "Мы отправим письмо с одноразовой ссылкой и кодом. Аккаунт удалится только после подтверждения.";
-
-    const confirmationActions = document.createElement("div");
-    confirmationActions.className = "cloud-comment__delete-actions";
-    confirmationActions.append(
-      renderAccountButton("Отправить письмо", "request-delete", state.accountBusy, true),
-      renderAccountButton("Отмена", "cancel-delete", state.accountBusy)
-    );
-
-    confirmation.append(message, confirmationActions);
-    section.append(confirmation);
-  }
-
   return section;
 }
 
 function renderAccountButton(
   label: string,
-  action: string,
-  disabled: boolean,
-  danger = false
+  action: string
 ): HTMLButtonElement {
   const button = document.createElement("button");
   button.type = "button";
-  button.className = danger
-    ? "cloud-comment__account-button cloud-comment__account-button--danger"
-    : "cloud-comment__account-button";
+  button.className = "cloud-comment__account-button";
   button.dataset.accountAction = action;
-  button.disabled = disabled;
   button.textContent = label;
   return button;
 }
@@ -1871,12 +1876,12 @@ function createAccountLink(label: string, href: string, apiBaseUrl: string): HTM
   const link = document.createElement("a");
   link.href = toCloudCommentUrl(href, apiBaseUrl);
   link.target = "_blank";
-  link.rel = "noreferrer";
+  link.rel = "noopener noreferrer";
   link.textContent = label;
   return link;
 }
 
-function renderAuthSection(state: WidgetState, options: Required<CloudCommentWidgetOptions>): HTMLElement {
+function renderAuthSection(state: WidgetState, options: RenderWidgetOptions): HTMLElement {
   const section = document.createElement("section");
   section.className = "cloud-comment__auth";
 
@@ -1953,13 +1958,13 @@ function renderAuthSection(state: WidgetState, options: Required<CloudCommentWid
       const privacyLink = document.createElement("a");
       privacyLink.href = toCloudCommentUrl(state.consentRequirements.privacyPolicyUrl, options.apiBaseUrl);
       privacyLink.target = "_blank";
-      privacyLink.rel = "noreferrer";
+      privacyLink.rel = "noopener noreferrer";
       privacyLink.textContent = "политика";
 
       const termsLink = document.createElement("a");
       termsLink.href = toCloudCommentUrl(state.consentRequirements.termsUrl, options.apiBaseUrl);
       termsLink.target = "_blank";
-      termsLink.rel = "noreferrer";
+      termsLink.rel = "noopener noreferrer";
       termsLink.textContent = "условия";
 
       consentText.replaceChildren(
@@ -1977,7 +1982,8 @@ function renderAuthSection(state: WidgetState, options: Required<CloudCommentWid
 
   const submit = document.createElement("button");
   submit.className = "cloud-comment__button cloud-comment__button--secondary";
-  submit.type = "submit";
+  submit.type = "button";
+  submit.dataset.cloudCommentSubmit = "auth";
   submit.dataset.focusKey = "auth-submit";
   submit.disabled = state.authenticating;
   submit.textContent = state.authenticating
@@ -2516,38 +2522,34 @@ function getPageLabel(pageUrl: string): string {
   }
 }
 
-function getStoredAuthToken(): string | null {
-  return (
-    readStorage("localStorage", WIDGET_AUTH_TOKEN_KEY) ??
-    readStorage("sessionStorage", WIDGET_AUTH_TOKEN_KEY) ??
-    readStorage("localStorage", ADMIN_AUTH_TOKEN_KEY) ??
-    readStorage("sessionStorage", ADMIN_AUTH_TOKEN_KEY)
-  );
+function getStoredAuthToken(storageKey: string): string | null {
+  return readSessionStorage(storageKey);
 }
 
-function storeAuthToken(token: string): void {
+function storeAuthToken(storageKey: string, token: string): void {
   try {
-    window.localStorage.setItem(WIDGET_AUTH_TOKEN_KEY, token);
+    window.sessionStorage.setItem(storageKey, token);
   } catch {
-    // Storage may be blocked on embedded pages; the in-memory token still works.
+    // Browser policy may block storage; the in-memory token still works.
   }
 }
 
-function removeStoredAuthToken(): void {
+function removeStoredAuthToken(storageKey: string): void {
   try {
-    window.localStorage.removeItem(WIDGET_AUTH_TOKEN_KEY);
-    window.sessionStorage.removeItem(WIDGET_AUTH_TOKEN_KEY);
-    window.localStorage.removeItem(ADMIN_AUTH_TOKEN_KEY);
-    window.sessionStorage.removeItem(ADMIN_AUTH_TOKEN_KEY);
+    window.sessionStorage.removeItem(storageKey);
   } catch {
-    // Ignore storage cleanup failures on embedded pages.
+    // Ignore storage cleanup failures caused by browser policy.
   }
 }
 
-function readStorage(storageName: "localStorage" | "sessionStorage", key: string): string | null {
+function readSessionStorage(key: string): string | null {
   try {
-    return window[storageName].getItem(key);
+    return window.sessionStorage.getItem(key);
   } catch {
     return null;
   }
+}
+
+function resolveOrigin(pageUrl: string): string {
+  return new URL(pageUrl).origin;
 }
