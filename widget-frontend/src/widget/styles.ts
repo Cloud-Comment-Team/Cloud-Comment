@@ -459,6 +459,7 @@ export const widgetStyles = `
   background: var(--cc-surface-muted);
 }
 
+.cloud-comment__load-comments,
 .cloud-comment__load-replies,
 .cloud-comment__auth-expand {
   justify-self: start;
@@ -473,10 +474,20 @@ export const widgetStyles = `
   padding: 8px 12px;
 }
 
+.cloud-comment__load-comments:focus-visible,
 .cloud-comment__load-replies:focus-visible,
 .cloud-comment__auth-expand:focus-visible {
   outline: 2px solid var(--cc-accent);
   outline-offset: 2px;
+}
+
+.cloud-comment__load-comments {
+  justify-self: center;
+}
+
+.cloud-comment__load-comments:disabled {
+  cursor: wait;
+  opacity: 0.68;
 }
 
 .cloud-comment__form {

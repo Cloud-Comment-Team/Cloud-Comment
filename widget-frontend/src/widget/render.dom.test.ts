@@ -63,7 +63,16 @@ function publicComment(overrides: Partial<PublicComment> = {}): PublicComment {
   };
 }
 
+function rootComments(count: number, label = "Комментарий"): PublicComment[] {
+  return Array.from({ length: count }, (_, index) => publicComment({
+    id: `00000000-0000-0000-0001-${String(index + 1).padStart(12, "0")}`,
+    content: `${label} ${index + 1}`,
+    ownedByCurrentUser: false
+  }));
+}
+
 type ApiOverrides = {
+  onList?: (url: URL) => Promise<Response> | Response;
   onPost?: () => Promise<Response> | Response;
   onPatch?: () => Promise<Response> | Response;
   onDelete?: () => Promise<Response> | Response;
@@ -128,6 +137,9 @@ function installApiMock(overrides: ApiOverrides = {}) {
     }
     if (url.includes(`/public/sites/${siteId}/pages/comments`) && method === "GET") {
       listCalls += 1;
+      if (overrides.onList) {
+        return overrides.onList(new URL(url));
+      }
       if (postCompleted && overrides.failListAfterPost) {
         return jsonResponse({ error: { message: "Не удалось обновить список" } }, 500);
       }
@@ -186,7 +198,7 @@ function deferredResponse(): { promise: Promise<Response>; resolve: (response: R
   return { promise, resolve: resolvePromise };
 }
 
-async function renderReadyWidget(): Promise<{ root: HTMLElement; shadowRoot: ShadowRoot }> {
+async function renderReadyWidget(expectedComments = 1): Promise<{ root: HTMLElement; shadowRoot: ShadowRoot }> {
   const root = document.createElement("div");
   document.body.append(root);
   renderWidget(root, {
@@ -200,7 +212,9 @@ async function renderReadyWidget(): Promise<{ root: HTMLElement; shadowRoot: Sha
   if (!shadowRoot) {
     throw new Error("Shadow DOM виджета не создан");
   }
-  await vi.waitFor(() => expect(shadowRoot.querySelectorAll(".cloud-comment__comment")).toHaveLength(1));
+  await vi.waitFor(() => {
+    expect(shadowRoot.querySelectorAll(".cloud-comment__comment")).toHaveLength(expectedComments);
+  });
   return { root, shadowRoot };
 }
 
@@ -241,6 +255,39 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+});
+
+describe("пагинация корневых комментариев", () => {
+  it("догружает 21-й комментарий и скрывает кнопку на последней странице", async () => {
+    const comments = rootComments(21);
+    const requestedPages: number[] = [];
+    installApiMock({
+      onList: (url) => {
+        const page = Number(url.searchParams.get("page"));
+        requestedPages.push(page);
+        return jsonResponse({
+          items: page === 1 ? comments.slice(0, 20) : comments.slice(20),
+          page,
+          pageSize: 20,
+          totalItems: comments.length,
+          totalPages: 2
+        });
+      }
+    });
+
+    const { shadowRoot } = await renderReadyWidget(20);
+    expect(shadowRoot.querySelectorAll(".cloud-comment__comment")).toHaveLength(20);
+    const loadMore = shadowRoot.querySelector<HTMLButtonElement>("[data-load-comments='true']");
+    expect(loadMore?.textContent).toBe("Показать ещё комментарии (1)");
+
+    loadMore?.click();
+
+    await vi.waitFor(() => {
+      expect(shadowRoot.querySelectorAll(".cloud-comment__comment")).toHaveLength(21);
+    });
+    expect(shadowRoot.querySelector("[data-load-comments='true']")).toBeNull();
+    expect(requestedPages).toEqual([1, 2]);
+  });
 });
 
 describe("устойчивый черновик и фокус виджета", () => {
