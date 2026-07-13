@@ -9,6 +9,7 @@ import type {
   CommentReactionType,
   ConsentRequirements,
   LoginResponse,
+  PaginatedResponse,
   PublicComment,
   PublicCommentSort,
   PublicWidgetConfig,
@@ -19,6 +20,7 @@ import type {
 
 type AuthMode = "login" | "register";
 type ResolvedWidgetTheme = "light" | "dark";
+const ROOT_PAGE_SIZE = 20;
 type ReplyTarget = {
   id: string;
   authorLabel: string;
@@ -76,6 +78,10 @@ type WidgetState = {
   profileOpen: boolean;
   composerDraft: string;
   loadingRepliesId: string | null;
+  loadingMoreComments: boolean;
+  commentsPage: number;
+  commentsTotalPages: number;
+  commentsTotalItems: number;
   replyPages: Record<string, number>;
   collapsedReplyIds: Set<string>;
 };
@@ -125,12 +131,17 @@ export function renderWidget(
     profileOpen: false,
     composerDraft: "",
     loadingRepliesId: null,
+    loadingMoreComments: false,
+    commentsPage: 0,
+    commentsTotalPages: 0,
+    commentsTotalItems: 0,
     replyPages: {},
     collapsedReplyIds: new Set()
   };
   let destroyed = false;
   let expiredDraftContext: ExpiredDraftContext | null = null;
   let sessionEpoch = 0;
+  let commentsQueryEpoch = 0;
   const focusManager = createRenderFocusManager(root, shadowRoot, shell);
 
   function render(): void {
@@ -144,6 +155,15 @@ export function renderWidget(
     );
     shell.replaceChildren(...content);
     focusManager.restore();
+  }
+
+  function replaceComments(response: PaginatedResponse<PublicComment>): void {
+    state.comments = response.items;
+    state.commentsPage = response.page;
+    state.commentsTotalPages = response.totalPages;
+    state.commentsTotalItems = response.totalItems;
+    state.loadingMoreComments = false;
+    state.replyPages = {};
   }
 
   async function loadInitialData(): Promise<void> {
@@ -162,8 +182,9 @@ export function renderWidget(
       themeController.setConfiguredTheme(config.style.theme);
       commentsRequest = captureSessionRequest();
       const request = commentsRequest;
+      const queryEpoch = ++commentsQueryEpoch;
       const [comments, consentRequirements] = await Promise.all([
-        api.listComments(state.sort, request.token).catch((error: unknown) => {
+        api.listComments(state.sort, 1, ROOT_PAGE_SIZE, request.token).catch((error: unknown) => {
           if (isUnauthorized(error)) {
             listUnauthorizedHandled = true;
             if (expireAuthenticatedSession(request)) {
@@ -175,8 +196,8 @@ export function renderWidget(
         }),
         api.getConsentRequirements()
       ]);
-      if (isCurrentSessionRequest(request)) {
-        state.comments = comments.items;
+      if (isCurrentSessionRequest(request) && queryEpoch === commentsQueryEpoch) {
+        replaceComments(comments);
       }
       state.consentRequirements = consentRequirements;
       if (state.token) {
@@ -222,7 +243,8 @@ export function renderWidget(
         loginResponse = await api.login(email, password);
       }
 
-      const comments = await api.listComments(state.sort, loginResponse.token);
+      const queryEpoch = ++commentsQueryEpoch;
+      const comments = await api.listComments(state.sort, 1, ROOT_PAGE_SIZE, loginResponse.token);
       sessionEpoch += 1;
       state.token = loginResponse.token;
       state.userEmail = loginResponse.user.email;
@@ -235,7 +257,9 @@ export function renderWidget(
       state.loading = false;
       state.authExpanded = false;
       storeAuthToken(loginResponse.token);
-      state.comments = comments.items;
+      if (queryEpoch === commentsQueryEpoch) {
+        replaceComments(comments);
+      }
       restoreExpiredDraftContext(loginResponse.user.email);
       state.error = null;
       state.notice = "Вы вошли и можете оставить комментарий.";
@@ -379,6 +403,7 @@ export function renderWidget(
     state.updatingCommentId = null;
     state.deletingCommentId = null;
     state.loadingRepliesId = null;
+    state.loadingMoreComments = false;
     state.loading = false;
     state.authExpanded = false;
     state.authMode = "login";
@@ -503,14 +528,25 @@ export function renderWidget(
     state.notice = getSubmissionNotice(createdComment.status, parentId !== null, replyAuthor);
 
     try {
-      const refreshedComments = await api.listComments(state.sort, request.token);
+      const refreshedComments = await api.listComments(state.sort, 1, ROOT_PAGE_SIZE, request.token);
       if (!isCurrentAuthenticatedRequest(request)) {
         return;
       }
       state.comments = removeCommentFromTree(state.comments, optimisticComment.id);
-      state.comments = parentId
-        ? mergeCreatedReply(createdComment, refreshedComments.items, parentId, state.comments)
-        : mergeCreatedComment(createdComment, refreshedComments.items);
+      if (parentId) {
+        state.comments = mergeCreatedReply(
+          createdComment,
+          refreshedComments.items,
+          parentId,
+          state.comments
+        );
+      } else {
+        state.comments = mergeCreatedComment(createdComment, refreshedComments.items);
+        state.commentsPage = refreshedComments.page;
+        state.commentsTotalPages = refreshedComments.totalPages;
+        state.commentsTotalItems = refreshedComments.totalItems;
+        state.replyPages = {};
+      }
     } catch (error) {
       if (isUnauthorized(error)) {
         if (expireAuthenticatedSession(request)) {
@@ -692,15 +728,17 @@ export function renderWidget(
     if (sort === state.sort) {
       return;
     }
+    const queryEpoch = ++commentsQueryEpoch;
     state.sort = sort;
     state.loading = true;
+    state.loadingMoreComments = false;
     state.error = null;
     render();
     const request = captureSessionRequest();
     try {
-      const comments = await api.listComments(state.sort, request.token);
-      if (isCurrentSessionRequest(request)) {
-        state.comments = comments.items;
+      const comments = await api.listComments(state.sort, 1, ROOT_PAGE_SIZE, request.token);
+      if (isCurrentSessionRequest(request) && queryEpoch === commentsQueryEpoch) {
+        replaceComments(comments);
       }
     } catch (error) {
       if (isUnauthorized(error)) {
@@ -708,12 +746,70 @@ export function renderWidget(
           state.authError = "Сессия истекла. Войдите снова.";
           render();
         }
-      } else if (isCurrentSessionRequest(request)) {
+      } else if (isCurrentSessionRequest(request) && queryEpoch === commentsQueryEpoch) {
         state.error = getErrorMessage(error);
       }
     } finally {
-      if (isCurrentSessionRequest(request)) {
+      if (isCurrentSessionRequest(request) && queryEpoch === commentsQueryEpoch) {
         state.loading = false;
+        render();
+      }
+    }
+  }
+
+  async function loadMoreComments(): Promise<void> {
+    if (
+      state.loading
+      || state.loadingMoreComments
+      || state.commentsPage >= state.commentsTotalPages
+    ) {
+      return;
+    }
+    const nextPage = state.commentsPage + 1;
+    const requestedSort = state.sort;
+    const queryEpoch = commentsQueryEpoch;
+    const request = captureSessionRequest();
+    state.loadingMoreComments = true;
+    state.error = null;
+    render();
+
+    try {
+      const response = await api.listComments(
+        requestedSort,
+        nextPage,
+        ROOT_PAGE_SIZE,
+        request.token
+      );
+      if (
+        isCurrentSessionRequest(request)
+        && queryEpoch === commentsQueryEpoch
+        && requestedSort === state.sort
+      ) {
+        state.comments = appendUniqueComments(state.comments, response.items);
+        state.commentsPage = response.page;
+        state.commentsTotalPages = response.totalPages;
+        state.commentsTotalItems = response.totalItems;
+      }
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        if (expireAuthenticatedSession(request)) {
+          state.authError = "Сессия истекла. Войдите снова.";
+          render();
+        }
+      } else if (
+        isCurrentSessionRequest(request)
+        && queryEpoch === commentsQueryEpoch
+        && requestedSort === state.sort
+      ) {
+        state.error = getErrorMessage(error);
+      }
+    } finally {
+      if (
+        isCurrentSessionRequest(request)
+        && queryEpoch === commentsQueryEpoch
+        && requestedSort === state.sort
+      ) {
+        state.loadingMoreComments = false;
         render();
       }
     }
@@ -874,6 +970,11 @@ export function renderWidget(
       return;
     }
 
+    if (button.dataset.loadComments === "true") {
+      void loadMoreComments();
+      return;
+    }
+
     if (button.dataset.toggleReplies) {
       const next = new Set(state.collapsedReplyIds);
       if (next.has(button.dataset.toggleReplies)) {
@@ -1002,6 +1103,23 @@ export function renderWidget(
       shadowRoot.replaceChildren();
     }
   };
+}
+
+function appendUniqueComments(
+  currentComments: PublicComment[],
+  nextComments: PublicComment[]
+): PublicComment[] {
+  const knownIds = new Set(currentComments.map((comment) => comment.id));
+  return [
+    ...currentComments,
+    ...nextComments.filter((comment) => {
+      if (knownIds.has(comment.id)) {
+        return false;
+      }
+      knownIds.add(comment.id);
+      return true;
+    })
+  ];
 }
 
 function createRenderFocusManager(
@@ -1268,6 +1386,10 @@ function renderBody(state: WidgetState, options: Required<CloudCommentWidgetOpti
       body.append(renderCommentSort(state.sort));
     }
     body.append(renderCommentList(state.comments, state));
+    const loadMoreComments = renderLoadMoreComments(state);
+    if (loadMoreComments) {
+      body.append(loadMoreComments);
+    }
   }
 
   if (style?.composerPosition !== "TOP") {
@@ -1304,6 +1426,25 @@ function renderCommentSort(sort: PublicCommentSort): HTMLElement {
 
   control.append(label, select);
   return control;
+}
+
+function renderLoadMoreComments(state: WidgetState): HTMLButtonElement | null {
+  if (state.commentsPage >= state.commentsTotalPages) {
+    return null;
+  }
+  const remaining = Math.max(state.commentsTotalItems - state.comments.length, 0);
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "cloud-comment__load-comments";
+  button.dataset.loadComments = "true";
+  button.dataset.focusKey = "load-more-comments";
+  button.disabled = state.loadingMoreComments;
+  button.textContent = state.loadingMoreComments
+    ? "Загружаем комментарии..."
+    : remaining > 0
+      ? `Показать ещё комментарии (${remaining})`
+      : "Показать ещё комментарии";
+  return button;
 }
 
 function renderCommentList(comments: PublicComment[], state: WidgetState): HTMLElement {

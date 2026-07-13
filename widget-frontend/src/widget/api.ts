@@ -47,7 +47,12 @@ export type RegisterPayload = {
 export type WidgetApiClient = {
   getConfig: () => Promise<PublicWidgetConfig>;
   getConsentRequirements: () => Promise<ConsentRequirements>;
-  listComments: (sort: PublicCommentSort, token?: string | null) => Promise<PaginatedResponse<PublicComment>>;
+  listComments: (
+    sort: PublicCommentSort,
+    page: number,
+    pageSize: number,
+    token?: string | null
+  ) => Promise<PaginatedResponse<PublicComment>>;
   listReplies: (commentId: string, page: number, pageSize: number, token?: string | null) => Promise<PaginatedResponse<PublicComment>>;
   createComment: (content: string, parentId: string | null, token: string) => Promise<PublicComment>;
   updateComment: (commentId: string, content: string, token: string) => Promise<PublicComment>;
@@ -101,12 +106,12 @@ export function createWidgetApiClient(
   return {
     getConfig: () => request<PublicWidgetConfig>(`${siteBasePath}/config`),
     getConsentRequirements: () => request<ConsentRequirements>("/privacy/consent-requirements"),
-    listComments: (sort, token) => {
+    listComments: (sort, page, pageSize, token) => {
       const params = new URLSearchParams({
         pageUrl,
         sort,
-        page: "1",
-        pageSize: "20",
+        page: String(page),
+        pageSize: String(pageSize),
         replyLimit: "3"
       });
       return request<PaginatedResponse<PublicComment>>(`${siteBasePath}/pages/comments?${params}`, {

@@ -619,6 +619,7 @@ Request для реакции:
 - `reactions` возвращаются для корневых комментариев и ответов; при наличии bearer token публичный list помечает реакцию текущего пользователя через `reactedByCurrentUser`.
 - Embedded widget auth uses site-scoped `/api/public/sites/{siteId}/auth/*` aliases, not `/api/auth/*`, so browser CORS preflight is checked against the same domain policy.
 - CORS preflight разрешает только exact-match origin, методы `GET`, `POST`, `PUT`, `PATCH`, `DELETE` и заголовки `Authorization`, `Content-Type`, `Accept`. Неизвестный метод, лишний заголовок или чужой origin получают `404` без `Access-Control-Allow-Origin`; credentials и wildcard не разрешаются.
+- Виджет загружает корневые комментарии страницами по 20 и показывает «Показать ещё комментарии», пока доступны следующие страницы. Ответы объединяются без дублей по `id`; смена сортировки сбрасывает список на первую страницу и не применяет устаревший ответ предыдущего запроса.
 - Самообслуживание аккаунта в виджете использует site-scoped aliases `/api/public/sites/{siteId}/account/*`, а не `/api/account/*`: экспорт персональных данных и запрос удаления работают с external origin без ослабления глобального CORS.
 - Создание комментария требует bearer token; guest-flow в MVP не поддерживается.
 
