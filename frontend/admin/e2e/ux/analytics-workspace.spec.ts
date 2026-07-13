@@ -5,6 +5,7 @@ import type {
   AnalyticsBucketGranularity,
   AnalyticsComparison,
   AnalyticsRange,
+  Comment,
   CommentTimePoint,
   OwnerAnalytics,
 } from '../../src/types/api'
@@ -304,4 +305,61 @@ test('аналитическая ссылка очищает сохранённ�
     page: '1',
     pageSize: '30',
   })
+})
+
+test('панель комментария удерживает фокус, закрывается по Escape и возвращает его триггеру', async ({ page }) => {
+  await authenticate(page)
+  const comment: Comment = {
+    id: '00000000-0000-0000-0000-000000000172',
+    siteId: SITE_ID,
+    pageId: '00000000-0000-0000-0000-000000000173',
+    pageUrl: 'https://example.test/article',
+    parentId: null,
+    parent: null,
+    author: { id: null, email: 'reader@example.test', displayName: 'Читатель' },
+    content: 'Комментарий для проверки доступной панели',
+    status: 'PENDING',
+    moderationReason: null,
+    autoModeration: null,
+    pinned: false,
+    favorite: false,
+    priority: 'HIGH',
+    priorityScore: 90,
+    priorityReasons: ['Ожидает решения'],
+    createdAt: '2026-07-13T12:00:00Z',
+    updatedAt: '2026-07-13T12:00:00Z',
+    replies: [],
+  }
+  await page.route(/\/api\/sites(?:\?.*)?$/, (route) => route.fulfill({ json: [] }))
+  await page.route('**/api/moderation/counts', (route) => route.fulfill({ json: {
+    statuses: { PENDING: 1, APPROVED: 0, REJECTED: 0, HIDDEN: 0, SPAM: 0 },
+    requiringDecision: 1,
+  } }))
+  await page.route('**/api/moderation/comments**', (route) => route.fulfill({ json: {
+    items: [comment], page: 1, pageSize: 30, totalItems: 1, totalPages: 1,
+  } }))
+
+  await page.goto('/moderation?view=pending')
+  const trigger = page.getByRole('button', { name: 'Открыть подробности' })
+  await trigger.focus()
+  await trigger.click()
+
+  const drawer = page.getByRole('dialog', { name: 'Комментарий' })
+  await expect(drawer).toBeVisible()
+  await expect(drawer).toHaveCSS('overflow-y', 'auto')
+  await expect(page.locator('#root')).toHaveAttribute('inert', '')
+  await expect(page.getByRole('button', { name: 'Закрыть панель', exact: true })).toBeFocused()
+  for (let index = 0; index < 8; index += 1) {
+    await page.keyboard.press('Tab')
+    expect(await drawer.evaluate((element) => element.contains(document.activeElement))).toBe(true)
+  }
+  const lastAction = drawer.getByRole('button', { name: 'В избранное' })
+  await lastAction.scrollIntoViewIfNeeded()
+  await expect(lastAction).toBeVisible()
+  await expectNoSeriousAccessibilityViolations(page)
+  await page.keyboard.press('Escape')
+
+  await expect(drawer).toHaveCount(0)
+  await expect(page.locator('#root')).not.toHaveAttribute('inert', '')
+  await expect(trigger).toBeFocused()
 })
