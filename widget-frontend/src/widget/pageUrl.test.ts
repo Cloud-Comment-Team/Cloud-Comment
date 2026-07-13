@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { resolvePageUrl } from "./pageUrl";
+import { resolveInitialCommentId, resolvePageUrl } from "./pageUrl";
 
 describe("pageUrl виджета", () => {
   it("удаляет fragment и приватные параметры у URL текущей страницы", () => {
@@ -75,5 +75,14 @@ describe("pageUrl виджета", () => {
       .toBe("https://site.example/search?%25ZZ=x");
     expect(resolvePageUrl("https://site.example/search?next=%2Ffeed", "https://fallback.example/"))
       .toBe("https://site.example/search?next=%2Ffeed");
+  });
+
+  it("извлекает только безопасный UUID permalink из fragment", () => {
+    expect(resolveInitialCommentId(
+      "https://site.example/article#cloud-comment-00000000-0000-0000-0000-000000000042",
+      "https://fallback.example/"
+    )).toBe("00000000-0000-0000-0000-000000000042");
+    expect(resolveInitialCommentId("https://site.example/article#comments", "https://fallback.example/"))
+      .toBeNull();
   });
 });

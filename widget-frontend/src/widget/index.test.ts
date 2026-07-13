@@ -66,7 +66,7 @@ describe("тонкий host loader", () => {
       siteId,
       frameBaseUrl: "https://widget.example",
       apiBaseUrl: "https://admin.example/api",
-      pageUrl: "https://site.example/article?utm_source=mail&q=ok#comments",
+      pageUrl: "https://site.example/article?utm_source=mail&q=ok#cloud-comment-00000000-0000-0000-0000-000000000042",
       target
     });
     const iframe = target.querySelector("iframe")!;
@@ -87,11 +87,13 @@ describe("тонкий host loader", () => {
       instanceId: string;
       apiOrigin: string;
       pageUrl: string;
+      initialCommentId: string | null;
       fontFamily: string;
     };
     expect(postCalls[0][1]).toBe("https://widget.example");
     expect(connect.apiOrigin).toBe("https://admin.example");
     expect(connect.pageUrl).toBe("https://site.example/article?q=ok");
+    expect(connect.initialCommentId).toBe("00000000-0000-0000-0000-000000000042");
     expect(connect.fontFamily).toBe('"Brand Sans", Arial, sans-serif');
     const framePort = postCalls[0][2][0];
     const hostMessages: unknown[] = [];

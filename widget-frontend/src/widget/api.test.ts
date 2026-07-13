@@ -52,6 +52,27 @@ describe("изолированный transport виджета", () => {
     expect(new Headers(init?.headers).get(WIDGET_CONTEXT_HEADER)).toBe("frame-context");
   });
 
+  it("запрашивает безопасную позицию permalink в рамках canonical page", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({
+      commentId: "00000000-0000-0000-0000-000000000042",
+      rootCommentId: "00000000-0000-0000-0000-000000000040",
+      rootPage: 3,
+      replyPage: 2
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const api = createWidgetApiClient("https://widget.example/api", siteId, pageUrl, "frame-context");
+
+    await api.locateComment("00000000-0000-0000-0000-000000000042", "NEWEST", 20, null);
+
+    const [requestUrl, init] = fetchMock.mock.calls[0];
+    const parsed = new URL(String(requestUrl));
+    expect(parsed.pathname).toBe(`/api/public/sites/${siteId}/comments/00000000-0000-0000-0000-000000000042/permalink`);
+    expect(parsed.searchParams.get("pageUrl")).toBe(pageUrl);
+    expect(parsed.searchParams.get("sort")).toBe("NEWEST");
+    expect(new Headers(init?.headers).get(WIDGET_CONTEXT_HEADER)).toBe("frame-context");
+    expect(new Headers(init?.headers).get(WIDGET_PAGE_URL_HEADER)).toBe(pageUrl);
+  });
+
   it("выполняет account-операции только через site-scoped context", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({
       requestId: "00000000-0000-0000-0000-000000000002",

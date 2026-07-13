@@ -329,6 +329,7 @@ function renderFrame(
     siteId: connect.siteId,
     apiBaseUrl: `${physicalFrameOrigin()}/api`,
     pageUrl,
+    initialCommentId: connect.initialCommentId,
     target: root,
     theme: connect.theme,
     contextToken,

@@ -16,8 +16,10 @@ type MockComment = ReturnType<typeof createComment>
 
 type WidgetServerOptions = {
   comments?: MockComment[]
+  replies?: MockComment[]
   failCommentPost?: boolean
   paginateComments?: boolean
+  permalink?: { commentId: string; rootCommentId: string; rootPage: number; replyPage: number | null }
 }
 
 type WidgetServerState = {
@@ -159,6 +161,14 @@ async function setupWidgetServer(page: Page, options: WidgetServerOptions = {}):
       })
       return
     }
+    if (/\/api\/public\/sites\/[^/]+\/comments\/[^/]+\/permalink$/u.test(url.pathname)) {
+      if (!options.permalink) {
+        await fulfillJson(route, { error: { message: 'Permalink not found' } }, 404)
+        return
+      }
+      await fulfillJson(route, options.permalink)
+      return
+    }
     if (url.pathname === `/api/public/sites/${SITE_ID}/pages/comments`) {
       const pageUrlHeader = request.headers()['x-cloudcomment-page-url'] ?? null
       if (method === 'POST') {
@@ -200,7 +210,14 @@ async function setupWidgetServer(page: Page, options: WidgetServerOptions = {}):
     }
     if (/\/api\/public\/sites\/[^/]+\/comments\/[^/]+\/replies$/u.test(url.pathname)) {
       state.requestedPageUrls.push(request.headers()['x-cloudcomment-page-url'] ?? null)
-      await fulfillJson(route, { items: [], page: 1, pageSize: 20, totalItems: 0, totalPages: 0 })
+      const replies = options.replies ?? []
+      await fulfillJson(route, {
+        items: replies,
+        page: Number(url.searchParams.get('page') ?? '1'),
+        pageSize: 20,
+        totalItems: replies.length,
+        totalPages: replies.length > 0 ? 1 : 0,
+      })
       return
     }
     if (url.pathname.endsWith('/reaction') && method === 'PUT') {
@@ -505,6 +522,34 @@ test('iframe догружает корни без дублей и сбрасыв
   ])
   expect(state.contextlessRequests).toEqual([])
 })
+
+for (const target of ['root', 'reply'] as const) {
+  test(`permalink открывает и фокусирует ${target}`, async ({ page }, testInfo) => {
+    test.skip(!isPrimaryBrowser(testInfo), 'Permalink достаточно проверить в основном Chromium-профиле')
+    const root = createComment(40)
+    const reply = createComment(42, { parentId: root.id })
+    const commentId = target === 'root' ? root.id : reply.id
+    await setupWidgetServer(page, {
+      comments: [{ ...root, replyCount: target === 'reply' ? 1 : 0 }],
+      replies: target === 'reply' ? [reply] : [],
+      permalink: {
+        commentId,
+        rootCommentId: root.id,
+        rootPage: 1,
+        replyPage: target === 'reply' ? 1 : null,
+      },
+    })
+    await page.goto('/login')
+    await page.evaluate(() => { document.body.innerHTML = '<div id="comments"></div>' })
+    const frame = await mountWidget(
+      page,
+      `${new URL(page.url()).origin}/article#cloud-comment-${commentId}`,
+    )
+
+    await expect(frame.locator(`#cloud-comment-${commentId}`)).toBeFocused()
+    await expect(frame.locator(`#cloud-comment-${commentId}`)).toContainText(`Комментарий ${target === 'root' ? 40 : 42}`)
+  })
+}
 
 test('frame bundle сохраняет draft, focus и selection при перерисовках и POST 500', async ({ page }, testInfo) => {
   test.skip(!isPrimaryBrowser(testInfo), 'Сценарий фокуса достаточно проверить в основном Chromium-профиле')

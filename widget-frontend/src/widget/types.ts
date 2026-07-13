@@ -125,6 +125,13 @@ export type PaginatedResponse<T> = {
   totalPages: number;
 };
 
+export type CommentPermalinkLocation = {
+  commentId: string;
+  rootCommentId: string;
+  rootPage: number;
+  replyPage: number | null;
+};
+
 export type AuthUser = {
   id: string;
   email: string;

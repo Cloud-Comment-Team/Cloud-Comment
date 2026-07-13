@@ -152,6 +152,26 @@ public class PublicCommentService {
     }
 
     @Transactional(readOnly = true)
+    public CommentPermalinkLocation locateComment(
+        UUID siteId,
+        String origin,
+        String pageUrl,
+        UUID commentId,
+        int pageSize,
+        PublicCommentSort sort,
+        Optional<UUID> viewerUserId
+    ) {
+        WidgetSiteAccess access = domainPolicyService.validate(siteId, origin);
+        String normalizedPageUrl = normalizePageUrl(pageUrl);
+        assertSameOrigin(normalizedPageUrl, access.origin());
+        UUID pageId = publicCommentRepository.findPageId(access.siteId(), normalizedPageUrl)
+            .orElseThrow(this::notFound);
+        return publicCommentRepository.findApprovedCommentLocation(
+            access.siteId(), pageId, commentId, pageSize, sort, viewerUserId
+        ).orElseThrow(this::notFound);
+    }
+
+    @Transactional(readOnly = true)
     public void assertCommentBelongsToContextPage(
         UUID siteId,
         UUID commentId,

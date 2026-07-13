@@ -12,6 +12,7 @@ export type WidgetConnectMessage = {
   siteId: string;
   apiOrigin: string;
   pageUrl: string;
+  initialCommentId: string | null;
   theme: "auto" | "light" | "dark";
   fontFamily: string;
 };
@@ -94,7 +95,7 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 export function isWidgetConnectMessage(value: unknown): value is WidgetConnectMessage {
   return isRecord(value)
     && hasOnlyKeys(value, [
-      "type", "version", "instanceId", "siteId", "apiOrigin", "pageUrl", "theme", "fontFamily"
+      "type", "version", "instanceId", "siteId", "apiOrigin", "pageUrl", "initialCommentId", "theme", "fontFamily"
     ])
     && value.type === "cloud-comment:connect"
     && value.version === WIDGET_PROTOCOL_VERSION
@@ -102,6 +103,8 @@ export function isWidgetConnectMessage(value: unknown): value is WidgetConnectMe
     && typeof value.siteId === "string" && UUID_PATTERN.test(value.siteId)
     && typeof value.apiOrigin === "string" && isHttpOrigin(value.apiOrigin)
     && typeof value.pageUrl === "string" && value.pageUrl.length > 0 && value.pageUrl.length <= 2048
+    && (value.initialCommentId === null
+      || (typeof value.initialCommentId === "string" && UUID_PATTERN.test(value.initialCommentId)))
     && (value.theme === "auto" || value.theme === "light" || value.theme === "dark")
     && typeof value.fontFamily === "string"
     && value.fontFamily.length > 0

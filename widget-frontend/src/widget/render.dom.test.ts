@@ -82,6 +82,7 @@ type ApiOverrides = {
   failListAfterPost?: boolean;
   loginEmail?: string;
   commentsAfterLogin?: PublicComment[];
+  onLocate?: () => Promise<Response> | Response;
 };
 
 function installApiMock(overrides: ApiOverrides = {}) {
@@ -104,6 +105,14 @@ function installApiMock(overrides: ApiOverrides = {}) {
         termsUrl: "/legal/terms",
         personalDataNoticeUrl: "/legal/personal-data",
         dataExportInfoUrl: "/legal/export"
+      });
+    }
+    if (url.includes(`/public/sites/${siteId}/comments/`) && url.includes("/permalink?") && method === "GET") {
+      return overrides.onLocate?.() ?? jsonResponse({
+        commentId: publicComment().id,
+        rootCommentId: publicComment().id,
+        rootPage: 1,
+        replyPage: null
       });
     }
     if (url.endsWith(`/public/sites/${siteId}/auth/me`)) {
@@ -203,6 +212,7 @@ async function renderReadyWidget(input: number | {
   expectedComments?: number;
   authStorageKey?: string;
   onAuthCleared?: () => void;
+  initialCommentId?: string;
 } = {}): Promise<{ root: HTMLElement; shadowRoot: ShadowRoot }> {
   const options = typeof input === "number" ? {} : input;
   const expectedComments = typeof input === "number" ? input : (input.expectedComments ?? 1);
@@ -290,6 +300,94 @@ describe("локализация интерфейса", () => {
     expect(shadowRoot.querySelector("select")?.getAttribute("aria-label")).toBe("Sort comments");
     expect(shadowRoot.querySelector("time")?.textContent).toMatch(/13 Jul 2026/);
     expect(shadowRoot.querySelector(".cloud-comment__comment-content")?.textContent).toBe("Исходный комментарий");
+  });
+});
+
+describe("permalink и share", () => {
+  it("загружает нужную страницу и фокусирует comment anchor", async () => {
+    const comment = publicComment({ id: "00000000-0000-0000-0000-000000000042" });
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView
+    });
+    installApiMock({
+      onLocate: () => jsonResponse({
+        commentId: comment.id,
+        rootCommentId: comment.id,
+        rootPage: 3,
+        replyPage: null
+      }),
+      onList: (url) => {
+        expect(url.searchParams.get("page")).toBe("3");
+        return jsonResponse({ items: [comment], page: 3, pageSize: 20, totalItems: 45, totalPages: 3 });
+      }
+    });
+
+    const { shadowRoot } = await renderReadyWidget({ initialCommentId: comment.id });
+    const anchor = shadowRoot.querySelector<HTMLElement>(`#cloud-comment-${comment.id}`);
+    await vi.waitFor(() => expect(shadowRoot.activeElement).toBe(anchor));
+    expect(anchor?.tabIndex).toBe(-1);
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "center" });
+  });
+
+  it("не анимирует переход к permalink при reduced motion", async () => {
+    const comment = publicComment({ id: "00000000-0000-0000-0000-000000000043" });
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView
+    });
+    vi.stubGlobal("matchMedia", vi.fn((query: string) => ({
+      matches: query === "(prefers-reduced-motion: reduce)",
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn()
+    })));
+    installApiMock({
+      onLocate: () => jsonResponse({
+        commentId: comment.id,
+        rootCommentId: comment.id,
+        rootPage: 1,
+        replyPage: null
+      }),
+      onList: () => jsonResponse({ items: [comment], page: 1, pageSize: 20, totalItems: 1, totalPages: 1 })
+    });
+
+    await renderReadyWidget({ initialCommentId: comment.id });
+    await vi.waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "auto", block: "center" }));
+  });
+
+  it("копирует canonical permalink через clipboard fallback", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { ...window.navigator, clipboard: { writeText } });
+    installApiMock();
+    const { shadowRoot } = await renderReadyWidget();
+
+    shadowRoot.querySelector<HTMLButtonElement>("[data-share-comment]")?.click();
+
+    await vi.waitFor(() => expect(writeText).toHaveBeenCalledWith(
+      `https://site.example.test/article#cloud-comment-${publicComment().id}`
+    ));
+    await vi.waitFor(() => expect(shadowRoot.textContent).toContain("Ссылка на комментарий готова."));
+  });
+
+  it("использует Web Share API, когда он доступен", async () => {
+    const share = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { ...window.navigator, share });
+    installApiMock();
+    const { shadowRoot } = await renderReadyWidget();
+
+    shadowRoot.querySelector<HTMLButtonElement>("[data-share-comment]")?.click();
+
+    await vi.waitFor(() => expect(share).toHaveBeenCalledWith({
+      title: "CloudComment",
+      url: `https://site.example.test/article#cloud-comment-${publicComment().id}`
+    }));
   });
 });
 

@@ -9,6 +9,7 @@ const validConnect = {
   siteId: "00000000-0000-0000-0000-000000000001",
   apiOrigin: "https://api.example",
   pageUrl: "https://site.example/article",
+  initialCommentId: null,
   theme: "auto",
   fontFamily: '"Brand Sans", Arial, sans-serif'
 };
@@ -18,6 +19,11 @@ describe("strict widget protocol", () => {
     expect(isWidgetConnectMessage(validConnect)).toBe(true);
     expect(isWidgetConnectMessage({ ...validConnect, fontFamily: "A".repeat(257) })).toBe(false);
     expect(isWidgetConnectMessage({ ...validConnect, fontFamily: "Arial\nbody { display:none }" })).toBe(false);
+    expect(isWidgetConnectMessage({
+      ...validConnect,
+      initialCommentId: "00000000-0000-0000-0000-000000000042"
+    })).toBe(true);
+    expect(isWidgetConnectMessage({ ...validConnect, initialCommentId: "../../admin" })).toBe(false);
   });
 
   it("отвергает расширение connect произвольными presentation-полями", () => {

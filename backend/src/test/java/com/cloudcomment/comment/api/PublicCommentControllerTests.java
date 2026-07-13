@@ -3,6 +3,7 @@ package com.cloudcomment.comment.api;
 import com.cloudcomment.auth.application.AuthenticatedUser;
 import com.cloudcomment.auth.application.CurrentUserService;
 import com.cloudcomment.comment.application.CommentPage;
+import com.cloudcomment.comment.application.CommentPermalinkLocation;
 import com.cloudcomment.comment.application.DomainPolicyService;
 import com.cloudcomment.comment.application.PublicCommentService;
 import com.cloudcomment.comment.application.PublicWidgetConfig;
@@ -268,6 +269,30 @@ class PublicCommentControllerTests {
                 .param("replyLimit", "3"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.items", empty()));
+    }
+
+    @Test
+    void permalinkReturnsRootAndReplyPagesInsideWidgetContext() throws Exception {
+        UUID siteId = UUID.randomUUID();
+        UUID rootId = UUID.randomUUID();
+        UUID replyId = UUID.randomUUID();
+        when(publicCommentService.locateComment(
+            siteId, ORIGIN, PAGE_URL, replyId, 20, PublicCommentSort.NEWEST, Optional.empty()
+        )).thenReturn(new CommentPermalinkLocation(replyId, rootId, 3, 2));
+
+        mockMvc.perform(get("/api/public/sites/{siteId}/comments/{commentId}/permalink", siteId, replyId)
+                .header(HttpHeaders.ORIGIN, FRAME_ORIGIN)
+                .header(WidgetContextService.CONTEXT_HEADER, CONTEXT_TOKEN)
+                .header("X-CloudComment-Page-Url", PAGE_URL)
+                .queryParam("pageUrl", PAGE_URL)
+                .queryParam("sort", "NEWEST")
+                .queryParam("pageSize", "20"))
+            .andExpect(status().isOk())
+            .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, FRAME_ORIGIN))
+            .andExpect(jsonPath("$.commentId", is(replyId.toString())))
+            .andExpect(jsonPath("$.rootCommentId", is(rootId.toString())))
+            .andExpect(jsonPath("$.rootPage", is(3)))
+            .andExpect(jsonPath("$.replyPage", is(2)));
     }
 
     @Test
