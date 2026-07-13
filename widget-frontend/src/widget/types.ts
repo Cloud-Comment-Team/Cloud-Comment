@@ -77,7 +77,6 @@ export type CommentReactionsResponse = {
 
 export type CommentAuthor = {
   id: string;
-  email: string;
   displayName: string | null;
 };
 

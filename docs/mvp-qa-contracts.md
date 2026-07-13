@@ -836,7 +836,7 @@ Response:
 }
 ```
 
-### Comment
+### Public comment
 
 ```json
 {
@@ -846,31 +846,12 @@ Response:
   "parentId": null,
   "author": {
     "id": "uuid",
-    "email": "user@example.com",
     "displayName": "User Name"
   },
   "content": "Comment text",
-  "status": "PENDING",
-  "moderationReason": "Автомодерация: Спам-маркер: казино / азартные игры",
-  "autoModeration": {
-    "policyVersionId": "uuid",
-    "policyVersion": 3,
-    "executionMode": "SHADOW",
-    "decision": "SPAM",
-    "score": 135,
-    "reason": "Обнаружены признаки спама",
-    "signals": [
-      { "code": "SPAM_PHRASE", "score": 55, "message": "Обнаружен спам-маркер" }
-    ],
-    "evaluatedAt": "2026-07-13T10:05:00Z",
-    "feedback": null
-  },
-  "priority": "HIGH",
-  "priorityScore": 680,
-  "priorityReasons": [
-    "Ожидает решения модератора",
-    "Есть объяснение автомодерации"
-  ],
+  "status": "APPROVED",
+  "pinned": false,
+  "ownedByCurrentUser": false,
   "reactions": [
     {
       "type": "LOVE",
@@ -883,8 +864,35 @@ Response:
   "createdAt": "2026-06-28T18:00:00Z",
   "updatedAt": "2026-06-28T18:00:00Z",
   "editedAt": null,
-  "ownedByCurrentUser": true,
+  "replyCount": 0,
   "replies": []
+}
+```
+
+Public Widget API возвращает только безопасную проекцию автора `{ id, displayName }`. Email никогда не сериализуется в публичных ответах списка, ответов, создания или редактирования комментария. Если сохранённое имя отсутствует, пустое, совпадает с email либо выглядит как email, API и виджет используют нейтральную подпись `Участник`. Moderation, owner analytics и personal-data endpoints сохраняют email в owner/self-only контуре.
+
+### Moderation comment: сокращённый фрагмент
+
+Owner-only moderation response использует отдельную проекцию автора и сохраняет контакт. Ниже показан только фрагмент, который иллюстрирует границу персональных данных; полный response дополнительно содержит site/page context, parent, flags, timestamps, replies и все поля `autoModeration`:
+
+```json
+{
+  "id": "uuid",
+  "author": {
+    "id": "uuid",
+    "email": "user@example.com",
+    "displayName": "User Name"
+  },
+  "content": "Comment text",
+  "status": "PENDING",
+  "moderationReason": "Автомодерация: требуется проверка",
+  "autoModeration": {
+    "decision": "REVIEW",
+    "score": 55
+  },
+  "priority": "HIGH",
+  "priorityScore": 680,
+  "priorityReasons": ["Ожидает решения модератора"]
 }
 ```
 

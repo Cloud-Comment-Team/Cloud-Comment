@@ -139,7 +139,9 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
     siteId,
     content: commentText,
     status: 'APPROVED',
+    author: { displayName: 'Участник' },
   })
+  expect(createdComment.author).not.toHaveProperty('email')
 
   const createReplyResponse = await request.post(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
     headers: {
@@ -159,7 +161,9 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
     parentId: createdComment.id,
     content: apiReplyText,
     status: 'APPROVED',
+    author: { displayName: 'Участник' },
   })
+  expect(createdReply.author).not.toHaveProperty('email')
 
   const listCommentsResponse = await request.get(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
     headers: {
@@ -177,12 +181,25 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   expect(commentsPage.items[0]).toMatchObject({
     content: commentText,
     status: 'APPROVED',
+    author: { displayName: 'Участник' },
   })
+  expect(commentsPage.items[0].author).not.toHaveProperty('email')
   expect(commentsPage.items[0].replies).toHaveLength(1)
   expect(commentsPage.items[0].replies[0]).toMatchObject({
     content: apiReplyText,
     parentId: createdComment.id,
     status: 'APPROVED',
+    author: { displayName: 'Участник' },
+  })
+  expect(commentsPage.items[0].replies[0].author).not.toHaveProperty('email')
+
+  const moderationDetailResponse = await request.get(`${API_BASE_URL}/moderation/comments/${createdComment.id}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  await expect(moderationDetailResponse).toBeOK()
+  expect(await moderationDetailResponse.json()).toMatchObject({
+    id: createdComment.id,
+    author: { email },
   })
 
   for (const index of [2, 3, 4]) {
@@ -775,6 +792,9 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   const widgetShell = widget.locator('.cloud-comment')
   await expect(widget.locator('.cloud-comment__title')).toHaveText('Комментарии')
   await expect(widget.locator('.cloud-comment__comment-content')).toContainText([editedCommentText, apiReplyText])
+  const publicAuthorLabels = widget.locator('.cloud-comment__comment-header strong')
+  await expect(publicAuthorLabels.first()).toHaveText('Участник')
+  expect((await publicAuthorLabels.allTextContents()).join(' ')).not.toContain(email)
   await expect(widget.getByRole('button', { name: 'Показать ещё ответы (1)' })).toBeVisible()
   await widget.getByRole('button', { name: 'Показать ещё ответы (1)' }).click()
   await expect(widget.locator('.cloud-comment__replies .cloud-comment__comment')).toHaveCount(4)
