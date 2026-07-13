@@ -189,6 +189,39 @@ class PublicCommentControllerTests {
     }
 
     @Test
+    void listCommentsPassesWidgetViewerAndReturnsOwnedPendingComment() throws Exception {
+        UUID siteId = UUID.randomUUID();
+        UUID pageId = UUID.randomUUID();
+        AuthenticatedUser currentUser = currentUser();
+        CommentView pending = ownedPendingComment(siteId, pageId, null, currentUser);
+        when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
+        when(currentUserService.getCurrentUser(
+            eq("plain-session-token"),
+            eq(com.cloudcomment.auth.domain.SessionAudience.WIDGET)
+        )).thenReturn(currentUser);
+        when(publicCommentService.listComments(
+            siteId,
+            ORIGIN,
+            PAGE_URL,
+            1,
+            20,
+            PublicCommentSort.PINNED_FIRST,
+            Optional.of(currentUser.id()),
+            null
+        )).thenReturn(new CommentPage(List.of(pending), 1, 20, 1));
+
+        mockMvc.perform(get("/api/public/sites/{siteId}/pages/comments", siteId)
+                .header(HttpHeaders.ORIGIN, ORIGIN)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .param("pageUrl", PAGE_URL))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.items[0].status", is("PENDING")))
+            .andExpect(jsonPath("$.items[0].ownedByCurrentUser", is(true)))
+            .andExpect(jsonPath("$.items[0].author.email").doesNotExist())
+            .andExpect(jsonPath("$.totalItems", is(1)));
+    }
+
+    @Test
     void listCommentsPassesOptionalReplyLimit() throws Exception {
         UUID siteId = UUID.randomUUID();
         when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
@@ -218,6 +251,32 @@ class PublicCommentControllerTests {
                 .header(HttpHeaders.ORIGIN, ORIGIN))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.items[0].parentId", is(rootId.toString())))
+            .andExpect(jsonPath("$.totalItems", is(1)));
+    }
+
+    @Test
+    void listRepliesPassesWidgetViewerAndReturnsOwnedPendingReply() throws Exception {
+        UUID siteId = UUID.randomUUID();
+        UUID rootId = UUID.randomUUID();
+        UUID pageId = UUID.randomUUID();
+        AuthenticatedUser currentUser = currentUser();
+        CommentView pendingReply = ownedPendingComment(siteId, pageId, rootId, currentUser);
+        when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
+        when(currentUserService.getCurrentUser(
+            eq("plain-session-token"),
+            eq(com.cloudcomment.auth.domain.SessionAudience.WIDGET)
+        )).thenReturn(currentUser);
+        when(publicCommentService.listReplies(
+            siteId, ORIGIN, rootId, 1, 20, Optional.of(currentUser.id())
+        )).thenReturn(new CommentPage(List.of(pendingReply), 1, 20, 1));
+
+        mockMvc.perform(get("/api/public/sites/{siteId}/comments/{commentId}/replies", siteId, rootId)
+                .header(HttpHeaders.ORIGIN, ORIGIN)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.items[0].status", is("PENDING")))
+            .andExpect(jsonPath("$.items[0].ownedByCurrentUser", is(true)))
+            .andExpect(jsonPath("$.items[0].author.email").doesNotExist())
             .andExpect(jsonPath("$.totalItems", is(1)));
     }
 
@@ -723,6 +782,31 @@ class PublicCommentControllerTests {
             status,
             TIMESTAMP,
             TIMESTAMP,
+            List.of()
+        );
+    }
+
+    private CommentView ownedPendingComment(
+        UUID siteId,
+        UUID pageId,
+        UUID parentId,
+        AuthenticatedUser currentUser
+    ) {
+        return new CommentView(
+            UUID.randomUUID(),
+            siteId,
+            pageId,
+            parentId,
+            new CommentAuthor(currentUser.id(), currentUser.email(), currentUser.email()),
+            "Waiting for moderation",
+            CommentStatus.PENDING,
+            TIMESTAMP,
+            TIMESTAMP,
+            null,
+            false,
+            true,
+            List.of(),
+            0,
             List.of()
         );
     }

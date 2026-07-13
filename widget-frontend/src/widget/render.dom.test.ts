@@ -288,6 +288,40 @@ describe("пагинация корневых комментариев", () => {
     expect(shadowRoot.querySelector("[data-load-comments='true']")).toBeNull();
     expect(requestedPages).toEqual([1, 2]);
   });
+
+  it("показывает возвращённые backend собственные pending root и reply после загрузки", async () => {
+    const pendingRoot = publicComment({
+      id: "pending-root",
+      content: "Корневой комментарий ожидает проверку",
+      status: "PENDING"
+    });
+    const pendingReply = publicComment({
+      id: "pending-reply",
+      parentId: "approved-root",
+      content: "Ответ ожидает проверку",
+      status: "PENDING"
+    });
+    const approvedRoot = publicComment({
+      id: "approved-root",
+      replies: [pendingReply],
+      replyCount: 1
+    });
+    installApiMock({
+      onList: () => jsonResponse({
+        items: [pendingRoot, approvedRoot],
+        page: 1,
+        pageSize: 20,
+        totalItems: 2,
+        totalPages: 1
+      })
+    });
+
+    const { shadowRoot } = await renderReadyWidget(3);
+
+    expect(shadowRoot.textContent).toContain("Корневой комментарий ожидает проверку");
+    expect(shadowRoot.textContent).toContain("Ответ ожидает проверку");
+    expect(shadowRoot.querySelectorAll(".cloud-comment__status")).toHaveLength(2);
+  });
 });
 
 describe("устойчивый черновик и фокус виджета", () => {
