@@ -43,6 +43,16 @@ function isRealtimeEvent(value: unknown): value is RealtimeEvent {
     ])
   }
 
+  if (value.type === 'comment.owner_reply_created') {
+    return hasStringFields(value.payload, [
+      'commentId',
+      'rootCommentId',
+      'siteId',
+      'pageId',
+      'createdAt',
+    ])
+  }
+
   if (value.type === 'comment.moderation_action_applied') {
     return hasStringFields(value.payload, [
       'siteId',

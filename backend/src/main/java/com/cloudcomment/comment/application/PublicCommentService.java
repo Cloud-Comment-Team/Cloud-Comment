@@ -199,6 +199,8 @@ public class PublicCommentService {
             comment.pageId(),
             comment.id(),
             comment.parentId(),
+            currentUser.id(),
+            false,
             currentUser.email(),
             comment.content(),
             comment.status(),

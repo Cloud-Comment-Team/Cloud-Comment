@@ -2008,6 +2008,9 @@ function getAuthorLabel(comment: PublicComment): string {
 }
 
 export function getPublicAuthorLabel(author: CommentAuthor): string {
+  if (author.kind === "OWNER") {
+    return "Автор сайта";
+  }
   const displayName = author.displayName?.trim();
   return !displayName || displayName.includes("@") ? "Участник" : displayName;
 }
@@ -2070,7 +2073,7 @@ function createOptimisticComment(
     siteId: "",
     pageId: "",
     parentId,
-    author: { id: "", displayName: "Вы" },
+    author: { id: "", displayName: "Вы", kind: "VISITOR" },
     content,
     status: "PENDING",
     createdAt: now,

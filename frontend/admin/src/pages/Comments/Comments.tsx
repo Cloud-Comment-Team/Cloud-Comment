@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { ExternalLink, Filter, MessageSquareText, Pin, Search, Undo2 } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { ExternalLink, Filter, LoaderCircle, MessageSquareText, Pin, Search, Send, Undo2 } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import { getApiErrorMessage } from '../../api/auth'
-import { getDiscussion, listDiscussions } from '../../api/discussions'
+import { createOwnerReply, getDiscussion, listDiscussions } from '../../api/discussions'
 import { listAllSites } from '../../api/sites'
 import { AsyncState } from '../../components/common/AsyncState'
 import { Badge } from '../../components/common/Badge'
@@ -23,6 +23,41 @@ const views: Array<{ value: DiscussionFilter; label: string }> = [
   { value: 'UNREAD', label: 'Непрочитанные' },
   { value: 'NEEDS_REPLY', label: 'Ждут ответа' },
 ]
+
+const REPLY_DRAFT_PREFIX = 'cloud-comment:owner-reply-draft:v1:'
+
+interface ReplyDraft {
+  rootCommentId: string | null
+  content: string
+  operationId: string | null
+}
+
+const EMPTY_REPLY_DRAFT: ReplyDraft = { rootCommentId: null, content: '', operationId: null }
+
+function readReplyDraft(rootCommentId: string): ReplyDraft {
+  try {
+    const stored = sessionStorage.getItem(`${REPLY_DRAFT_PREFIX}${rootCommentId}`)
+    if (!stored) return { ...EMPTY_REPLY_DRAFT, rootCommentId }
+    const parsed = JSON.parse(stored) as Partial<ReplyDraft>
+    return {
+      rootCommentId,
+      content: typeof parsed.content === 'string' ? parsed.content.slice(0, 5000) : '',
+      operationId: typeof parsed.operationId === 'string' ? parsed.operationId : null,
+    }
+  } catch {
+    return { ...EMPTY_REPLY_DRAFT, rootCommentId }
+  }
+}
+
+function writeReplyDraft(draft: ReplyDraft) {
+  if (!draft.rootCommentId) return
+  const key = `${REPLY_DRAFT_PREFIX}${draft.rootCommentId}`
+  if (!draft.content) {
+    sessionStorage.removeItem(key)
+    return
+  }
+  sessionStorage.setItem(key, JSON.stringify({ content: draft.content, operationId: draft.operationId }))
+}
 
 function discussionView(value: string | null): DiscussionFilter {
   return views.some((item) => item.value === value) ? value as DiscussionFilter : 'ALL'
@@ -88,12 +123,23 @@ const Comments = () => {
   const [listReloadKey, setListReloadKey] = useState(0)
   const [detailReloadKey, setDetailReloadKey] = useState(0)
   const [realtimeRevision, setRealtimeRevision] = useState(0)
+  const [replyDraft, setReplyDraft] = useState<ReplyDraft>(EMPTY_REPLY_DRAFT)
+  const [replySendingId, setReplySendingId] = useState<string | null>(null)
+  const [replyError, setReplyError] = useState<{ rootCommentId: string; message: string } | null>(null)
+  const [replyNotice, setReplyNotice] = useState<{ rootCommentId: string; message: string } | null>(null)
+  const replyInputRef = useRef<HTMLTextAreaElement>(null)
 
   const activeThread = thread?.summary.rootCommentId === selectedId ? thread : null
   const activeDetailError = detailError?.id === selectedId ? detailError.message : null
   const currentFilterDraft = filterDraft.routeKey === routeFilterKey
     ? filterDraft
     : { routeKey: routeFilterKey, siteId, search }
+  const activeReplyDraft = selectedId
+    ? replyDraft.rootCommentId === selectedId ? replyDraft : readReplyDraft(selectedId)
+    : EMPTY_REPLY_DRAFT
+  const activeReplyError = replyError?.rootCommentId === selectedId ? replyError.message : null
+  const activeReplyNotice = replyNotice?.rootCommentId === selectedId ? replyNotice.message : ''
+  const replySending = replySendingId === selectedId
   const selectedSummary = useMemo(
     () => items.find((item) => item.rootCommentId === selectedId) ?? activeThread?.summary ?? null,
     [activeThread, items, selectedId],
@@ -104,7 +150,11 @@ const Comments = () => {
   }, [])
 
   useRealtimeEvent((event) => {
-    if (event.type === 'comment.created' || event.type === 'comment.moderation_action_applied') {
+    if (
+      event.type === 'comment.created'
+      || event.type === 'comment.owner_reply_created'
+      || event.type === 'comment.moderation_action_applied'
+    ) {
       setRealtimeRevision((current) => current + 1)
     }
   })
@@ -194,6 +244,79 @@ const Comments = () => {
     setListLoading(true)
     setListError(null)
     setListReloadKey((current) => current + 1)
+  }
+
+  function changeReplyDraft(content: string) {
+    if (!selectedId) return
+    const next = { rootCommentId: selectedId, content, operationId: null }
+    setReplyDraft(next)
+    writeReplyDraft(next)
+    setReplyError(null)
+    setReplyNotice(null)
+  }
+
+  async function submitReply(event: FormEvent) {
+    event.preventDefault()
+    if (!selectedId || replySendingId === selectedId) return
+    const content = activeReplyDraft.content.trim()
+    if (!content) {
+      setReplyError({ rootCommentId: selectedId, message: 'Напишите ответ перед отправкой.' })
+      replyInputRef.current?.focus()
+      return
+    }
+
+    const operationId = activeReplyDraft.operationId ?? crypto.randomUUID()
+    const pendingDraft = { rootCommentId: selectedId, content: activeReplyDraft.content, operationId }
+    setReplyDraft(pendingDraft)
+    writeReplyDraft(pendingDraft)
+    setReplySendingId(selectedId)
+    setReplyError(null)
+    setReplyNotice(null)
+
+    try {
+      const response = await createOwnerReply(selectedId, { operationId, content })
+      setThread((current) => {
+        if (!current || current.summary.rootCommentId !== selectedId) return current
+        const exists = current.messages.some((message) => message.id === response.message.id)
+        return {
+          summary: {
+            ...current.summary,
+            lastAuthor: response.message.author,
+            lastMessage: response.message.content,
+            lastActivityAt: response.message.createdAt,
+            status: 'ACTIVE',
+          },
+          messages: exists ? current.messages : [...current.messages, response.message],
+        }
+      })
+      setItems((current) => current.map((discussion) => discussion.rootCommentId === selectedId
+        ? {
+            ...discussion,
+            lastAuthor: response.message.author,
+            lastMessage: response.message.content,
+            lastActivityAt: response.message.createdAt,
+            status: 'ACTIVE',
+          }
+        : discussion))
+      sessionStorage.removeItem(`${REPLY_DRAFT_PREFIX}${selectedId}`)
+      setReplyDraft({ rootCommentId: selectedId, content: '', operationId: null })
+      setReplyNotice({
+        rootCommentId: selectedId,
+        message: response.created ? 'Ответ опубликован.' : 'Ответ уже был опубликован ранее.',
+      })
+      setListReloadKey((current) => current + 1)
+    } catch (error) {
+      setReplyError({
+        rootCommentId: selectedId,
+        message: getApiErrorMessage(error, 'Не удалось опубликовать ответ. Текст сохранён — попробуйте ещё раз.'),
+      })
+      requestAnimationFrame(() => {
+        const editor = replyInputRef.current
+        if (editor?.dataset.rootCommentId === selectedId) editor.focus()
+      })
+    } finally {
+      setReplySendingId((current) => current === selectedId ? null : current)
+    }
   }
 
   return (
@@ -397,6 +520,48 @@ const Comments = () => {
                     </div>
                   )}
                 </div>
+                {activeThread && !activeDetailError && (
+                  <form className="border-t px-4 py-4 sm:px-6" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }} onSubmit={submitReply}>
+                    <div className="mx-auto max-w-3xl">
+                      <label className="block text-sm font-semibold" htmlFor="owner-reply-content" style={{ color: 'var(--text-h)' }}>
+                        Ответить как владелец сайта
+                      </label>
+                      <textarea
+                        ref={replyInputRef}
+                        data-root-comment-id={selectedId}
+                        id="owner-reply-content"
+                        className="cc-field mt-2 min-h-24 resize-y"
+                        value={activeReplyDraft.content}
+                        maxLength={5000}
+                        placeholder="Напишите ответ посетителю…"
+                        disabled={replySending}
+                        aria-describedby="owner-reply-help owner-reply-feedback"
+                        onChange={(event) => changeReplyDraft(event.target.value)}
+                      />
+                      <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0 text-sm" id="owner-reply-feedback">
+                          {activeReplyError && <p role="alert" style={{ color: 'var(--status-rejected-accent)' }}>{activeReplyError}</p>}
+                          <p className="sr-only" aria-live="polite">{activeReplyNotice}</p>
+                          {!activeReplyError && (
+                            <p id="owner-reply-help" style={{ color: 'var(--text)' }}>
+                              Ответ сразу появится в опубликованной ветке. {activeReplyDraft.content.length}/5000
+                            </p>
+                          )}
+                        </div>
+                        <button
+                          type="submit"
+                          className="cc-button-primary min-h-10"
+                          disabled={replySending || !activeReplyDraft.content.trim()}
+                        >
+                          {replySending
+                            ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                            : <Send className="h-4 w-4" aria-hidden="true" />}
+                          {replySending ? 'Публикуем…' : 'Ответить'}
+                        </button>
+                      </div>
+                    </div>
+                  </form>
+                )}
               </>
             )}
           </section>

@@ -7,13 +7,18 @@ import com.cloudcomment.discussion.application.DiscussionService;
 import com.cloudcomment.discussion.domain.DiscussionFilter;
 import com.cloudcomment.shared.web.PaginatedResponse;
 import com.cloudcomment.shared.web.security.CurrentUser;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -57,5 +62,24 @@ class DiscussionController {
         @PathVariable UUID rootCommentId
     ) {
         return DiscussionThreadResponse.from(discussionService.get(currentUser, rootCommentId));
+    }
+
+    @PostMapping("/{rootCommentId}/replies")
+    ResponseEntity<CreateOwnerReplyResponse> reply(
+        @CurrentUser AuthenticatedUser currentUser,
+        @PathVariable UUID rootCommentId,
+        @Valid @RequestBody CreateOwnerReplyRequest request
+    ) {
+        var result = discussionService.reply(
+            currentUser,
+            rootCommentId,
+            request.operationId(),
+            request.content()
+        );
+        CreateOwnerReplyResponse response = new CreateOwnerReplyResponse(
+            DiscussionMessageResponse.from(result.message()),
+            result.created()
+        );
+        return ResponseEntity.status(result.created() ? HttpStatus.CREATED : HttpStatus.OK).body(response);
     }
 }

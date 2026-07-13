@@ -8,6 +8,7 @@ import Comments from './Comments'
 const discussionsApi = vi.hoisted(() => ({
   listDiscussions: vi.fn(),
   getDiscussion: vi.fn(),
+  createOwnerReply: vi.fn(),
 }))
 
 vi.mock('../../api/discussions', () => discussionsApi)
@@ -70,6 +71,7 @@ function HistoryBack() {
 describe('страница обсуждений', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    sessionStorage.clear()
     discussionsApi.listDiscussions.mockResolvedValue({
       items: [summary],
       page: 1,
@@ -78,6 +80,18 @@ describe('страница обсуждений', () => {
       totalPages: 1,
     })
     discussionsApi.getDiscussion.mockResolvedValue(thread)
+    discussionsApi.createOwnerReply.mockResolvedValue({
+      created: true,
+      message: {
+        id: '00000000-0000-4000-8000-000000000179',
+        parentId: rootId,
+        author: { id: '00000000-0000-4000-8000-000000000178', displayName: 'Автор сайта', owner: true },
+        content: 'Новый ответ владельца',
+        createdAt: '2026-07-13T12:05:00Z',
+        updatedAt: '2026-07-13T12:05:00Z',
+        pinned: false,
+      },
+    })
   })
 
   it('открывает адресуемую ветку и применяет фильтры из прямой ссылки', async () => {
@@ -170,5 +184,61 @@ describe('страница обсуждений', () => {
     expect(await screen.findByText('Спасибо за отзыв')).toBeInTheDocument()
     expect(discussionsApi.listDiscussions).toHaveBeenCalledTimes(1)
     expect(discussionsApi.getDiscussion).toHaveBeenCalledTimes(2)
+  })
+
+  it('публикует ответ владельца один раз и очищает черновик после успеха', async () => {
+    render(
+      <MemoryRouter initialEntries={[`/comments?discussion=${rootId}`]}>
+        <Comments />
+      </MemoryRouter>,
+    )
+
+    const editor = await screen.findByLabelText('Ответить как владелец сайта')
+    fireEvent.change(editor, { target: { value: '  Новый ответ владельца  ' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Ответить' }))
+
+    await waitFor(() => expect(discussionsApi.createOwnerReply).toHaveBeenCalledWith(
+      rootId,
+      { operationId: expect.any(String), content: 'Новый ответ владельца' },
+    ))
+    expect(await screen.findByText('Новый ответ владельца')).toBeInTheDocument()
+    expect(editor).toHaveValue('')
+    expect(screen.getByText('Ответ опубликован.')).toBeInTheDocument()
+    expect(sessionStorage.getItem(`cloud-comment:owner-reply-draft:v1:${rootId}`)).toBeNull()
+  })
+
+  it('сохраняет текст и operationId при ошибке для безопасного повтора', async () => {
+    discussionsApi.createOwnerReply
+      .mockRejectedValueOnce(new Error('network failed'))
+      .mockResolvedValueOnce({
+        created: false,
+        message: {
+          id: '00000000-0000-4000-8000-000000000179',
+          parentId: rootId,
+          author: { id: null, displayName: 'Автор сайта', owner: true },
+          content: 'Ответ после ошибки',
+          createdAt: '2026-07-13T12:05:00Z',
+          updatedAt: '2026-07-13T12:05:00Z',
+          pinned: false,
+        },
+      })
+    render(
+      <MemoryRouter initialEntries={[`/comments?discussion=${rootId}`]}>
+        <Comments />
+      </MemoryRouter>,
+    )
+
+    const editor = await screen.findByLabelText('Ответить как владелец сайта')
+    fireEvent.change(editor, { target: { value: 'Ответ после ошибки' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Ответить' }))
+
+    expect(await screen.findByText('Не удалось опубликовать ответ. Текст сохранён — попробуйте ещё раз.')).toBeInTheDocument()
+    expect(editor).toHaveValue('Ответ после ошибки')
+    const firstOperationId = discussionsApi.createOwnerReply.mock.calls[0][1].operationId
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ответить' }))
+    await waitFor(() => expect(discussionsApi.createOwnerReply).toHaveBeenCalledTimes(2))
+    expect(discussionsApi.createOwnerReply.mock.calls[1][1].operationId).toBe(firstOperationId)
+    expect(await screen.findByText('Ответ уже был опубликован ранее.')).toBeInTheDocument()
   })
 })

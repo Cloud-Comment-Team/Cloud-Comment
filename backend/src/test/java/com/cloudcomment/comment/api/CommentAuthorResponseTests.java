@@ -1,6 +1,7 @@
 package com.cloudcomment.comment.api;
 
 import com.cloudcomment.comment.domain.CommentAuthor;
+import com.cloudcomment.comment.domain.CommentAuthorKind;
 import org.junit.jupiter.api.Test;
 
 import java.util.UUID;
@@ -35,6 +36,17 @@ class CommentAuthorResponseTests {
 
         assertThat(response.id()).isEqualTo(AUTHOR_ID);
         assertThat(response.displayName()).isEqualTo("Анна");
+        assertThat(response.kind()).isEqualTo(CommentAuthorKind.VISITOR);
+    }
+
+    @Test
+    void ownerIdentityUsesSafePublicLabel() {
+        CommentAuthorResponse response = CommentAuthorResponse.from(
+            new CommentAuthor(AUTHOR_ID, "owner@example.com", "owner@example.com", CommentAuthorKind.OWNER)
+        );
+
+        assertThat(response.displayName()).isEqualTo("Автор сайта");
+        assertThat(response.kind()).isEqualTo(CommentAuthorKind.OWNER);
     }
 
     private CommentAuthor author(String displayName) {

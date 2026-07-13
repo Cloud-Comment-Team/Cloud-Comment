@@ -37,6 +37,14 @@ describe("адаптивный виджет", () => {
     expect(getPublicAuthorLabel({ id: "user", displayName: "  Анна  " })).toBe("Анна");
   });
 
+  it("показывает безопасную метку ответа владельца вместо его имени", () => {
+    expect(getPublicAuthorLabel({
+      id: "owner",
+      displayName: "owner@example.com",
+      kind: "OWNER"
+    })).toBe("Автор сайта");
+  });
+
   it("оптимистично переключает единственную реакцию", () => {
     const next = optimisticReactions(reactions, "LOVE");
 
