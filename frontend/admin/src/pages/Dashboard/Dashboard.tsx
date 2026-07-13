@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowRight, CheckCircle2, CircleAlert, Clock3, Globe2, MessageSquareText, ShieldAlert } from 'lucide-react'
+import { ArrowRight, CheckCircle2, CircleAlert, Clock3, Globe2, MessageSquareText, Plus, ShieldAlert } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { getApiErrorMessage } from '../../api/auth'
@@ -30,6 +30,13 @@ function installationCopy(status: SiteInstallationStatus) {
   if (status.status === 'STALE') return 'Виджет давно не обращался к CloudComment.'
   if (status.status === 'NEVER_SEEN') return 'Виджет ещё не обнаружен на сайте.'
   return 'Установка работает.'
+}
+
+function installationLabel(status: SiteInstallationStatus) {
+  if (status.status === 'REJECTED') return 'Домен отклонён'
+  if (status.status === 'STALE') return 'Нет связи'
+  if (status.status === 'NEVER_SEEN') return 'Не подключён'
+  return 'Работает'
 }
 
 function discussionPage(item: DiscussionSummary) {
@@ -91,7 +98,7 @@ const Dashboard = () => {
   const noSites = !loading && data.sites.length === 0 && !errors.some((message) => message.includes('сайт'))
 
   return (
-    <div className="cc-page">
+    <div className="cc-page cc-today-page">
       <PageHeader
         title="Сегодня"
         description="Сначала то, что требует решения. Подробные показатели находятся в аналитике."
@@ -116,49 +123,93 @@ const Dashboard = () => {
       )}
 
       {!loading && !noSites && (
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(22rem,.95fr)]">
-          <div className="space-y-4">
-            {model.installationProblems.length > 0 ? (
-              <section className="cc-card overflow-hidden" aria-labelledby="today-installation-title">
-                <div className="cc-section-heading"><div><p className="cc-eyebrow">Требует действия</p><h2 id="today-installation-title" className="cc-section-title">Установка сайтов</h2></div><CircleAlert className="h-5 w-5" style={{ color: 'var(--status-rejected-accent)' }} /></div>
-                <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
+        <div className="cc-today-layout">
+          <div className="cc-today-main">
+            <section className="cc-today-panel" aria-labelledby="today-installation-title">
+              <header className="cc-today-panel-heading">
+                <div>
+                  <div className="cc-today-heading-line">
+                    <h2 id="today-installation-title">Требует внимания</h2>
+                    {model.installationProblems.length > 0 && <span className="cc-today-count">{model.installationProblems.length}</span>}
+                  </div>
+                  <p>{model.installationProblems.length > 0 ? 'Исправьте подключение — после этого комментарии появятся на сайтах.' : 'Все сайты подключены и отвечают.'}</p>
+                </div>
+                {model.installationProblems.length > 0
+                  ? <CircleAlert className="h-5 w-5" style={{ color: 'var(--status-rejected-accent)' }} />
+                  : <CheckCircle2 className="h-5 w-5" style={{ color: 'var(--status-approved-accent)' }} />}
+              </header>
+
+              {model.installationProblems.length > 0 ? (
+                <div className="cc-today-list">
                   {model.installationProblems.slice(0, 5).map(({ site, status }) => (
-                    <Link key={site.id} to={`/sites/${site.id}?section=installation`} className="cc-today-row group">
-                      <div className="min-w-0"><strong className="block truncate" style={{ color: 'var(--text-h)' }}>{site.name}</strong><span className="mt-1 block text-sm" style={{ color: 'var(--text)' }}>{installationCopy(status)}</span></div>
-                      <div className="shrink-0 text-right"><span className="text-xs" style={{ color: 'var(--text)' }}>{status.lastRejectedAt || status.lastSuccessfulAt ? formatDateTime(status.lastRejectedAt ?? status.lastSuccessfulAt!) : 'с момента создания'}</span><ArrowRight className="ml-auto mt-2 h-4 w-4 transition-transform group-hover:translate-x-1" /></div>
+                    <Link key={site.id} to={`/sites/${site.id}?section=installation`} className="cc-today-attention-row group">
+                      <span className="cc-today-row-icon" aria-hidden="true"><Globe2 className="h-4 w-4" /></span>
+                      <span className="min-w-0">
+                        <span className="cc-today-row-title">{site.name}</span>
+                        <span className="cc-today-row-copy">{installationCopy(status)}</span>
+                      </span>
+                      <span className="cc-today-row-aside">
+                        <span className="cc-today-status">{installationLabel(status)}</span>
+                        <span className="cc-today-row-time">{status.lastRejectedAt || status.lastSuccessfulAt ? formatDateTime(status.lastRejectedAt ?? status.lastSuccessfulAt!) : 'Ещё не проверялся'}</span>
+                      </span>
+                      <ArrowRight className="h-4 w-4 shrink-0 transition-transform group-hover:translate-x-1" aria-hidden="true" />
                     </Link>
                   ))}
                 </div>
-              </section>
-            ) : (
-              <section className="cc-card cc-density-comfortable flex items-start gap-4">
-                <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" style={{ color: 'var(--status-approved-accent)' }} />
-                <div><h2 className="cc-section-title">Сайты на связи</h2><p className="cc-supporting mt-1">Сейчас нет проблем установки, требующих вашего действия.</p></div>
-              </section>
-            )}
+              ) : (
+                <div className="cc-today-calm">Новых проблем с установкой нет.</div>
+              )}
+            </section>
 
-            <section className="cc-card cc-density-comfortable" aria-labelledby="today-queue-title">
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex min-w-0 items-start gap-3"><ShieldAlert className="mt-0.5 h-5 w-5 shrink-0" style={{ color: model.queueSize ? 'var(--status-pending-accent)' : 'var(--text)' }} /><div><h2 id="today-queue-title" className="cc-section-title">К разбору</h2><p className="cc-supporting mt-1">{model.queueSize ? `${model.queueSize} сообщений ждут решения.` : 'Очередь разобрана.'}</p></div></div>
-                <Link to="/moderation" className={model.queueSize ? 'cc-button-primary' : 'cc-button-secondary'}>{model.queueSize ? 'Разобрать' : 'Открыть'}<ArrowRight className="h-4 w-4" /></Link>
-              </div>
+            <section className="cc-today-panel" aria-labelledby="today-discussions-title">
+              <header className="cc-today-panel-heading">
+                <div>
+                  <h2 id="today-discussions-title">Последние обсуждения</h2>
+                  <p>Новые реплики со всех подключённых сайтов.</p>
+                </div>
+                <MessageSquareText className="h-5 w-5" style={{ color: 'var(--text)' }} />
+              </header>
+              {model.discussions.length === 0 ? <div className="cc-today-calm">Новых обсуждений пока нет.</div> : (
+                <div className="cc-today-list">
+                  {model.discussions.map((discussion) => (
+                    <Link key={discussion.rootCommentId} to={`/comments?discussion=${discussion.rootCommentId}`} className="cc-today-discussion-row group">
+                      <span className="cc-today-row-icon" aria-hidden="true"><MessageSquareText className="h-4 w-4" /></span>
+                      <span className="min-w-0">
+                        <span className="cc-today-discussion-meta">{discussion.siteName}</span>
+                        <span className="cc-today-row-title">{discussionPage(discussion)}</span>
+                        <span className="cc-today-row-copy truncate">{discussion.lastAuthor.displayName}: {discussion.lastMessage}</span>
+                      </span>
+                      <span className="cc-today-row-aside">
+                        <Clock3 className="ml-auto h-4 w-4" aria-hidden="true" />
+                        <time className="cc-today-row-time">{formatDateTime(discussion.lastActivityAt)}</time>
+                      </span>
+                      <ArrowRight className="h-4 w-4 shrink-0 transition-transform group-hover:translate-x-1" aria-hidden="true" />
+                    </Link>
+                  ))}
+                </div>
+              )}
+              <footer className="cc-today-panel-footer"><Link to="/comments">Открыть все обсуждения <ArrowRight className="h-4 w-4" /></Link></footer>
             </section>
           </div>
 
-          <section className="cc-card overflow-hidden" aria-labelledby="today-discussions-title">
-            <div className="cc-section-heading"><div><p className="cc-eyebrow">Последняя активность</p><h2 id="today-discussions-title" className="cc-section-title">Обсуждения</h2></div><MessageSquareText className="h-5 w-5" style={{ color: 'var(--text)' }} /></div>
-            {model.discussions.length === 0 ? <p className="cc-density-comfortable cc-supporting">Новых обсуждений пока нет.</p> : (
-              <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
-                {model.discussions.map((discussion) => (
-                  <Link key={discussion.rootCommentId} to={`/comments?discussion=${discussion.rootCommentId}`} className="cc-today-row group">
-                    <div className="min-w-0"><span className="block truncate text-xs font-semibold" style={{ color: 'var(--text)' }}>{discussion.siteName}</span><strong className="mt-1 block truncate" style={{ color: 'var(--text-h)' }}>{discussionPage(discussion)}</strong><span className="mt-1 block truncate text-sm" style={{ color: 'var(--text)' }}>{discussion.lastAuthor.displayName}: {discussion.lastMessage}</span></div>
-                    <div className="shrink-0 text-right"><Clock3 className="ml-auto h-4 w-4" /><time className="mt-1 block text-xs" style={{ color: 'var(--text)' }}>{formatDateTime(discussion.lastActivityAt)}</time></div>
-                  </Link>
-                ))}
+          <aside className="cc-today-sidebar" aria-label="Быстрые действия">
+            <section className={model.queueSize ? 'cc-today-queue is-active' : 'cc-today-queue'} aria-labelledby="today-queue-title">
+              <span className="cc-today-queue-icon"><ShieldAlert className="h-5 w-5" /></span>
+              <div>
+                <p className="cc-today-kicker">Модерация</p>
+                <h2 id="today-queue-title">{model.queueSize ? `${model.queueSize} ${model.queueSize === 1 ? 'сообщение' : 'сообщений'} к разбору` : 'Очередь разобрана'}</h2>
+                <p>{model.queueSize ? 'Проверьте жалобы и подозрительные комментарии.' : 'Сейчас решений от вас не требуется.'}</p>
               </div>
-            )}
-            <div className="border-t px-4 py-3" style={{ borderColor: 'var(--border)' }}><Link to="/comments" className="text-sm font-semibold" style={{ color: 'var(--accent)' }}>Все обсуждения</Link></div>
-          </section>
+              <Link to="/moderation" className={model.queueSize ? 'cc-button-primary' : 'cc-button-secondary'}>{model.queueSize ? 'Перейти к разбору' : 'Открыть очередь'}<ArrowRight className="h-4 w-4" /></Link>
+            </section>
+
+            <section className="cc-today-shortcuts">
+              <h2>Быстрые действия</h2>
+              <Link to="/sites/new"><Plus className="h-4 w-4" />Подключить ещё один сайт<ArrowRight className="ml-auto h-4 w-4" /></Link>
+              <Link to="/sites"><Globe2 className="h-4 w-4" />Управление сайтами<ArrowRight className="ml-auto h-4 w-4" /></Link>
+              <Link to="/analytics"><Clock3 className="h-4 w-4" />Посмотреть аналитику<ArrowRight className="ml-auto h-4 w-4" /></Link>
+            </section>
+          </aside>
         </div>
       )}
 
