@@ -5,31 +5,34 @@ const EXTERNAL_ORIGIN = process.env.E2E_EXTERNAL_BASE_URL ?? 'http://127.0.0.1'
 const DEMO_SITE_ID = process.env.E2E_DEMO_SITE_ID ?? 'c680d246-8876-4049-975c-73ccf029408f'
 const UNKNOWN_COMMENT_ID = '00000000-0000-0000-0000-000000000099'
 
-test('cross-origin PATCH и DELETE проходят preflight и достигают backend', async ({ page }) => {
+test('legacy host не может выполнить PATCH и DELETE без widget context', async ({ page }) => {
   await page.goto(`${EXTERNAL_ORIGIN}/demo-page.html`)
 
-  const statuses = await page.evaluate(async ({ apiOrigin, siteId, commentId }) => {
+  const results = await page.evaluate(async ({ apiOrigin, siteId, commentId }) => {
     const endpoint = `${apiOrigin}/api/public/sites/${siteId}/comments/${commentId}`
-    const patch = await fetch(endpoint, {
-      method: 'PATCH',
-      headers: {
-        Authorization: 'Bearer invalid-widget-session',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ content: 'Проверка CORS' }),
-    })
-    const deletion = await fetch(endpoint, {
-      method: 'DELETE',
-      headers: { Authorization: 'Bearer invalid-widget-session' },
-    })
-    return { patch: patch.status, deletion: deletion.status }
+    const request = async (method: 'PATCH' | 'DELETE') => {
+      try {
+        await fetch(endpoint, {
+          method,
+          headers: {
+            Authorization: 'Bearer invalid-widget-session',
+            ...(method === 'PATCH' ? { 'Content-Type': 'application/json' } : {}),
+          },
+          ...(method === 'PATCH' ? { body: JSON.stringify({ content: 'Проверка CORS' }) } : {}),
+        })
+        return 'resolved'
+      } catch {
+        return 'blocked'
+      }
+    }
+    return { patch: await request('PATCH'), deletion: await request('DELETE') }
   }, {
     apiOrigin: API_ORIGIN,
     siteId: DEMO_SITE_ID,
     commentId: UNKNOWN_COMMENT_ID,
   })
 
-  expect(statuses).toEqual({ patch: 401, deletion: 401 })
+  expect(results).toEqual({ patch: 'blocked', deletion: 'blocked' })
 })
 
 test('лишний cross-origin заголовок блокируется до actual request', async ({ page }) => {

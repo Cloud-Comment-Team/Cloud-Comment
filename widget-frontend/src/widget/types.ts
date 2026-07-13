@@ -140,6 +140,14 @@ export type LoginResponse = {
   user: AuthUser;
 };
 
+export type AccountDeletionRequest = {
+  id: string;
+  userId: string;
+  status: string;
+  createdAt: string;
+  expiresAt: string;
+};
+
 declare global {
   interface Window {
     CloudCommentWidget?: CloudCommentWidgetApi;

@@ -66,6 +66,7 @@ type WidgetState = {
   loading: boolean;
   submitting: boolean;
   authenticating: boolean;
+  accountBusy: boolean;
   reactingCommentId: string | null;
   editingComment: EditingComment | null;
   updatingCommentId: string | null;
@@ -82,6 +83,7 @@ type WidgetState = {
   accountError: string | null;
   notice: string | null;
   authMode: AuthMode;
+  deleteConfirming: boolean;
   replyingTo: ReplyTarget | null;
   authExpanded: boolean;
   profileOpen: boolean;
@@ -131,6 +133,7 @@ export function renderWidget(
     loading: true,
     submitting: false,
     authenticating: false,
+    accountBusy: false,
     reactingCommentId: null,
     editingComment: null,
     updatingCommentId: null,
@@ -147,6 +150,7 @@ export function renderWidget(
     accountError: null,
     notice: null,
     authMode: "login",
+    deleteConfirming: false,
     replyingTo: null,
     authExpanded: false,
     profileOpen: false,
@@ -2284,6 +2288,19 @@ function toCloudCommentUrl(href: string, apiBaseUrl: string): string {
   } catch {
     return href;
   }
+}
+
+function downloadJson(fileName: string, value: unknown): void {
+  const blob = new Blob([JSON.stringify(value, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  link.style.display = "none";
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 function getErrorMessage(error: unknown): string {
