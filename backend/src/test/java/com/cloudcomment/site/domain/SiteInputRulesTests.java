@@ -26,8 +26,15 @@ class SiteInputRulesTests {
         assertThat(SiteInputRules.normalizeOrigins(List.of(
             "HTTPS://Example.COM:8443",
             "https://example.com:8443",
+            "https://secure.example.com:443",
+            "http://plain.example.com:80",
             "http://localhost:3000"
-        ))).containsExactly("https://example.com:8443", "http://localhost:3000");
+        ))).containsExactly(
+            "https://example.com:8443",
+            "https://secure.example.com",
+            "http://plain.example.com",
+            "http://localhost:3000"
+        );
     }
 
     @Test

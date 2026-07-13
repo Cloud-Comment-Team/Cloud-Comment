@@ -72,7 +72,9 @@ public final class SiteInputRules {
             return Optional.empty();
         }
 
-        String port = uri.getPort() >= 0 ? ":" + uri.getPort() : "";
+        boolean defaultPort = ("https".equals(scheme) && uri.getPort() == 443)
+            || ("http".equals(scheme) && uri.getPort() == 80);
+        String port = uri.getPort() >= 0 && !defaultPort ? ":" + uri.getPort() : "";
         return Optional.of(scheme + "://" + host + port);
     }
 

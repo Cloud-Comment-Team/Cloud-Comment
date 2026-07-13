@@ -2,7 +2,7 @@ import { resolve } from 'node:path'
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '@playwright/test'
 
-test('autoInit удаляет fragment из pageUrl перед запросом комментариев', async ({ page }, testInfo) => {
+test('autoInit канонизирует текущий pageUrl перед запросом комментариев', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop-light', 'Проверку контракта URL достаточно выполнить в одном профиле')
 
   await page.route('**/widget/cloud-comment-widget.js', (route) => route.fulfill({
@@ -21,8 +21,9 @@ test('autoInit удаляет fragment из pageUrl перед запросом 
     })
   })
 
-  await page.goto('/login?source=anchor-test#comments')
+  await page.goto('/login?tab=comments&q=100%&utm_source=mail&FBCLID=click&gbraid=campaign#comments')
   const expectedPageUrl = new URL(page.url())
+  expectedPageUrl.search = '?tab=comments&q=100%25'
   expectedPageUrl.hash = ''
   await page.evaluate(() => {
     document.body.innerHTML = '<div id="cloud-comment-widget"></div>'
@@ -39,6 +40,74 @@ test('autoInit удаляет fragment из pageUrl перед запросом 
 
   await expect.poll(() => requestedPageUrl).toBe(expectedPageUrl.href)
   await expect(page).toHaveURL(/#comments$/)
+})
+
+test('manual init одинаково канонизирует pageUrl для GET и POST', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-light', 'Проверку URL-контракта достаточно выполнить в одном профиле')
+
+  const requestedGetPageUrls: Array<string | null> = []
+  let postedPageUrl: string | null = null
+  await page.route('**/public/sites/**/config', (route) => route.fulfill({
+    json: { siteId: '00000000-0000-0000-0000-000000000001', moderationMode: 'POST_MODERATION', style: { theme: 'LIGHT', accentColor: '#0f766e', cornerRadius: 'MEDIUM' } },
+  }))
+  await page.route('**/privacy/consent-requirements', (route) => route.fulfill({
+    json: { privacyPolicyVersion: 'test', termsVersion: 'test', privacyPolicyUrl: '#', termsUrl: '#', personalDataNoticeUrl: '#', dataExportInfoUrl: '#' },
+  }))
+  await page.route('**/public/sites/**/auth/me', (route) => route.fulfill({
+    json: { id: '00000000-0000-0000-0000-000000000003', email: 'author@example.test', displayName: 'Автор' },
+  }))
+  await page.route('**/public/sites/**/pages/comments**', async (route) => {
+    if (route.request().method() === 'POST') {
+      postedPageUrl = (await route.request().postDataJSON() as { pageUrl: string }).pageUrl
+      return route.fulfill({
+        status: 201,
+        json: {
+          id: '00000000-0000-0000-0000-000000000004',
+          siteId: '00000000-0000-0000-0000-000000000001',
+          pageId: '00000000-0000-0000-0000-000000000002',
+          parentId: null,
+          author: { id: '00000000-0000-0000-0000-000000000003', displayName: 'Автор' },
+          content: 'Проверка canonical URL',
+          status: 'APPROVED',
+          createdAt: '2026-07-13T00:00:00Z',
+          updatedAt: '2026-07-13T00:00:00Z',
+          editedAt: null,
+          pinned: false,
+          ownedByCurrentUser: true,
+          reactions: [],
+          replyCount: 0,
+          replies: [],
+        },
+      })
+    }
+
+    requestedGetPageUrls.push(new URL(route.request().url()).searchParams.get('pageUrl'))
+    return route.fulfill({
+      json: { items: [], page: 1, pageSize: 20, totalItems: 0, totalPages: 0 },
+    })
+  })
+
+  await page.goto('/login')
+  await page.evaluate(() => {
+    localStorage.setItem('cloud-comment.widget.authToken', 'test-session-token')
+    document.body.innerHTML = '<div id="comments"></div>'
+  })
+  await page.addScriptTag({ path: resolve('../../widget-frontend/dist/widget/cloud-comment-widget.js') })
+  await page.evaluate(() => window.CloudCommentWidget?.init({
+    siteId: '00000000-0000-0000-0000-000000000001',
+    apiBaseUrl: 'https://api.example.test',
+    pageUrl: 'https://site.example.test/article?q=hello+world&q=hello%20world&next=%2Ffeed&%ZZ=x&code=flow&ticket=thread&sid=section&utm_source=mail&gbraid=campaign&SESSION=secret&client_secret=secret&x-amz-signature=signed#comments',
+    target: '#comments',
+  }))
+
+  const host = page.locator('#comments')
+  await host.getByRole('textbox', { name: 'Написать комментарий' }).fill('Проверка canonical URL')
+  await host.getByRole('button', { name: 'Отправить' }).click()
+
+  const expectedPageUrl = 'https://site.example.test/article?q=hello+world&q=hello%20world&next=%2Ffeed&%25ZZ=x&code=flow&ticket=thread&sid=section'
+  await expect.poll(() => postedPageUrl).toBe(expectedPageUrl)
+  await expect.poll(() => requestedGetPageUrls.length).toBeGreaterThanOrEqual(2)
+  expect(requestedGetPageUrls.every((pageUrl) => pageUrl === expectedPageUrl)).toBe(true)
 })
 
 test('виджет изолирован от стилей страницы через Shadow DOM', async ({ page }) => {

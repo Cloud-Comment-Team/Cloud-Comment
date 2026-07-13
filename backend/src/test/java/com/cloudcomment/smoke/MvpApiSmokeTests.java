@@ -7,6 +7,7 @@ import org.springframework.boot.testcontainers.service.connection.ServiceConnect
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -41,6 +42,9 @@ class MvpApiSmokeTests {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @Test
     void mvpHealthAndAuthSmokeChecklist() throws Exception {
@@ -222,6 +226,121 @@ class MvpApiSmokeTests {
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
             .andExpect(status().isUnauthorized())
             .andExpect(jsonPath("$.error.code", is("INVALID_SESSION")));
+    }
+
+    @Test
+    void canonicalPageUrlPolicyUsesOneDatabaseThreadAndKeepsFunctionalQueriesSeparate() throws Exception {
+        String suffix = UUID.randomUUID().toString().replace("-", "");
+        String email = "canonical-" + suffix + "@example.com";
+        mockMvc.perform(post("/api/auth/register")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(registerRequestJson(email, "strong-password")))
+            .andExpect(status().isCreated());
+
+        String loginResponse = mockMvc.perform(post("/api/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "email": "%s",
+                      "password": "strong-password"
+                    }
+                    """.formatted(email)))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+        String token = extractToken(loginResponse);
+
+        String siteDomain = "canonical-" + suffix + ".example.com";
+        String origin = "https://" + siteDomain;
+        String siteResponse = mockMvc.perform(post("/api/sites")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "name": "Canonical URL smoke",
+                      "domain": "%s",
+                      "moderationMode": "POST_MODERATION",
+                      "allowedOrigins": ["%s"]
+                    }
+                    """.formatted(siteDomain, origin)))
+            .andExpect(status().isCreated())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+        String siteId = extractString(siteResponse, "id");
+
+        String trackingGetUrl = origin + "/article?tab=comments&%67braid=first&srsltid=result#thread";
+        mockMvc.perform(get("/api/public/sites/{siteId}/pages/comments", siteId)
+                .header(HttpHeaders.ORIGIN, origin)
+                .param("pageUrl", trackingGetUrl))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.items", empty()));
+
+        String trackingPostUrl = origin + "/article?wbraid=second&tab=comments&gad_source=1"
+            + "&gad_campaignid=2&client_secret=secret&x%2Damz%2Dsignature=signed#comments";
+        String commentResponse = mockMvc.perform(post("/api/public/sites/{siteId}/pages/comments", siteId)
+                .header(HttpHeaders.ORIGIN, origin)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "pageUrl": "%s",
+                      "content": "Canonical thread comment"
+                    }
+                    """.formatted(trackingPostUrl)))
+            .andExpect(status().isCreated())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+        String canonicalCommentId = extractString(commentResponse, "id");
+
+        mockMvc.perform(get("/api/public/sites/{siteId}/pages/comments", siteId)
+                .header(HttpHeaders.ORIGIN, origin)
+                .param("pageUrl", trackingGetUrl))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.items[0].id", is(canonicalCommentId)))
+            .andExpect(jsonPath("$.totalItems", is(1)));
+
+        String functionalPageUrl = origin + "/article?tab=popular&x-goog-signature=secret&gbraid=third";
+        String functionalCommentResponse = mockMvc.perform(post("/api/public/sites/{siteId}/pages/comments", siteId)
+                .header(HttpHeaders.ORIGIN, origin)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "pageUrl": "%s",
+                      "content": "Functional thread comment"
+                    }
+                    """.formatted(functionalPageUrl)))
+            .andExpect(status().isCreated())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+        String functionalCommentId = extractString(functionalCommentResponse, "id");
+
+        mockMvc.perform(get("/api/public/sites/{siteId}/pages/comments", siteId)
+                .header(HttpHeaders.ORIGIN, origin)
+                .param("pageUrl", origin + "/article?tab=popular"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.items[0].id", is(functionalCommentId)))
+            .andExpect(jsonPath("$.totalItems", is(1)));
+
+        mockMvc.perform(get("/api/public/sites/{siteId}/pages/comments", siteId)
+                .header(HttpHeaders.ORIGIN, origin)
+                .param("pageUrl", "https://foreign.example.com/article?tab=comments&x-goog-signature=secret"))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error.code", is("NOT_FOUND")))
+            .andExpect(jsonPath("$.error.message", is("Resource not found")));
+
+        assertThat(jdbcTemplate.queryForList(
+            "select url from pages where site_id = ? order by url",
+            String.class,
+            UUID.fromString(siteId)
+        )).containsExactly(
+            origin + "/article?tab=comments",
+            origin + "/article?tab=popular"
+        );
     }
 
     private String extractToken(String json) {
