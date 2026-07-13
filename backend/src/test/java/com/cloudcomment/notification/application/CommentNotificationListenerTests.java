@@ -5,6 +5,7 @@ import com.cloudcomment.comment.domain.CommentCreatedEvent;
 import com.cloudcomment.notification.domain.NewCommentNotification;
 import com.cloudcomment.notification.domain.NotificationTarget;
 import com.cloudcomment.notification.domain.OwnerNotification;
+import com.cloudcomment.notification.domain.OwnerReplyRealtimeNotification;
 import com.cloudcomment.notification.persistence.NotificationTargetRepository;
 import com.cloudcomment.realtime.application.RealtimeMessagingService;
 import org.junit.jupiter.api.Test;
@@ -47,6 +48,8 @@ class CommentNotificationListenerTests {
             pageId,
             commentId,
             null,
+            ownerId,
+            false,
             "visitor@example.com",
             "A new comment that should be delivered to the site owner",
             CommentStatus.PENDING,
@@ -98,6 +101,51 @@ class CommentNotificationListenerTests {
             org.mockito.ArgumentMatchers.any(),
             org.mockito.ArgumentMatchers.any()
         );
+        verify(notificationService, never()).createForComment(
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any()
+        );
+    }
+
+    @Test
+    void ownerReplySkipsSelfNotificationButRefreshesOtherAdminTabs() {
+        UUID ownerId = UUID.randomUUID();
+        UUID siteId = UUID.randomUUID();
+        UUID pageId = UUID.randomUUID();
+        UUID rootCommentId = UUID.randomUUID();
+        UUID replyId = UUID.randomUUID();
+        NotificationTargetRepository repository = mock(NotificationTargetRepository.class);
+        OwnerNotificationService notificationService = mock(OwnerNotificationService.class);
+        RealtimeMessagingService realtimeMessagingService = mock(RealtimeMessagingService.class);
+        when(repository.findCommentTarget(siteId, pageId))
+            .thenReturn(Optional.of(new NotificationTarget(ownerId, "Demo site", "https://example.com/page")));
+        CommentNotificationListener listener = new CommentNotificationListener(
+            repository, notificationService, realtimeMessagingService
+        );
+
+        listener.onCommentCreated(new CommentCreatedEvent(
+            siteId,
+            pageId,
+            replyId,
+            rootCommentId,
+            ownerId,
+            true,
+            "owner@example.com",
+            "Ответ владельца",
+            CommentStatus.APPROVED,
+            CREATED_AT
+        ));
+
+        var payloadCaptor = forClass(Object.class);
+        verify(realtimeMessagingService).sendToUser(
+            org.mockito.ArgumentMatchers.eq(ownerId),
+            org.mockito.ArgumentMatchers.eq("comment.owner_reply_created"),
+            payloadCaptor.capture()
+        );
+        OwnerReplyRealtimeNotification payload = (OwnerReplyRealtimeNotification) payloadCaptor.getValue();
+        assertThat(payload.commentId()).isEqualTo(replyId);
+        assertThat(payload.rootCommentId()).isEqualTo(rootCommentId);
         verify(notificationService, never()).createForComment(
             org.mockito.ArgumentMatchers.any(),
             org.mockito.ArgumentMatchers.any(),

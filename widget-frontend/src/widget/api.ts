@@ -1,4 +1,5 @@
 import type {
+  AccountDeletionRequest,
   AuthUser,
   CommentReactionType,
   CommentReactionsResponse,
@@ -47,7 +48,12 @@ export type RegisterPayload = {
 export type WidgetApiClient = {
   getConfig: () => Promise<PublicWidgetConfig>;
   getConsentRequirements: () => Promise<ConsentRequirements>;
-  listComments: (sort: PublicCommentSort, token?: string | null) => Promise<PaginatedResponse<PublicComment>>;
+  listComments: (
+    sort: PublicCommentSort,
+    page: number,
+    pageSize: number,
+    token?: string | null
+  ) => Promise<PaginatedResponse<PublicComment>>;
   listReplies: (commentId: string, page: number, pageSize: number, token?: string | null) => Promise<PaginatedResponse<PublicComment>>;
   createComment: (content: string, parentId: string | null, token: string) => Promise<PublicComment>;
   updateComment: (commentId: string, content: string, token: string) => Promise<PublicComment>;
@@ -61,6 +67,8 @@ export type WidgetApiClient = {
   login: (email: string, password: string) => Promise<LoginResponse>;
   register: (payload: RegisterPayload) => Promise<void>;
   logout: (token: string) => Promise<void>;
+  requestAccountDeletion: (token: string) => Promise<AccountDeletionRequest>;
+  exportPersonalData: (token: string) => Promise<unknown>;
 };
 
 export function createWidgetApiClient(
@@ -111,12 +119,12 @@ export function createWidgetApiClient(
   return {
     getConfig: () => request<PublicWidgetConfig>(`${siteBasePath}/config`),
     getConsentRequirements: () => request<ConsentRequirements>(`${siteBasePath}/privacy/consent-requirements`),
-    listComments: (sort, token) => {
+    listComments: (sort, page, pageSize, token) => {
       const params = new URLSearchParams({
         pageUrl,
         sort,
-        page: "1",
-        pageSize: "20",
+        page: String(page),
+        pageSize: String(pageSize),
         replyLimit: "3"
       });
       return request<PaginatedResponse<PublicComment>>(`${siteBasePath}/pages/comments?${params}`, {
@@ -193,6 +201,19 @@ export function createWidgetApiClient(
     logout: (token) =>
       request<void>(`${siteBasePath}/auth/logout`, {
         method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      }),
+    requestAccountDeletion: (token) =>
+      request<AccountDeletionRequest>(`${siteBasePath}/account/deletion-requests`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      }),
+    exportPersonalData: (token) =>
+      request<unknown>(`${siteBasePath}/account/personal-data`, {
         headers: {
           Authorization: `Bearer ${token}`
         }

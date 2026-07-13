@@ -6,7 +6,8 @@ import com.cloudcomment.shared.error.ApplicationException;
 import com.cloudcomment.site.domain.SiteInputRules;
 import com.cloudcomment.site.application.SiteInstallationHealthService;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -14,8 +15,9 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
-@Slf4j
 public class DomainPolicyService {
+
+    private static final Logger log = LoggerFactory.getLogger(DomainPolicyService.class);
 
     private final PublicCommentRepository publicCommentRepository;
     private final SiteInstallationHealthService installationHealthService;

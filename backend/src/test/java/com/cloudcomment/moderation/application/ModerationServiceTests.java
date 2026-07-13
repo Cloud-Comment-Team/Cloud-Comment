@@ -169,7 +169,8 @@ class ModerationServiceTests {
             commentRepository,
             actionRepository,
             new ResourceOwnershipService((ownerId, resourceType, resourceId) -> true),
-            eventPublisher
+            eventPublisher,
+            operation -> operation.get()
         );
         AuthenticatedUser currentUser = currentUser();
         UUID commentId = commentRepository.comment.id();
@@ -230,7 +231,8 @@ class ModerationServiceTests {
             actionRepository,
             new ResourceOwnershipService((ownerId, resourceType, resourceId) -> true),
             ignored -> {
-            }
+            },
+            operation -> operation.get()
         );
 
         assertThatThrownBy(() -> service.applyAction(
@@ -326,7 +328,8 @@ class ModerationServiceTests {
             actionRepository,
             new ResourceOwnershipService((ownerId, resourceType, resourceId) -> true),
             ignored -> {
-            }
+            },
+            operation -> operation.get()
         );
 
         service.applyAction(currentUser(), commentRepository.comment.id(), actionType, null);
@@ -341,7 +344,8 @@ class ModerationServiceTests {
             new CapturingModerationActionRepository(),
             new ResourceOwnershipService(ownershipRepository),
             ignored -> {
-            }
+            },
+            operation -> operation.get()
         );
     }
 

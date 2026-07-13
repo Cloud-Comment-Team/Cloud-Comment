@@ -81,6 +81,7 @@ export type CommentReactionsResponse = {
 export type CommentAuthor = {
   id: string;
   displayName: string | null;
+  kind?: "VISITOR" | "OWNER";
 };
 
 export type PublicComment = {

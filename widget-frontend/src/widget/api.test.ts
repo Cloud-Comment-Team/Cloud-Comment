@@ -17,14 +17,13 @@ describe("изолированный transport виджета", () => {
   });
 
   it("передаёт context на каждом site API и фиксированный pageUrl на comment API", async () => {
-    const fetchMock = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({ items: [], page: 1, pageSize: 20, totalItems: 0, totalPages: 0 }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" }
-    }));
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({
+      items: [], page: 1, pageSize: 20, totalItems: 0, totalPages: 0
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
     const api = createWidgetApiClient("https://widget.example/api", siteId, pageUrl, "frame-context");
 
-    await api.listComments("PINNED_FIRST", "commenter-bearer");
+    await api.listComments("PINNED_FIRST", 1, 20, "commenter-bearer");
 
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toContain(`/public/sites/${siteId}/pages/comments`);
@@ -53,10 +52,25 @@ describe("изолированный transport виджета", () => {
     expect(new Headers(init?.headers).get(WIDGET_CONTEXT_HEADER)).toBe("frame-context");
   });
 
-  it("не экспонирует глобальные account-операции", () => {
+  it("выполняет account-операции только через site-scoped context", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({
+      requestId: "00000000-0000-0000-0000-000000000002",
+      expiresAt: "2026-07-14T00:00:00Z"
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
     const api = createWidgetApiClient("https://widget.example/api", siteId, pageUrl, "frame-context");
 
-    expect(api).not.toHaveProperty("requestAccountDeletion");
-    expect(api).not.toHaveProperty("exportPersonalData");
+    await api.requestAccountDeletion("commenter-bearer");
+    await api.exportPersonalData("commenter-bearer");
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      `https://widget.example/api/public/sites/${siteId}/account/deletion-requests`,
+      `https://widget.example/api/public/sites/${siteId}/account/personal-data`
+    ]);
+    for (const [, init] of fetchMock.mock.calls) {
+      expect(new Headers(init?.headers).get(WIDGET_CONTEXT_HEADER)).toBe("frame-context");
+      expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer commenter-bearer");
+      expect(new Headers(init?.headers).get(WIDGET_PAGE_URL_HEADER)).toBeNull();
+    }
   });
 });

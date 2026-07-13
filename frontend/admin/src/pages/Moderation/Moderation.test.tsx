@@ -11,6 +11,7 @@ const moderationApi = vi.hoisted(() => ({
   getModerationCounts: vi.fn(),
   applyBulkModerationAction: vi.fn(),
   applyModerationAction: vi.fn(),
+  undoBulkModerationOperation: vi.fn(),
   undoModerationAction: vi.fn(),
   updateCommentFlags: vi.fn(),
   setAutoModerationFeedback: vi.fn(),
@@ -20,6 +21,9 @@ const moderationApi = vi.hoisted(() => ({
 vi.mock('../../api/moderation', () => moderationApi)
 vi.mock('../../api/sites', () => ({ listAllSites: vi.fn().mockResolvedValue([]) }))
 vi.mock('../../components/realtime/useRealtime', () => ({ useRealtimeEvent: vi.fn() }))
+vi.mock('../../store', () => ({
+  useAuthStore: (selector: (state: { user: { id: string } }) => unknown) => selector({ user: { id: 'owner-test-id' } }),
+}))
 
 function CurrentLocation() {
   const location = useLocation()
@@ -106,6 +110,7 @@ describe('страница модерации', () => {
         message: null,
       })),
     })
+    moderationApi.undoBulkModerationOperation.mockResolvedValue({ items: [] })
     moderationApi.setAutoModerationFeedback.mockResolvedValue({
       type: 'FALSE_POSITIVE',
       createdAt: '2026-07-12T12:02:00Z',
@@ -205,6 +210,7 @@ describe('страница модерации', () => {
       status: 'PENDING',
     })))
     expect(screen.getByTestId('current-location')).toHaveTextContent('/moderation?view=pending&status=PENDING')
+    expect(localStorage.getItem('cloud-comment:moderation-filters:v3:owner-test-id')).toContain('важный текст')
   })
 
   it('применяет одно массовое действие к выбранным строкам', async () => {
@@ -219,6 +225,82 @@ describe('страница модерации', () => {
       commentIds: comments.map((comment) => comment.id),
       action: 'APPROVE',
     })))
+  })
+
+  it('показывает частичные ошибки массового действия и оставляет неудавшиеся строки выбранными', async () => {
+    moderationApi.applyBulkModerationAction.mockResolvedValue({
+      items: [
+        { commentId: comments[0].id, success: true, action: null, errorCode: null, message: null },
+        { commentId: comments[1].id, success: false, action: null, errorCode: 'CONFLICT', message: 'Комментарий уже изменён' },
+      ],
+    })
+    render(<MemoryRouter initialEntries={['/moderation?view=pending']}><Moderation /></MemoryRouter>)
+    await screen.findByText('Первый комментарий')
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Выбрать комментарий Анна' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Выбрать комментарий Борис' }))
+    fireEvent.click(screen.getByRole('button', { name: /Одобрить/ }))
+
+    expect(await screen.findByText('Не обработано: 1')).toBeInTheDocument()
+    expect(screen.getByText(/Комментарий …00000012: Комментарий уже изменён/)).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'Выбрать комментарий Борис' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'Выбрать комментарий Анна' })).not.toBeChecked()
+  })
+
+  it('отменяет массовую операцию целиком и перечисляет конфликты', async () => {
+    moderationApi.applyBulkModerationAction.mockImplementation(async (request: { operationId: string }) => ({
+      items: comments.map((comment) => ({
+        commentId: comment.id,
+        success: true,
+        action: {
+          id: `${comment.id}-action`,
+          commentId: comment.id,
+          action: 'APPROVE',
+          fromStatus: comment.status,
+          toStatus: 'APPROVED',
+          reason: null,
+          performedBy: { id: 'owner-id', email: 'owner@example.com' },
+          operationId: request.operationId,
+          revertsActionId: null,
+          createdAt: '2026-07-13T12:00:00Z',
+        },
+        errorCode: null,
+        message: null,
+      })),
+    }))
+    moderationApi.undoBulkModerationOperation.mockResolvedValue({
+      items: [
+        {
+          commentId: comments[0].id,
+          success: true,
+          action: null,
+          errorCode: null,
+          message: null,
+        },
+        {
+          commentId: comments[1].id,
+          success: false,
+          action: null,
+          errorCode: 'UNDO_CONFLICT',
+          message: 'Комментарий был изменён позднее',
+        },
+      ],
+    })
+    render(<MemoryRouter initialEntries={['/moderation?view=pending']}><Moderation /></MemoryRouter>)
+    await screen.findByText('Первый комментарий')
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Выбрать комментарий Анна' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Выбрать комментарий Борис' }))
+    fireEvent.click(screen.getByRole('button', { name: /Одобрить/ }))
+
+    const undoButton = await screen.findByRole('button', { name: 'Отменить массовое действие (2)' })
+    const operationId = moderationApi.applyBulkModerationAction.mock.calls[0][0].operationId
+    fireEvent.click(undoButton)
+
+    await waitFor(() => expect(moderationApi.undoBulkModerationOperation).toHaveBeenCalledWith(operationId))
+    expect(await screen.findByText('Результат отмены: восстановлено 1')).toBeInTheDocument()
+    expect(screen.getByText('Конфликты (1):')).toBeInTheDocument()
+    expect(screen.getByText(/Комментарий …00000012: Комментарий был изменён позднее/)).toBeInTheDocument()
   })
 
   it('открывает комментарий по прямой ссылке, даже если его нет на текущей странице', async () => {

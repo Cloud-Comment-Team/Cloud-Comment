@@ -59,7 +59,7 @@ Ticket живёт не более двух минут, frame context — не б
 - `site_id`;
 - нормализованным embedding origin.
 
-Каждый авторизованный запрос требует одновременно действующий page-scoped frame context и WIDGET bearer. Backend независимо проверяет их scope и принимает пару, только если у обоих совпадают сайт и parent origin. Bearer разрешено переиспользовать между страницами одного сайта на том же embedding origin, чтобы SPA-навигация не требовала повторного входа; другой сайт или origin его не принимает. ADMIN cookie/bearer не принимаются Public Widget API, а WIDGET bearer не принимается глобальными account/admin routes. Миграция V17 отзывает прежние активные WIDGET-сессии и не затрагивает ADMIN.
+Каждый авторизованный запрос требует одновременно действующий page-scoped frame context и WIDGET bearer. Backend независимо проверяет их scope и принимает пару, только если у обоих совпадают сайт и parent origin. Bearer разрешено переиспользовать между страницами одного сайта на том же embedding origin, чтобы SPA-навигация не требовала повторного входа; другой сайт или origin его не принимает. ADMIN cookie/bearer не принимаются Public Widget API, а WIDGET bearer не принимается глобальными account/admin routes. Миграция V18 отзывает прежние активные WIDGET-сессии и не затрагивает ADMIN.
 
 ## Правила API
 

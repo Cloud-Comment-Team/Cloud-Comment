@@ -4,6 +4,7 @@ import com.cloudcomment.moderation.domain.CommentStatus;
 import com.cloudcomment.moderation.domain.ModerationAction;
 import com.cloudcomment.moderation.domain.ModerationActionType;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -35,5 +36,9 @@ public interface ModerationActionRepository {
 
     default Optional<ModerationAction> findLatestNotReverted(UUID commentId) {
         return Optional.empty();
+    }
+
+    default List<ModerationAction> findByOperationIdAndOwnerId(UUID operationId, UUID ownerId) {
+        return List.of();
     }
 }

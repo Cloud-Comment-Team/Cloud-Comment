@@ -8,6 +8,7 @@ import type {
   CommentReactionType,
   ConsentRequirements,
   LoginResponse,
+  PaginatedResponse,
   PublicComment,
   PublicCommentSort,
   PublicWidgetConfig,
@@ -18,6 +19,7 @@ import type {
 
 type AuthMode = "login" | "register";
 type ResolvedWidgetTheme = "light" | "dark";
+const ROOT_PAGE_SIZE = 20;
 type ReplyTarget = {
   id: string;
   authorLabel: string;
@@ -85,6 +87,10 @@ type WidgetState = {
   profileOpen: boolean;
   composerDraft: string;
   loadingRepliesId: string | null;
+  loadingMoreComments: boolean;
+  commentsPage: number;
+  commentsTotalPages: number;
+  commentsTotalItems: number;
   replyPages: Record<string, number>;
   collapsedReplyIds: Set<string>;
 };
@@ -146,12 +152,17 @@ export function renderWidget(
     profileOpen: false,
     composerDraft: "",
     loadingRepliesId: null,
+    loadingMoreComments: false,
+    commentsPage: 0,
+    commentsTotalPages: 0,
+    commentsTotalItems: 0,
     replyPages: {},
     collapsedReplyIds: new Set()
   };
   let destroyed = false;
   let expiredDraftContext: ExpiredDraftContext | null = null;
   let sessionEpoch = 0;
+  let commentsQueryEpoch = 0;
   const focusManager = createRenderFocusManager(root, shadowRoot, shell);
 
   function render(): void {
@@ -164,7 +175,17 @@ export function renderWidget(
       (element): element is HTMLElement => element !== null
     );
     shell.replaceChildren(...content);
+    localizeEnglishWidget(shell);
     focusManager.restore();
+  }
+
+  function replaceComments(response: PaginatedResponse<PublicComment>): void {
+    state.comments = response.items;
+    state.commentsPage = response.page;
+    state.commentsTotalPages = response.totalPages;
+    state.commentsTotalItems = response.totalItems;
+    state.loadingMoreComments = false;
+    state.replyPages = {};
   }
 
   async function loadInitialData(): Promise<void> {
@@ -183,8 +204,9 @@ export function renderWidget(
       themeController.setConfiguredTheme(config.style.theme);
       commentsRequest = captureSessionRequest();
       const request = commentsRequest;
+      const queryEpoch = ++commentsQueryEpoch;
       const [comments, consentRequirements] = await Promise.all([
-        api.listComments(state.sort, request.token).catch((error: unknown) => {
+        api.listComments(state.sort, 1, ROOT_PAGE_SIZE, request.token).catch((error: unknown) => {
           if (isUnauthorized(error)) {
             listUnauthorizedHandled = true;
             if (expireAuthenticatedSession(request)) {
@@ -196,8 +218,8 @@ export function renderWidget(
         }),
         api.getConsentRequirements()
       ]);
-      if (isCurrentSessionRequest(request)) {
-        state.comments = comments.items;
+      if (isCurrentSessionRequest(request) && queryEpoch === commentsQueryEpoch) {
+        replaceComments(comments);
       }
       state.consentRequirements = consentRequirements;
       if (state.token) {
@@ -243,7 +265,8 @@ export function renderWidget(
         loginResponse = await api.login(email, password);
       }
 
-      const comments = await api.listComments(state.sort, loginResponse.token);
+      const queryEpoch = ++commentsQueryEpoch;
+      const comments = await api.listComments(state.sort, 1, ROOT_PAGE_SIZE, loginResponse.token);
       sessionEpoch += 1;
       state.token = loginResponse.token;
       state.userEmail = loginResponse.user.email;
@@ -255,7 +278,9 @@ export function renderWidget(
       state.loading = false;
       state.authExpanded = false;
       storeAuthToken(authStorageKey, loginResponse.token);
-      state.comments = comments.items;
+      if (queryEpoch === commentsQueryEpoch) {
+        replaceComments(comments);
+      }
       restoreExpiredDraftContext(loginResponse.user.email);
       state.error = null;
       state.notice = "Вы вошли и можете оставить комментарий.";
@@ -311,6 +336,78 @@ export function renderWidget(
     }
   }
 
+  async function requestAccountDeletion(): Promise<void> {
+    const request = captureSessionRequest();
+    if (!request.token) {
+      state.authError = "Войдите, чтобы запросить удаление аккаунта.";
+      render();
+      return;
+    }
+
+    state.accountBusy = true;
+    state.accountError = null;
+    render();
+
+    try {
+      const deletionRequest = await api.requestAccountDeletion(request.token);
+      if (!isCurrentAuthenticatedRequest(request)) {
+        return;
+      }
+      state.deleteConfirming = false;
+      state.notice = `Письмо для подтверждения удаления отправлено на ${state.userEmail ?? (state.config?.style.locale === "EN" ? "your email" : "ваш email")}. Код действует до ${formatDate(deletionRequest.expiresAt, state.config?.style.locale)}.`;
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        if (expireAuthenticatedSession(request)) {
+          state.authError = "Сессия истекла. Войдите снова.";
+          render();
+        }
+      } else if (isCurrentAuthenticatedRequest(request)) {
+        state.accountError = getErrorMessage(error);
+      }
+    } finally {
+      if (isCurrentAuthenticatedRequest(request)) {
+        state.accountBusy = false;
+        render();
+      }
+    }
+  }
+
+  async function exportPersonalData(): Promise<void> {
+    const request = captureSessionRequest();
+    if (!request.token) {
+      state.authError = "Войдите, чтобы скачать данные аккаунта.";
+      render();
+      return;
+    }
+
+    state.accountBusy = true;
+    state.accountError = null;
+    render();
+
+    try {
+      const personalData = await api.exportPersonalData(request.token);
+      if (!isCurrentAuthenticatedRequest(request)) {
+        return;
+      }
+      downloadJson("cloudcomment-personal-data.json", personalData);
+      state.notice = "Файл с персональными данными подготовлен.";
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        if (expireAuthenticatedSession(request)) {
+          state.authError = "Сессия истекла. Войдите снова.";
+          render();
+        }
+      } else if (isCurrentAuthenticatedRequest(request)) {
+        state.accountError = getErrorMessage(error);
+      }
+    } finally {
+      if (isCurrentAuthenticatedRequest(request)) {
+        state.accountBusy = false;
+        render();
+      }
+    }
+  }
+
   function clearAuthState(clearComposerDraft = false): void {
     sessionEpoch += 1;
     state.token = null;
@@ -324,6 +421,7 @@ export function renderWidget(
     state.updatingCommentId = null;
     state.deletingCommentId = null;
     state.loadingRepliesId = null;
+    state.loadingMoreComments = false;
     state.loading = false;
     state.authExpanded = false;
     state.authMode = "login";
@@ -449,14 +547,25 @@ export function renderWidget(
     state.notice = getSubmissionNotice(createdComment.status, parentId !== null, replyAuthor);
 
     try {
-      const refreshedComments = await api.listComments(state.sort, request.token);
+      const refreshedComments = await api.listComments(state.sort, 1, ROOT_PAGE_SIZE, request.token);
       if (!isCurrentAuthenticatedRequest(request)) {
         return;
       }
       state.comments = removeCommentFromTree(state.comments, optimisticComment.id);
-      state.comments = parentId
-        ? mergeCreatedReply(createdComment, refreshedComments.items, parentId, state.comments)
-        : mergeCreatedComment(createdComment, refreshedComments.items);
+      if (parentId) {
+        state.comments = mergeCreatedReply(
+          createdComment,
+          refreshedComments.items,
+          parentId,
+          state.comments
+        );
+      } else {
+        state.comments = mergeCreatedComment(createdComment, refreshedComments.items);
+        state.commentsPage = refreshedComments.page;
+        state.commentsTotalPages = refreshedComments.totalPages;
+        state.commentsTotalItems = refreshedComments.totalItems;
+        state.replyPages = {};
+      }
     } catch (error) {
       if (isUnauthorized(error)) {
         if (expireAuthenticatedSession(request)) {
@@ -638,15 +747,17 @@ export function renderWidget(
     if (sort === state.sort) {
       return;
     }
+    const queryEpoch = ++commentsQueryEpoch;
     state.sort = sort;
     state.loading = true;
+    state.loadingMoreComments = false;
     state.error = null;
     render();
     const request = captureSessionRequest();
     try {
-      const comments = await api.listComments(state.sort, request.token);
-      if (isCurrentSessionRequest(request)) {
-        state.comments = comments.items;
+      const comments = await api.listComments(state.sort, 1, ROOT_PAGE_SIZE, request.token);
+      if (isCurrentSessionRequest(request) && queryEpoch === commentsQueryEpoch) {
+        replaceComments(comments);
       }
     } catch (error) {
       if (isUnauthorized(error)) {
@@ -654,12 +765,70 @@ export function renderWidget(
           state.authError = "Сессия истекла. Войдите снова.";
           render();
         }
-      } else if (isCurrentSessionRequest(request)) {
+      } else if (isCurrentSessionRequest(request) && queryEpoch === commentsQueryEpoch) {
         state.error = getErrorMessage(error);
       }
     } finally {
-      if (isCurrentSessionRequest(request)) {
+      if (isCurrentSessionRequest(request) && queryEpoch === commentsQueryEpoch) {
         state.loading = false;
+        render();
+      }
+    }
+  }
+
+  async function loadMoreComments(): Promise<void> {
+    if (
+      state.loading
+      || state.loadingMoreComments
+      || state.commentsPage >= state.commentsTotalPages
+    ) {
+      return;
+    }
+    const nextPage = state.commentsPage + 1;
+    const requestedSort = state.sort;
+    const queryEpoch = commentsQueryEpoch;
+    const request = captureSessionRequest();
+    state.loadingMoreComments = true;
+    state.error = null;
+    render();
+
+    try {
+      const response = await api.listComments(
+        requestedSort,
+        nextPage,
+        ROOT_PAGE_SIZE,
+        request.token
+      );
+      if (
+        isCurrentSessionRequest(request)
+        && queryEpoch === commentsQueryEpoch
+        && requestedSort === state.sort
+      ) {
+        state.comments = appendUniqueComments(state.comments, response.items);
+        state.commentsPage = response.page;
+        state.commentsTotalPages = response.totalPages;
+        state.commentsTotalItems = response.totalItems;
+      }
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        if (expireAuthenticatedSession(request)) {
+          state.authError = "Сессия истекла. Войдите снова.";
+          render();
+        }
+      } else if (
+        isCurrentSessionRequest(request)
+        && queryEpoch === commentsQueryEpoch
+        && requestedSort === state.sort
+      ) {
+        state.error = getErrorMessage(error);
+      }
+    } finally {
+      if (
+        isCurrentSessionRequest(request)
+        && queryEpoch === commentsQueryEpoch
+        && requestedSort === state.sort
+      ) {
+        state.loadingMoreComments = false;
         render();
       }
     }
@@ -850,6 +1019,11 @@ export function renderWidget(
       return;
     }
 
+    if (button.dataset.loadComments === "true") {
+      void loadMoreComments();
+      return;
+    }
+
     if (button.dataset.toggleReplies) {
       const next = new Set(state.collapsedReplyIds);
       if (next.has(button.dataset.toggleReplies)) {
@@ -956,6 +1130,23 @@ export function renderWidget(
       shadowRoot.replaceChildren();
     }
   };
+}
+
+function appendUniqueComments(
+  currentComments: PublicComment[],
+  nextComments: PublicComment[]
+): PublicComment[] {
+  const knownIds = new Set(currentComments.map((comment) => comment.id));
+  return [
+    ...currentComments,
+    ...nextComments.filter((comment) => {
+      if (knownIds.has(comment.id)) {
+        return false;
+      }
+      knownIds.add(comment.id);
+      return true;
+    })
+  ];
 }
 
 function createRenderFocusManager(
@@ -1222,6 +1413,10 @@ function renderBody(state: WidgetState, options: RenderWidgetOptions): HTMLEleme
       body.append(renderCommentSort(state.sort));
     }
     body.append(renderCommentList(state.comments, state));
+    const loadMoreComments = renderLoadMoreComments(state);
+    if (loadMoreComments) {
+      body.append(loadMoreComments);
+    }
   }
 
   if (style?.composerPosition !== "TOP") {
@@ -1258,6 +1453,25 @@ function renderCommentSort(sort: PublicCommentSort): HTMLElement {
 
   control.append(label, select);
   return control;
+}
+
+function renderLoadMoreComments(state: WidgetState): HTMLButtonElement | null {
+  if (state.commentsPage >= state.commentsTotalPages) {
+    return null;
+  }
+  const remaining = Math.max(state.commentsTotalItems - state.comments.length, 0);
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "cloud-comment__load-comments";
+  button.dataset.loadComments = "true";
+  button.dataset.focusKey = "load-more-comments";
+  button.disabled = state.loadingMoreComments;
+  button.textContent = state.loadingMoreComments
+    ? "Загружаем комментарии..."
+    : remaining > 0
+      ? `Показать ещё комментарии (${remaining})`
+      : "Показать ещё комментарии";
+  return button;
 }
 
 function renderCommentList(comments: PublicComment[], state: WidgetState): HTMLElement {
@@ -1298,7 +1512,7 @@ function renderComment(comment: PublicComment, state: WidgetState, depth: number
 
   const date = document.createElement("time");
   date.dateTime = comment.createdAt;
-  date.textContent = formatDate(comment.createdAt);
+  date.textContent = formatDate(comment.createdAt, state.config?.style.locale);
 
   if (state.config?.style.avatarStyle !== "HIDDEN") {
     header.append(avatar);
@@ -1797,6 +2011,9 @@ function getAuthorLabel(comment: PublicComment): string {
 }
 
 export function getPublicAuthorLabel(author: CommentAuthor): string {
+  if (author.kind === "OWNER") {
+    return "Автор сайта";
+  }
   const displayName = author.displayName?.trim();
   return !displayName || displayName.includes("@") ? "Участник" : displayName;
 }
@@ -1859,7 +2076,7 @@ function createOptimisticComment(
     siteId: "",
     pageId: "",
     parentId,
-    author: { id: "", displayName: "Вы" },
+    author: { id: "", displayName: "Вы", kind: "VISITOR" },
     content,
     status: "PENDING",
     createdAt: now,
@@ -2085,12 +2302,12 @@ function normalizeEmail(value: string | null): string | null {
   return normalized || null;
 }
 
-function formatDate(value: string): string {
+function formatDate(value: string, locale: WidgetStyle["locale"] = "RU"): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
     return "";
   }
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(locale === "EN" ? "en-GB" : "ru-RU", {
     dateStyle: "medium",
     timeStyle: "short"
   }).format(date);
@@ -2128,6 +2345,156 @@ function getInitials(value: string): string {
     return "CC";
   }
   return normalized.slice(0, 2).toUpperCase();
+}
+
+const ENGLISH_WIDGET_COPY: Record<string, string> = {
+  "Комментарии CloudComment": "CloudComment comments",
+  "Обсуждение": "Discussion",
+  "Комментарии": "Comments",
+  "Сортировка": "Sort",
+  "Сортировка комментариев": "Sort comments",
+  "Закреплённые сначала": "Pinned first",
+  "Сначала новые": "Newest first",
+  "Сначала старые": "Oldest first",
+  "По реакциям": "Top reactions",
+  "Загружаем комментарии...": "Loading comments...",
+  "Показать ещё комментарии": "Show more comments",
+  "Пока нет комментариев. Будьте первым, кто начнет обсуждение.": "No comments yet. Be the first to start the discussion.",
+  "Комментариев пока нет": "No comments yet",
+  "Закреплён": "Pinned",
+  "Отвечаем": "Replying",
+  "Ответить": "Reply",
+  "Скрыть ответы": "Hide replies",
+  "Загружаем ответы...": "Loading replies...",
+  "Редактировать": "Edit",
+  "Удалить": "Delete",
+  "Удаляем...": "Deleting...",
+  "Редактировать комментарий": "Edit comment",
+  "Отмена": "Cancel",
+  "Сохраняем...": "Saving...",
+  "Сохранить": "Save",
+  "Удалить комментарий? Он исчезнет из публичного обсуждения.": "Delete this comment? It will disappear from the public discussion.",
+  "Да, удалить": "Yes, delete",
+  "Напишите комментарий": "Write a comment",
+  "Написать комментарий": "Write a comment",
+  "Напишите ответ": "Write a reply",
+  "Войдите, чтобы написать комментарий": "Sign in to write a comment",
+  "Вы авторизованы": "Signed in",
+  "Отправляем...": "Sending...",
+  "Отправить": "Send",
+  "Меню профиля": "Profile menu",
+  "Аккаунт комментатора": "Commenter account",
+  "Управление аккаунтом и персональными данными": "Manage your account and personal data",
+  "Скачать данные": "Download data",
+  "Выйти": "Sign out",
+  "Удалить аккаунт": "Delete account",
+  "Политика": "Privacy policy",
+  "Условия": "Terms",
+  "Персональные данные": "Personal data",
+  "Мы отправим письмо с одноразовой ссылкой и кодом. Аккаунт удалится только после подтверждения.": "We will email a one-time link and code. Your account will be deleted only after confirmation.",
+  "Отправить письмо": "Send email",
+  "Войти, чтобы участвовать": "Sign in to join",
+  "Войти": "Sign in",
+  "Регистрация": "Register",
+  "Пароль": "Password",
+  "Согласен(на) на обработку персональных данных": "I consent to personal data processing",
+  "Согласен(на) на обработку ПДн (": "I consent to personal data processing (",
+  "политика": "privacy policy",
+  "условия": "terms",
+  "Подождите...": "Please wait...",
+  "Создать аккаунт": "Create account",
+  "Автор сайта": "Site owner",
+  "Участник": "Participant",
+  "Вы": "You",
+  "Нравится": "Like",
+  "Люблю": "Love",
+  "Любовь": "Love",
+  "Смешно": "Funny",
+  "Удивительно": "Wow",
+  "Удивление": "Wow",
+  "На модерации": "Pending moderation",
+  "Опубликован": "Published",
+  "Комментарий опубликован.": "Comment published.",
+  "Ответ опубликован.": "Reply published.",
+  "Комментарий отправлен на проверку.": "Comment sent for review.",
+  "Комментарий обновлен.": "Comment updated.",
+  "Комментарий обновлен и отправлен на проверку.": "Comment updated and sent for review.",
+  "Комментарий удален.": "Comment deleted.",
+  "Комментарий уже отправлен, но список не удалось обновить. Не отправляйте его повторно.": "The comment was sent, but the list could not be refreshed. Do not send it again.",
+  "Вы вошли и можете оставить комментарий.": "You are signed in and can leave a comment.",
+  "Вы вышли из аккаунта комментатора.": "You are signed out of the commenter account.",
+  "Файл с персональными данными подготовлен.": "Your personal data file is ready.",
+  "Напишите комментарий перед отправкой.": "Write a comment before sending.",
+  "Комментарий не может быть пустым.": "The comment cannot be empty.",
+  "Сессия истекла. Войдите снова.": "Your session has expired. Sign in again.",
+  "Сессия истекла. Войдите снова, чтобы поставить реакцию.": "Your session has expired. Sign in again to react.",
+  "Войдите или зарегистрируйтесь, чтобы оставить комментарий.": "Sign in or register to leave a comment.",
+  "Войдите или зарегистрируйтесь, чтобы ответить.": "Sign in or register to reply.",
+  "Войдите или зарегистрируйтесь, чтобы поставить реакцию.": "Sign in or register to react.",
+  "Войдите, чтобы редактировать свой комментарий.": "Sign in to edit your comment.",
+  "Войдите, чтобы удалить свой комментарий.": "Sign in to delete your comment.",
+  "Войдите, чтобы скачать данные аккаунта.": "Sign in to download your account data.",
+  "Войдите, чтобы запросить удаление аккаунта.": "Sign in to request account deletion.",
+  "Необходимо согласие на обработку персональных данных.": "Consent to personal data processing is required.",
+  "Требования согласия ещё загружаются. Попробуйте снова.": "Consent requirements are still loading. Please try again.",
+  "CloudComment не смог обработать запрос. Попробуйте еще раз.": "CloudComment could not process the request. Please try again."
+};
+
+function translateEnglishWidgetText(value: string): string {
+  const direct = ENGLISH_WIDGET_COPY[value];
+  if (direct) return direct;
+
+  const replacements: Array<[RegExp, string]> = [
+    [/^Показать ещё комментарии \((\d+)\)$/, "Show more comments ($1)"],
+    [/^Показать ответы \((\d+)\)$/, "Show replies ($1)"],
+    [/^Показать ещё ответы \((\d+)\)$/, "Show more replies ($1)"],
+    [/^Ответ для (.+)$/, "Replying to $1"],
+    [/^Вы вошли как (.+)$/, "Signed in as $1"],
+    [/^Ответ для (.+) отправлен на проверку\.$/, "Reply to $1 sent for review."],
+    [/^Письмо для подтверждения удаления отправлено на (.+)\. Код действует до (.+)\.$/, "A deletion confirmation email was sent to $1. The code is valid until $2."],
+    [/^Согласен\(на\) на обработку ПДн \((.+)\)$/, "I consent to personal data processing ($1)"],
+  ];
+  for (const [pattern, replacement] of replacements) {
+    if (pattern.test(value)) return value.replace(pattern, replacement);
+  }
+  return value;
+}
+
+function localizeEnglishWidget(shell: HTMLElement): void {
+  if (shell.lang !== "en") return;
+
+  shell.setAttribute("aria-label", "CloudComment comments");
+  const excluded = ".cloud-comment__comment-content, .cloud-comment__avatar, .cloud-comment__comment-header > strong";
+  const walker = document.createTreeWalker(shell, NodeFilter.SHOW_TEXT);
+  let node = walker.nextNode();
+  while (node) {
+    const parent = node.parentElement;
+    if (parent && !parent.matches(excluded) && !parent.closest(".cloud-comment__comment-content")) {
+      const raw = node.textContent ?? "";
+      const trimmed = raw.trim();
+      if (trimmed) {
+        const translated = translateEnglishWidgetText(trimmed);
+        if (translated !== trimmed) {
+          node.textContent = raw.replace(trimmed, translated);
+        }
+      }
+    }
+    node = walker.nextNode();
+  }
+
+  for (const element of shell.querySelectorAll<HTMLElement>("[aria-label], [placeholder], [title]")) {
+    for (const attribute of ["aria-label", "placeholder", "title"] as const) {
+      const value = element.getAttribute(attribute);
+      if (value) element.setAttribute(attribute, translateEnglishWidgetText(value));
+    }
+  }
+
+  for (const time of shell.querySelectorAll<HTMLTimeElement>("time[datetime]")) {
+    const date = new Date(time.dateTime);
+    if (!Number.isNaN(date.getTime())) {
+      time.textContent = new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short" }).format(date);
+    }
+  }
 }
 
 function getPageLabel(pageUrl: string): string {

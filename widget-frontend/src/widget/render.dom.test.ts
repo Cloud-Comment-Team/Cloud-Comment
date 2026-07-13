@@ -64,9 +64,19 @@ function publicComment(overrides: Partial<PublicComment> = {}): PublicComment {
   };
 }
 
+function rootComments(count: number, label = "Комментарий"): PublicComment[] {
+  return Array.from({ length: count }, (_, index) => publicComment({
+    id: `00000000-0000-0000-0001-${String(index + 1).padStart(12, "0")}`,
+    content: `${label} ${index + 1}`,
+    ownedByCurrentUser: false
+  }));
+}
+
 type ApiOverrides = {
+  onList?: (url: URL) => Promise<Response> | Response;
   onPost?: () => Promise<Response> | Response;
   onPatch?: () => Promise<Response> | Response;
+  onDelete?: () => Promise<Response> | Response;
   onReaction?: () => Promise<Response> | Response;
   onLogout?: () => Promise<Response> | Response;
   failListAfterPost?: boolean;
@@ -128,6 +138,9 @@ function installApiMock(overrides: ApiOverrides = {}) {
     }
     if (url.includes(`/public/sites/${siteId}/pages/comments`) && method === "GET") {
       listCalls += 1;
+      if (overrides.onList) {
+        return overrides.onList(new URL(url));
+      }
       if (postCompleted && overrides.failListAfterPost) {
         return jsonResponse({ error: { message: "Не удалось обновить список" } }, 500);
       }
@@ -147,6 +160,9 @@ function installApiMock(overrides: ApiOverrides = {}) {
     }
     if (url.includes(`/public/sites/${siteId}/comments/`) && method === "PATCH") {
       return overrides.onPatch?.() ?? jsonResponse(publicComment({ content: "Обновлённый комментарий" }));
+    }
+    if (url.includes(`/public/sites/${siteId}/comments/`) && method === "DELETE") {
+      return overrides.onDelete?.() ?? new Response(null, { status: 204 });
     }
     if (url.endsWith("/reaction") && method === "PUT") {
       if (overrides.onReaction) {
@@ -183,10 +199,13 @@ function deferredResponse(): { promise: Promise<Response>; resolve: (response: R
   return { promise, resolve: resolvePromise };
 }
 
-async function renderReadyWidget(options: {
+async function renderReadyWidget(input: number | {
+  expectedComments?: number;
   authStorageKey?: string;
   onAuthCleared?: () => void;
 } = {}): Promise<{ root: HTMLElement; shadowRoot: ShadowRoot }> {
+  const options = typeof input === "number" ? {} : input;
+  const expectedComments = typeof input === "number" ? input : (input.expectedComments ?? 1);
   const root = document.createElement("div");
   document.body.append(root);
   renderWidget(root, {
@@ -202,7 +221,9 @@ async function renderReadyWidget(options: {
   if (!shadowRoot) {
     throw new Error("Shadow DOM виджета не создан");
   }
-  await vi.waitFor(() => expect(shadowRoot.querySelectorAll(".cloud-comment__comment")).toHaveLength(1));
+  await vi.waitFor(() => {
+    expect(shadowRoot.querySelectorAll(".cloud-comment__comment")).toHaveLength(expectedComments);
+  });
   return { root, shadowRoot };
 }
 
@@ -238,11 +259,105 @@ beforeEach(() => {
   window.localStorage.clear();
   window.sessionStorage.clear();
   window.sessionStorage.setItem(authStorageKey, token);
+  config.style.locale = "RU";
+  config.style.headerTitle = "Комментарии";
+  config.style.commentsTitle = "Комментарии";
+  config.style.composerPlaceholder = "Напишите комментарий";
+  config.style.emptyMessage = "Комментариев пока нет";
 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+});
+
+describe("локализация интерфейса", () => {
+  it("полностью переключает системные подписи, контролы и даты на английский", async () => {
+    config.style.locale = "EN";
+    installApiMock();
+
+    const { shadowRoot } = await renderReadyWidget();
+    const shell = shadowRoot.querySelector<HTMLElement>(".cloud-comment");
+
+    expect(shell?.lang).toBe("en");
+    expect(shell?.getAttribute("aria-label")).toBe("CloudComment comments");
+    expect(shadowRoot.textContent).toContain("Discussion");
+    expect(shadowRoot.textContent).toContain("Comments");
+    expect(shadowRoot.textContent).toContain("Pinned first");
+    expect(shadowRoot.textContent).toContain("Reply");
+    expect(shadowRoot.textContent).toContain("Edit");
+    expect(composer(shadowRoot).getAttribute("placeholder")).toBe("Write a comment");
+    expect(shadowRoot.querySelector("select")?.getAttribute("aria-label")).toBe("Sort comments");
+    expect(shadowRoot.querySelector("time")?.textContent).toMatch(/13 Jul 2026/);
+    expect(shadowRoot.querySelector(".cloud-comment__comment-content")?.textContent).toBe("Исходный комментарий");
+  });
+});
+
+describe("пагинация корневых комментариев", () => {
+  it("догружает 21-й комментарий и скрывает кнопку на последней странице", async () => {
+    const comments = rootComments(21);
+    const requestedPages: number[] = [];
+    installApiMock({
+      onList: (url) => {
+        const page = Number(url.searchParams.get("page"));
+        requestedPages.push(page);
+        return jsonResponse({
+          items: page === 1 ? comments.slice(0, 20) : comments.slice(20),
+          page,
+          pageSize: 20,
+          totalItems: comments.length,
+          totalPages: 2
+        });
+      }
+    });
+
+    const { shadowRoot } = await renderReadyWidget(20);
+    expect(shadowRoot.querySelectorAll(".cloud-comment__comment")).toHaveLength(20);
+    const loadMore = shadowRoot.querySelector<HTMLButtonElement>("[data-load-comments='true']");
+    expect(loadMore?.textContent).toBe("Показать ещё комментарии (1)");
+
+    loadMore?.click();
+
+    await vi.waitFor(() => {
+      expect(shadowRoot.querySelectorAll(".cloud-comment__comment")).toHaveLength(21);
+    });
+    expect(shadowRoot.querySelector("[data-load-comments='true']")).toBeNull();
+    expect(requestedPages).toEqual([1, 2]);
+  });
+
+  it("показывает возвращённые backend собственные pending root и reply после загрузки", async () => {
+    const pendingRoot = publicComment({
+      id: "pending-root",
+      content: "Корневой комментарий ожидает проверку",
+      status: "PENDING"
+    });
+    const pendingReply = publicComment({
+      id: "pending-reply",
+      parentId: "approved-root",
+      content: "Ответ ожидает проверку",
+      status: "PENDING"
+    });
+    const approvedRoot = publicComment({
+      id: "approved-root",
+      replies: [pendingReply],
+      replyCount: 1
+    });
+    installApiMock({
+      onList: () => jsonResponse({
+        items: [pendingRoot, approvedRoot],
+        page: 1,
+        pageSize: 20,
+        totalItems: 2,
+        totalPages: 1
+      })
+    });
+
+    const { shadowRoot } = await renderReadyWidget(3);
+
+    expect(shadowRoot.textContent).toContain("Корневой комментарий ожидает проверку");
+    expect(shadowRoot.textContent).toContain("Ответ ожидает проверку");
+    expect(shadowRoot.querySelectorAll(".cloud-comment__status")).toHaveLength(2);
+  });
 });
 
 describe("устойчивый черновик и фокус виджета", () => {
@@ -369,6 +484,22 @@ describe("устойчивый черновик и фокус виджета", (
     expect(restored?.value).toBe(draft);
     expect(shadowRoot.activeElement).toBe(restored);
     expect([restored?.selectionStart, restored?.selectionEnd, restored?.selectionDirection]).toEqual([2, 14, "backward"]);
+  });
+
+  it("восстанавливает комментарий и позволяет повторить удаление после ошибки DELETE", async () => {
+    installApiMock({
+      onDelete: () => jsonResponse({ error: { message: "Удаление не выполнено" } }, 503)
+    });
+    const { shadowRoot } = await renderReadyWidget();
+
+    shadowRoot.querySelector<HTMLButtonElement>("[data-comment-action='ask-delete']")?.click();
+    shadowRoot.querySelector<HTMLButtonElement>("[data-comment-action='confirm-delete']")?.click();
+
+    await vi.waitFor(() => expect(shadowRoot.textContent).toContain("Удаление не выполнено"));
+    expect(shadowRoot.textContent).toContain("Исходный комментарий");
+    const retry = shadowRoot.querySelector<HTMLButtonElement>("[data-comment-action='confirm-delete']");
+    expect(retry).not.toBeNull();
+    expect(retry?.disabled).toBe(false);
   });
 
   it("после успешной правки возвращает фокус на кнопку редактирования", async () => {

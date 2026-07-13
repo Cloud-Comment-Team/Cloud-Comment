@@ -6,6 +6,7 @@ import Layout from '../components/layout/Layout'
 import { RouteFallback } from '../components/layout/RouteFallback'
 import {
   AccountDeletionConfirm,
+  Analytics,
   AccountSettings,
   Comments,
   Dashboard,
@@ -53,6 +54,7 @@ export const router = createBrowserRouter([
           { path: 'sites/:siteId', element: routeElement(<SiteDetail />) },
           { path: 'comments', element: routeElement(<Comments />) },
           { path: 'moderation', element: routeElement(<Moderation />) },
+          { path: 'analytics', element: routeElement(<Analytics />) },
           { path: 'account', element: routeElement(<AccountSettings />) },
         ],
       },

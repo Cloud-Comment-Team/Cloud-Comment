@@ -49,6 +49,12 @@ class PublicWidgetCorsFilter extends OncePerRequestFilter {
         "^/api/public/sites/[0-9a-fA-F-]{36}/(?:pages/comments|comments(?:/.*)?)/?$"
     );
     private static final Set<String> SAFE_METHODS = Set.of("GET", "HEAD", "OPTIONS");
+    private static final Set<String> LEGACY_ALLOWED_REQUEST_METHODS = Set.of(
+        "GET", "POST", "PUT", "PATCH", "DELETE"
+    );
+    private static final Set<String> LEGACY_ALLOWED_REQUEST_HEADERS = Set.of(
+        "authorization", "content-type", "accept"
+    );
     private static final Set<String> FRAME_ALLOWED_HEADERS = Set.of(
         "authorization",
         "content-type",
@@ -56,7 +62,7 @@ class PublicWidgetCorsFilter extends OncePerRequestFilter {
         WidgetContextService.CONTEXT_HEADER.toLowerCase(Locale.ROOT),
         "x-cloudcomment-page-url"
     );
-    private static final String LEGACY_ALLOWED_METHODS = "GET, POST, PUT, OPTIONS";
+    private static final String LEGACY_ALLOWED_METHODS = "GET, POST, PUT, PATCH, DELETE, OPTIONS";
     private static final String LEGACY_ALLOWED_HEADERS = "Authorization, Content-Type, Accept";
     private static final String FRAME_ALLOWED_METHODS = "GET, POST, PUT, PATCH, DELETE, OPTIONS";
     private static final String FRAME_ALLOWED_HEADERS_VALUE =
@@ -208,6 +214,14 @@ class PublicWidgetCorsFilter extends OncePerRequestFilter {
         }
 
         if (requiresContextForPreflight(path, requestedMethod)) {
+            response.setStatus(HttpServletResponse.SC_NOT_FOUND);
+            return;
+        }
+
+        boolean validLegacyRequest = requestedMethod != null
+            && LEGACY_ALLOWED_REQUEST_METHODS.contains(requestedMethod.trim().toUpperCase(Locale.ROOT))
+            && requestedHeaders.stream().allMatch(LEGACY_ALLOWED_REQUEST_HEADERS::contains);
+        if (!validLegacyRequest) {
             response.setStatus(HttpServletResponse.SC_NOT_FOUND);
             return;
         }

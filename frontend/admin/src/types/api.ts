@@ -326,6 +326,64 @@ export interface UpdateCommentFlagsRequest {
   favorite?: boolean
 }
 
+export type DiscussionFilter = 'ALL' | 'UNREAD' | 'NEEDS_REPLY'
+export type DiscussionStatus = 'ACTIVE' | 'NEEDS_REPLY'
+
+export interface DiscussionAuthor {
+  id: string | null
+  displayName: string
+  owner: boolean
+}
+
+export interface DiscussionSummary {
+  rootCommentId: string
+  siteId: string
+  siteName: string
+  pageId: string
+  pageUrl: string
+  pageTitle: string | null
+  lastAuthor: DiscussionAuthor
+  lastMessage: string
+  lastActivityAt: string
+  replyCount: number
+  unread: boolean
+  status: DiscussionStatus
+  pinned: boolean
+}
+
+export interface DiscussionMessage {
+  id: string
+  parentId: string | null
+  author: DiscussionAuthor
+  content: string
+  createdAt: string
+  updatedAt: string
+  pinned: boolean
+}
+
+export interface DiscussionThread {
+  summary: DiscussionSummary
+  messages: DiscussionMessage[]
+}
+
+export interface CreateOwnerReplyRequest {
+  operationId: string
+  content: string
+}
+
+export interface CreateOwnerReplyResponse {
+  message: DiscussionMessage
+  created: boolean
+}
+
+export interface ListDiscussionsParams {
+  siteId?: string
+  view?: DiscussionFilter
+  search?: string
+  page?: number
+  pageSize?: number
+}
+
 export type AnalyticsRange = '7d' | '30d' | '90d' | 'all'
 
 export type AnalyticsBucketGranularity = 'DAY' | 'WEEK' | 'MONTH'
@@ -477,6 +535,15 @@ export interface ModerationActionNotification {
   createdAt: string
 }
 
+export interface OwnerReplyRealtimeNotification {
+  commentId: string
+  rootCommentId: string
+  siteId: string
+  pageId: string
+  createdAt: string
+}
+
 export type RealtimeEvent =
   | (RealtimeEnvelope<NewCommentNotification> & { type: 'comment.created' })
+  | (RealtimeEnvelope<OwnerReplyRealtimeNotification> & { type: 'comment.owner_reply_created' })
   | (RealtimeEnvelope<ModerationActionNotification> & { type: 'comment.moderation_action_applied' })

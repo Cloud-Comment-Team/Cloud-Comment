@@ -38,10 +38,7 @@ import static com.cloudcomment.support.AdminSecurityTestSupport.adminRequest;
 import static com.cloudcomment.support.AdminSecurityTestSupport.adminSession;
 import static com.cloudcomment.support.AdminSecurityTestSupport.csrf;
 
-/**
- * Acceptance smoke tests for implemented MVP endpoints.
- * Checklist reference: docs/mvp-qa-contracts.md
- */
+/** Acceptance smoke tests for implemented MVP endpoints. */
 @SpringBootTest
 @AutoConfigureMockMvc
 @Testcontainers(disabledWithoutDocker = true)

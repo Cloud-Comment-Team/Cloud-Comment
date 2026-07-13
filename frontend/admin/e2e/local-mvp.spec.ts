@@ -140,15 +140,18 @@ async function findModerationComment(
 }
 
 test('local MVP flow: auth, site admin, public API and isolated iframe widget', async ({ page, request, context }) => {
+  test.setTimeout(60_000)
   const adminRequest = context.request
   const suffix = Date.now().toString(36)
   const email = `e2e-${suffix}@example.com`
   const widgetEmail = `widget-${suffix}@example.com`
+  const otherEmail = `e2e-other-${suffix}@example.com`
   const siteName = `E2E Site ${suffix}`
   const domain = `e2e-${suffix}.example.com`
   const commentText = `E2E comment ${suffix}`
   const editedCommentText = `E2E edited comment ${suffix}`
   const apiReplyText = `E2E API reply ${suffix}`
+  const ownerReplyText = `E2E owner reply ${suffix}`
   const pendingWidgetReplyText = `E2E widget pending reply ${suffix}`
   const deleteCommentText = `E2E comment to delete ${suffix}`
   const blockedWord = `blocked-${suffix}`
@@ -169,7 +172,7 @@ test('local MVP flow: auth, site admin, public API and isolated iframe widget', 
   await page.getByLabel('Пароль', { exact: true }).fill(PASSWORD)
   await page.getByRole('button', { name: 'Войти' }).click()
 
-  await expect(page.getByRole('heading', { name: 'Панель владельца сайта' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Сегодня' })).toBeVisible()
   expect(await page.evaluate(() => window.localStorage.getItem('cloud-comment.admin.authToken'))).toBeNull()
   expect(await page.evaluate(() => document.cookie)).not.toContain('cloud_comment_admin_session')
   expect(await page.evaluate(() => document.cookie)).not.toContain('cloud_comment_admin_csrf')
@@ -183,7 +186,7 @@ test('local MVP flow: auth, site admin, public API and isolated iframe widget', 
     sameSite: 'Strict',
   })
   await page.reload()
-  await expect(page.getByRole('heading', { name: 'Панель владельца сайта' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Сегодня' })).toBeVisible()
   await page.getByRole('link', { name: 'Сайты' }).click()
   await expect(page.getByRole('heading', { name: 'Сайты' })).toBeVisible()
   await page.getByRole('link', { name: 'Создать сайт' }).first().click()
@@ -770,19 +773,33 @@ test('local MVP flow: auth, site admin, public API and isolated iframe widget', 
   const realtimeModerationAction = bulkModeration.items.find(
     (item: { commentId: string }) => item.commentId === realtimeComment.id,
   ).action
+  const laterSpamActionResponse = await adminRequest.post(
+    `${API_BASE_URL}/moderation/comments/${spamComment.id}/actions`,
+    {
+      headers: await issueAdminCsrf(adminRequest),
+      data: { action: 'MARK_SPAM', reason: 'Позднее решение для проверки partial undo' },
+    },
+  )
+  expect(laterSpamActionResponse.status()).toBe(201)
+
   const undoModerationResponse = await adminRequest.post(
-    `${API_BASE_URL}/moderation/actions/${realtimeModerationAction.id}/undo`,
+    `${API_BASE_URL}/moderation/operations/${operationId}/undo`,
     { headers: await issueAdminCsrf(adminRequest) },
   )
-  expect(undoModerationResponse.status()).toBe(201)
-  expect(await undoModerationResponse.json()).toMatchObject({
-    action: 'UNDO',
-    revertsActionId: realtimeModerationAction.id,
-  })
+  await expect(undoModerationResponse).toBeOK()
+  const undoModeration = await undoModerationResponse.json()
+  expect(undoModeration.items).toHaveLength(2)
+  expect(undoModeration.items.find((item: { commentId: string }) => item.commentId === realtimeComment.id))
+    .toMatchObject({ success: true, action: { action: 'UNDO', revertsActionId: realtimeModerationAction.id } })
+  expect(undoModeration.items.find((item: { commentId: string }) => item.commentId === spamComment.id))
+    .toMatchObject({ success: false, errorCode: 'UNDO_CONFLICT' })
 
   const restoredCommentResponse = await adminRequest.get(`${API_BASE_URL}/moderation/comments/${realtimeComment.id}`)
   await expect(restoredCommentResponse).toBeOK()
   expect(await restoredCommentResponse.json()).toMatchObject({ status: 'PENDING' })
+  const conflictedCommentResponse = await adminRequest.get(`${API_BASE_URL}/moderation/comments/${spamComment.id}`)
+  await expect(conflictedCommentResponse).toBeOK()
+  expect(await conflictedCommentResponse.json()).toMatchObject({ status: 'SPAM' })
 
   const analyticsResponse = await adminRequest.get(`${API_BASE_URL}/analytics/owner`, {
     params: { range: '7d', timeZone: 'Europe/Moscow' },
@@ -878,7 +895,7 @@ test('local MVP flow: auth, site admin, public API and isolated iframe widget', 
 
   await expect(widget.locator('.cloud-comment__message--notice')).toBeVisible()
   await expect(widget.getByText(pendingWidgetReplyText)).toBeVisible()
-  await expect(widget.locator('.cloud-comment__status')).toBeVisible()
+  await expect(widget.getByText(pendingWidgetReplyText).locator('..').locator('.cloud-comment__status')).toBeVisible()
 
   const publicCommentsAfterPendingReply = await request.get(`${WIDGET_API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
     headers: widgetContextHeaders,
@@ -891,6 +908,139 @@ test('local MVP flow: auth, site admin, public API and isolated iframe widget', 
   await expect(publicCommentsAfterPendingReply).toBeOK()
   const commentsAfterPendingReply = await publicCommentsAfterPendingReply.json()
   expect(JSON.stringify(commentsAfterPendingReply)).not.toContain(pendingWidgetReplyText)
+
+  const ownerCommentsAfterPendingReply = await request.get(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
+    headers: {
+      Authorization: `Bearer ${widgetToken}`,
+      Origin: ADMIN_ORIGIN,
+    },
+    params: {
+      pageUrl,
+      page: '1',
+      pageSize: '20',
+      replyLimit: '100',
+    },
+  })
+  await expect(ownerCommentsAfterPendingReply).toBeOK()
+  expect(JSON.stringify(await ownerCommentsAfterPendingReply.json())).toContain(pendingWidgetReplyText)
+
+  const consentRequirementsResponse = await request.get(`${API_BASE_URL}/privacy/consent-requirements`, {
+    headers: { Origin: ADMIN_ORIGIN },
+  })
+  await expect(consentRequirementsResponse).toBeOK()
+  const consentRequirements = await consentRequirementsResponse.json() as {
+    privacyPolicyVersion: string
+    termsVersion: string
+  }
+  const otherRegisterResponse = await request.post(`${API_BASE_URL}/public/sites/${siteId}/auth/register`, {
+    headers: { Origin: ADMIN_ORIGIN },
+    data: {
+      email: otherEmail,
+      password: PASSWORD,
+      acceptedPrivacyPolicy: true,
+      acceptedTerms: true,
+      privacyPolicyVersion: consentRequirements.privacyPolicyVersion,
+      termsVersion: consentRequirements.termsVersion,
+    },
+  })
+  await expect(otherRegisterResponse).toBeOK()
+  const otherLoginResponse = await request.post(`${API_BASE_URL}/public/sites/${siteId}/auth/login`, {
+    headers: { Origin: ADMIN_ORIGIN },
+    data: { email: otherEmail, password: PASSWORD },
+  })
+  await expect(otherLoginResponse).toBeOK()
+  const otherWidgetToken = (await otherLoginResponse.json()).token as string
+  const otherCommentsAfterPendingReply = await request.get(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
+    headers: {
+      Authorization: `Bearer ${otherWidgetToken}`,
+      Origin: ADMIN_ORIGIN,
+    },
+    params: {
+      pageUrl,
+      page: '1',
+      pageSize: '20',
+      replyLimit: '100',
+    },
+  })
+  await expect(otherCommentsAfterPendingReply).toBeOK()
+  expect(JSON.stringify(await otherCommentsAfterPendingReply.json())).not.toContain(pendingWidgetReplyText)
+
+  await page.reload()
+  const loadPendingReplies = widget.getByRole('button', { name: /Показать ещё ответы/ }).first()
+  await expect(loadPendingReplies).toBeVisible()
+  await loadPendingReplies.click()
+  await expect(widget.getByText(pendingWidgetReplyText)).toBeVisible()
+  await expect(widget.getByText(pendingWidgetReplyText).locator('..').locator('.cloud-comment__status')).toBeVisible()
+
+  const ownerReplyPage = await context.newPage()
+  await ownerReplyPage.goto(`/demo-page.html?siteId=${siteId}`)
+  const ownerReplyWidget = ownerReplyPage.locator('#comments')
+  await expect(ownerReplyWidget.locator('.cloud-comment__title')).toHaveText('Комментарии')
+  await expect(ownerReplyWidget.getByText(ownerReplyText)).toHaveCount(0)
+
+  const unreadBeforeOwnerReply = await adminRequest.get(`${API_BASE_URL}/notifications/unread-count`)
+  await expect(unreadBeforeOwnerReply).toBeOK()
+  const unreadBefore = (await unreadBeforeOwnerReply.json()).unreadCount as number
+  const ownerReplyOperationId = '00000000-0000-4000-8000-000000000175'
+  const ownerReplyCsrfHeaders = await issueAdminCsrf(adminRequest)
+  const createOwnerReplyResponse = await adminRequest.post(
+    `${API_BASE_URL}/discussions/${createdComment.id}/replies`,
+    {
+      headers: ownerReplyCsrfHeaders,
+      data: { operationId: ownerReplyOperationId, content: ownerReplyText },
+    },
+  )
+  expect(createOwnerReplyResponse.status()).toBe(201)
+  const ownerReply = await createOwnerReplyResponse.json()
+  expect(ownerReply).toMatchObject({
+    created: true,
+    message: {
+      parentId: createdComment.id,
+      content: ownerReplyText,
+      author: { owner: true },
+    },
+  })
+  expect(JSON.stringify(ownerReply)).not.toContain(email)
+
+  const replayOwnerReplyResponse = await adminRequest.post(
+    `${API_BASE_URL}/discussions/${createdComment.id}/replies`,
+    {
+      headers: ownerReplyCsrfHeaders,
+      data: { operationId: ownerReplyOperationId, content: ownerReplyText },
+    },
+  )
+  expect(replayOwnerReplyResponse.status()).toBe(200)
+  expect(await replayOwnerReplyResponse.json()).toMatchObject({
+    created: false,
+    message: { id: ownerReply.message.id },
+  })
+
+  const publicThreadWithOwnerReply = await request.get(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
+    headers: { Origin: ADMIN_ORIGIN },
+    params: { pageUrl, page: '1', pageSize: '20', replyLimit: '100' },
+  })
+  await expect(publicThreadWithOwnerReply).toBeOK()
+  const publicThread = await publicThreadWithOwnerReply.json()
+  const publicOwnerReplies = publicThread.items
+    .flatMap((comment: { replies: unknown[] }) => comment.replies)
+    .filter((reply: { id: string }) => reply.id === ownerReply.message.id)
+  expect(publicOwnerReplies).toHaveLength(1)
+  expect(publicOwnerReplies[0]).toMatchObject({
+    content: ownerReplyText,
+    author: { displayName: 'Автор сайта', kind: 'OWNER' },
+  })
+  expect(publicOwnerReplies[0].author).not.toHaveProperty('email')
+
+  await ownerReplyPage.evaluate(() => window.localStorage.removeItem('cloud-comment.widget.authToken'))
+  await ownerReplyPage.reload()
+  const ownerReplyLoadMore = ownerReplyWidget.getByRole('button', { name: /Показать ещё ответы/ }).first()
+  if (await ownerReplyLoadMore.isVisible()) await ownerReplyLoadMore.click()
+  await expect(ownerReplyWidget.getByText(ownerReplyText)).toHaveCount(1)
+  await expect(ownerReplyWidget.getByText(ownerReplyText).locator('..').locator('header strong')).toHaveText('Автор сайта')
+  const unreadAfterOwnerReply = await adminRequest.get(`${API_BASE_URL}/notifications/unread-count`)
+  await expect(unreadAfterOwnerReply).toBeOK()
+  expect((await unreadAfterOwnerReply.json()).unreadCount).toBe(unreadBefore)
+  await ownerReplyPage.close()
 
   const externalPage = await context.newPage()
   await externalPage.goto(`http://127.0.0.1/demo-page.html?siteId=${siteId}`)
@@ -915,6 +1065,8 @@ test('local MVP flow: auth, site admin, public API and isolated iframe widget', 
     .toEqual([])
   await expect(await adminRequest.get(`${API_BASE_URL}/auth/me`)).toBeOK()
 
+  const openPanelBackdrop = moderationPage.getByRole('button', { name: 'Закрыть панель по фону' })
+  if (await openPanelBackdrop.isVisible()) await openPanelBackdrop.click()
   await moderationPage.getByRole('button', { name: 'Выйти' }).click()
   await expect(moderationPage).toHaveURL(/\/login$/)
   expect((await adminRequest.get(`${API_BASE_URL}/auth/me`)).status()).toBe(401)

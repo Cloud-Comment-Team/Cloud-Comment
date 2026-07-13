@@ -119,7 +119,7 @@ class PostgresFlywayIntegrationTests {
             """, Integer.class);
 
         assertThat(databaseVersion).contains("PostgreSQL");
-        assertThat(schemaHistoryRows).isEqualTo(18);
+        assertThat(schemaHistoryRows).isEqualTo(19);
         assertThat(smokeTableRows).isZero();
         assertThat(coreTableRows).isEqualTo(20);
         assertThat(roleRows).isEqualTo(3);
@@ -689,7 +689,7 @@ class PostgresFlywayIntegrationTests {
     }
 
     @Test
-    void v16AndV17RevokeLegacyWidgetSessionsAndKeepRollbackCompatibleShape() {
+    void v16AndV18RevokeLegacyWidgetSessionsAndKeepRollbackCompatibleShape() {
         String schema = "v16_upgrade_" + UUID.randomUUID().toString().replace("-", "");
         try {
             Flyway.configure()
@@ -761,7 +761,7 @@ class PostgresFlywayIntegrationTests {
                 .dataSource(dataSource)
                 .schemas(schema)
                 .defaultSchema(schema)
-                .target(MigrationVersion.fromVersion("17"))
+                .target(MigrationVersion.fromVersion("18"))
                 .load()
                 .migrate();
 

@@ -13,46 +13,40 @@
     <div id="cloud-comment-preview"></div>
     <script>
       (() => {
+        const SITE_ID = '00000000-0000-0000-0000-000000000001';
         let style = null;
         let instance = null;
-        const siteId = '00000000-0000-0000-0000-000000000001';
+        let scenario = 'thread';
         const unsupported = async () => { throw new Error('Недоступно в предварительном просмотре.'); };
+
         function createPreviewApi() {
           const now = new Date().toISOString();
           const comment = {
-            id: '00000000-0000-0000-0000-000000000002',
-            siteId,
-            pageId: '00000000-0000-0000-0000-000000000003',
-            parentId: null,
+            id: '00000000-0000-0000-0000-000000000002', siteId: SITE_ID,
+            pageId: '00000000-0000-0000-0000-000000000003', parentId: null,
             author: { id: '00000000-0000-0000-0000-000000000004', displayName: 'Анна' },
-            content: 'Так выглядит комментарий с выбранным оформлением.',
-            status: 'APPROVED',
-            createdAt: now,
-            updatedAt: now,
-            editedAt: null,
-            pinned: true,
-            ownedByCurrentUser: false,
-            reactions: ['LIKE', 'LOVE', 'LAUGH', 'WOW'].map((type, index) => ({
-              type,
-              emoji: ['👍', '❤️', '😄', '😮'][index],
-              label: ['Нравится', 'Любовь', 'Смешно', 'Удивление'][index],
-              count: [4, 2, 1, 0][index],
-              reactedByCurrentUser: false
-            })),
-            replyCount: 0,
-            replies: []
+            content: 'Так выглядит комментарий с выбранным оформлением.', status: 'APPROVED',
+            createdAt: now, updatedAt: now, editedAt: null,
+            pinned: true, ownedByCurrentUser: false,
+            reactions: [
+              { type: 'LIKE', emoji: '👍', label: 'Нравится', count: 4, reactedByCurrentUser: false },
+              { type: 'LOVE', emoji: '❤️', label: 'Любовь', count: 2, reactedByCurrentUser: false },
+              { type: 'LAUGH', emoji: '😄', label: 'Смешно', count: 1, reactedByCurrentUser: false },
+              { type: 'WOW', emoji: '😮', label: 'Удивление', count: 0, reactedByCurrentUser: false },
+            ],
+            replyCount: 0, replies: [],
           };
           return {
-            getConfig: async () => ({ siteId, moderationMode: 'POST_MODERATION', style }),
+            getConfig: async () => ({ siteId: SITE_ID, moderationMode: 'POST_MODERATION', style }),
             getConsentRequirements: async () => ({
-              privacyPolicyVersion: 'preview',
-              termsVersion: 'preview',
-              privacyPolicyUrl: '#',
-              termsUrl: '#',
-              personalDataNoticeUrl: '#',
-              dataExportInfoUrl: '#'
+              privacyPolicyVersion: 'preview', termsVersion: 'preview', privacyPolicyUrl: '#', termsUrl: '#',
+              personalDataNoticeUrl: '#', dataExportInfoUrl: '#',
             }),
-            listComments: async () => ({ items: [comment], page: 1, pageSize: 20, totalItems: 1, totalPages: 1 }),
+            listComments: async () => {
+              if (scenario === 'error') throw new Error('preview error');
+              const items = scenario === 'empty' ? [] : [comment];
+              return { items, page: 1, pageSize: 20, totalItems: items.length, totalPages: items.length ? 1 : 0 };
+            },
             listReplies: async () => ({ items: [], page: 1, pageSize: 20, totalItems: 0, totalPages: 0 }),
             createComment: unsupported,
             updateComment: unsupported,
@@ -61,20 +55,34 @@
             getCurrentUser: unsupported,
             login: unsupported,
             register: unsupported,
-            logout: unsupported
+            logout: unsupported,
+            requestAccountDeletion: unsupported,
+            exportPersonalData: unsupported,
           };
         }
+
         function render() {
           if (!style || !window.CloudCommentWidgetFrame) return;
           instance?.destroy();
           document.getElementById('cloud-comment-preview').replaceChildren();
           instance = window.CloudCommentWidgetFrame.previewInit(createPreviewApi());
+          if (scenario === 'auth') {
+            window.setTimeout(() => {
+              const target = document.getElementById('cloud-comment-preview');
+              target?.shadowRoot?.querySelector('[data-auth-action="expand"]')?.click();
+            }, 50);
+          }
         }
+
         window.addEventListener('message', (event) => {
           if (event.source !== parent || event.origin !== window.location.origin || event.data?.type !== 'cloud-comment-preview') return;
           style = event.data.style;
+          scenario = event.data.scenario ?? 'thread';
+          document.documentElement.style.colorScheme = event.data.theme === 'DARK' ? 'dark' : 'light';
+          document.documentElement.style.background = event.data.theme === 'DARK' ? '#0f172a' : '#f8fafc';
           render();
         });
+
         const script = document.createElement('script');
         script.src = '/widget/cloud-comment-widget-frame.js';
         script.addEventListener('load', render);

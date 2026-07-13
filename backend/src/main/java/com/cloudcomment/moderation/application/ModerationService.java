@@ -13,6 +13,7 @@ import com.cloudcomment.shared.error.ApiErrorCode;
 import com.cloudcomment.shared.error.ApplicationException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,10 +27,15 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class ModerationService {
 
+    private static final String UNDO_REASON = "Отмена действия";
+    private static final String UNDO_FAILED_MESSAGE =
+        "Не удалось отменить действие: оно уже отменено, изменено или срок истёк";
+
     private final CommentRepository commentRepository;
     private final ModerationActionRepository moderationActionRepository;
     private final ResourceOwnershipService resourceOwnershipService;
     private final ApplicationEventPublisher eventPublisher;
+    private final ModerationItemTransactionRunner itemTransactionRunner;
 
     @Transactional(readOnly = true)
     public ModerationCommentPage listComments(
@@ -150,9 +156,42 @@ public class ModerationService {
         }).toList();
     }
 
+    public List<BulkModerationResult> undoOperation(
+        AuthenticatedUser currentUser,
+        UUID operationId
+    ) {
+        List<ModerationAction> actions = moderationActionRepository.findByOperationIdAndOwnerId(
+            operationId,
+            currentUser.id()
+        );
+        UUID undoOperationId = UUID.randomUUID();
+        return actions.stream().map(action -> {
+            try {
+                ModerationAction undo = itemTransactionRunner.run(
+                    () -> undoAction(currentUser, action, undoOperationId)
+                );
+                return BulkModerationResult.success(action.commentId(), undo);
+            } catch (ApplicationException | DataIntegrityViolationException exception) {
+                return BulkModerationResult.failure(
+                    action.commentId(),
+                    "UNDO_CONFLICT",
+                    UNDO_FAILED_MESSAGE
+                );
+            }
+        }).toList();
+    }
+
     @Transactional
     public ModerationAction undo(AuthenticatedUser currentUser, UUID actionId) {
         ModerationAction action = moderationActionRepository.findById(actionId).orElseThrow(this::notFound);
+        return undoAction(currentUser, action, UUID.randomUUID());
+    }
+
+    private ModerationAction undoAction(
+        AuthenticatedUser currentUser,
+        ModerationAction action,
+        UUID undoOperationId
+    ) {
         resourceOwnershipService.assertCommentOwnedBy(currentUser, action.commentId());
         ModerationAction latest = moderationActionRepository.findLatestNotReverted(action.commentId())
             .orElseThrow(() -> new ApplicationException(ApiErrorCode.BUSINESS_ERROR, "Action cannot be undone"));
@@ -164,11 +203,11 @@ public class ModerationService {
         if (comment.status() != action.toStatus()) {
             throw new ApplicationException(ApiErrorCode.BUSINESS_ERROR, "Comment status changed after action");
         }
-        Comment updated = commentRepository.updateStatus(comment.id(), comment.status(), action.fromStatus(), "Отмена действия")
+        Comment updated = commentRepository.updateStatus(comment.id(), comment.status(), action.fromStatus(), UNDO_REASON)
             .orElseThrow(() -> concurrentStatusChange(comment.id(), action.fromStatus()));
         ModerationAction undo = moderationActionRepository.create(
             comment.id(), currentUser.id(), ModerationActionType.UNDO, comment.status(), action.fromStatus(),
-            "Отмена действия", UUID.randomUUID(), action.id()
+            UNDO_REASON, undoOperationId, action.id()
         );
         eventPublisher.publishEvent(new ModerationActionAppliedEvent(
             updated.siteId(), updated.pageId(), updated.id(), ModerationActionType.UNDO,

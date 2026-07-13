@@ -222,6 +222,39 @@ class PublicCommentControllerTests {
     }
 
     @Test
+    void listCommentsPassesWidgetViewerAndReturnsOwnedPendingComment() throws Exception {
+        UUID siteId = UUID.randomUUID();
+        UUID pageId = UUID.randomUUID();
+        AuthenticatedUser currentUser = currentUser();
+        CommentView pending = ownedPendingComment(siteId, pageId, null, currentUser);
+        when(currentUserService.getWidgetCurrentUser(
+            "plain-session-token", siteId, ORIGIN
+        )).thenReturn(currentUser);
+        when(publicCommentService.listComments(
+            siteId,
+            ORIGIN,
+            PAGE_URL,
+            1,
+            20,
+            PublicCommentSort.PINNED_FIRST,
+            Optional.of(currentUser.id()),
+            null
+        )).thenReturn(new CommentPage(List.of(pending), 1, 20, 1));
+
+        mockMvc.perform(get("/api/public/sites/{siteId}/pages/comments", siteId)
+                .header(HttpHeaders.ORIGIN, FRAME_ORIGIN)
+                .header(WidgetContextService.CONTEXT_HEADER, CONTEXT_TOKEN)
+                .header("X-CloudComment-Page-Url", PAGE_URL)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .param("pageUrl", PAGE_URL))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.items[0].status", is("PENDING")))
+            .andExpect(jsonPath("$.items[0].ownedByCurrentUser", is(true)))
+            .andExpect(jsonPath("$.items[0].author.email").doesNotExist())
+            .andExpect(jsonPath("$.totalItems", is(1)));
+    }
+
+    @Test
     void listCommentsPassesOptionalReplyLimit() throws Exception {
         UUID siteId = UUID.randomUUID();
         when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
@@ -251,6 +284,32 @@ class PublicCommentControllerTests {
                 .header(HttpHeaders.ORIGIN, ORIGIN))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.items[0].parentId", is(rootId.toString())))
+            .andExpect(jsonPath("$.totalItems", is(1)));
+    }
+
+    @Test
+    void listRepliesPassesWidgetViewerAndReturnsOwnedPendingReply() throws Exception {
+        UUID siteId = UUID.randomUUID();
+        UUID rootId = UUID.randomUUID();
+        UUID pageId = UUID.randomUUID();
+        AuthenticatedUser currentUser = currentUser();
+        CommentView pendingReply = ownedPendingComment(siteId, pageId, rootId, currentUser);
+        when(currentUserService.getWidgetCurrentUser(
+            "plain-session-token", siteId, ORIGIN
+        )).thenReturn(currentUser);
+        when(publicCommentService.listReplies(
+            siteId, ORIGIN, rootId, 1, 20, Optional.of(currentUser.id())
+        )).thenReturn(new CommentPage(List.of(pendingReply), 1, 20, 1));
+
+        mockMvc.perform(get("/api/public/sites/{siteId}/comments/{commentId}/replies", siteId, rootId)
+                .header(HttpHeaders.ORIGIN, FRAME_ORIGIN)
+                .header(WidgetContextService.CONTEXT_HEADER, CONTEXT_TOKEN)
+                .header("X-CloudComment-Page-Url", PAGE_URL)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.items[0].status", is("PENDING")))
+            .andExpect(jsonPath("$.items[0].ownedByCurrentUser", is(true)))
+            .andExpect(jsonPath("$.items[0].author.email").doesNotExist())
             .andExpect(jsonPath("$.totalItems", is(1)));
     }
 
@@ -514,6 +573,11 @@ class PublicCommentControllerTests {
                     }
                     """))
             .andExpect(status().isOk())
+            .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, FRAME_ORIGIN))
+            .andExpect(header().string(
+                HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS,
+                "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+            ))
             .andExpect(jsonPath("$.id", is(commentId.toString())))
             .andExpect(jsonPath("$.content", is("Updated body")))
             .andExpect(jsonPath("$.status", is("PENDING")));
@@ -579,7 +643,12 @@ class PublicCommentControllerTests {
                 .header(WidgetContextService.CONTEXT_HEADER, CONTEXT_TOKEN)
                 .header("X-CloudComment-Page-Url", PAGE_URL)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
-            .andExpect(status().isNoContent());
+            .andExpect(status().isNoContent())
+            .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, FRAME_ORIGIN))
+            .andExpect(header().string(
+                HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS,
+                "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+            ));
 
         verify(publicCommentService).deleteOwnComment(currentUser, siteId, ORIGIN, commentId);
     }
@@ -820,6 +889,51 @@ class PublicCommentControllerTests {
     }
 
     @Test
+    void framePreflightSupportsPatchAndDelete() throws Exception {
+        UUID siteId = UUID.randomUUID();
+
+        for (String method : java.util.List.of("PATCH", "DELETE")) {
+            mockMvc.perform(options("/api/public/sites/{siteId}/comments/{commentId}", siteId, UUID.randomUUID())
+                    .header(HttpHeaders.ORIGIN, FRAME_ORIGIN)
+                    .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, method)
+                    .header(
+                        HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS,
+                        "authorization, content-type, accept, X-CloudComment-Widget-Context, X-CloudComment-Page-Url"
+                    ))
+                .andExpect(status().isNoContent())
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, FRAME_ORIGIN))
+                .andExpect(header().string(
+                    HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS,
+                    "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+                ))
+                .andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS));
+        }
+
+        verifyNoInteractions(currentUserService, publicCommentService);
+    }
+
+    @Test
+    void preflightRejectsUnknownMethodAndHeaderWithoutCorsHeaders() throws Exception {
+        UUID siteId = UUID.randomUUID();
+        when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
+
+        mockMvc.perform(options("/api/public/sites/{siteId}/comments/{commentId}", siteId, UUID.randomUUID())
+                .header(HttpHeaders.ORIGIN, ORIGIN)
+                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "TRACE"))
+            .andExpect(status().isNotFound())
+            .andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN));
+
+        mockMvc.perform(options("/api/public/sites/{siteId}/comments/{commentId}", siteId, UUID.randomUUID())
+                .header(HttpHeaders.ORIGIN, ORIGIN)
+                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "PATCH")
+                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "Authorization, X-Admin-Token"))
+            .andExpect(status().isNotFound())
+            .andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN));
+
+        verifyNoInteractions(currentUserService, publicCommentService);
+    }
+
+    @Test
     void preflightForDisallowedOriginDoesNotReturnPermissiveCorsHeaders() throws Exception {
         UUID siteId = UUID.randomUUID();
         when(domainPolicyService.isOriginAllowed(siteId, "https://evil.example")).thenReturn(false);
@@ -950,6 +1064,31 @@ class PublicCommentControllerTests {
             status,
             TIMESTAMP,
             TIMESTAMP,
+            List.of()
+        );
+    }
+
+    private CommentView ownedPendingComment(
+        UUID siteId,
+        UUID pageId,
+        UUID parentId,
+        AuthenticatedUser currentUser
+    ) {
+        return new CommentView(
+            UUID.randomUUID(),
+            siteId,
+            pageId,
+            parentId,
+            new CommentAuthor(currentUser.id(), currentUser.email(), currentUser.email()),
+            "Waiting for moderation",
+            CommentStatus.PENDING,
+            TIMESTAMP,
+            TIMESTAMP,
+            null,
+            false,
+            true,
+            List.of(),
+            0,
             List.of()
         );
     }

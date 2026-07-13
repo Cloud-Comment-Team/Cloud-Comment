@@ -1,7 +1,7 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { motion } from 'framer-motion'
-import { Globe, LayoutDashboard, LogOut, Shield, X } from 'lucide-react'
+import { BarChart3, CalendarCheck2, Globe, LogOut, MessageSquareText, Shield, X } from 'lucide-react'
 import toast from 'react-hot-toast'
+import type { ReactNode } from 'react'
 
 import { BrandMark } from '../brand/BrandLogo'
 import { useAuthStore } from '../../store'
@@ -9,18 +9,22 @@ import { ThemeToggle } from '../../theme'
 import { preloadRoute } from '../../routes/lazyPages'
 
 const navigation = [
-  { name: 'Дашборд', href: '/', icon: LayoutDashboard },
+  { name: 'Сегодня', href: '/', icon: CalendarCheck2 },
   { name: 'Сайты', href: '/sites', icon: Globe },
-  { name: 'Модерация', href: '/moderation', icon: Shield },
+  { name: 'Обсуждения', href: '/comments', icon: MessageSquareText },
+  { name: 'К разбору', href: '/moderation', icon: Shield },
+  { name: 'Аналитика', href: '/analytics', icon: BarChart3 },
 ]
 
 interface SidebarProps {
   isOpen: boolean
   onClose: () => void
   onNavigationIntent: (route: string, element: HTMLElement) => void
+  actions?: ReactNode
+  showThemeToggle: boolean
 }
 
-const Sidebar = ({ isOpen, onClose, onNavigationIntent }: SidebarProps) => {
+const Sidebar = ({ isOpen, onClose, onNavigationIntent, actions, showThemeToggle }: SidebarProps) => {
   const user = useAuthStore((state) => state.user)
   const logout = useAuthStore((state) => state.logout)
   const navigate = useNavigate()
@@ -42,14 +46,14 @@ const Sidebar = ({ isOpen, onClose, onNavigationIntent }: SidebarProps) => {
       {isOpen && (
         <button
           type="button"
-          className="fixed inset-0 z-40 bg-slate-950/45 backdrop-blur-sm lg:hidden"
+          className="fixed inset-0 z-40 bg-slate-950/45 lg:hidden"
           aria-label="Закрыть меню"
           onClick={onClose}
         />
       )}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-50 w-64 transform border-r shadow-2xl transition-transform duration-200 ease-in-out lg:translate-x-0 lg:shadow-none ${
+        className={`fixed inset-y-0 left-0 z-50 w-56 transform border-r shadow-2xl transition-transform duration-200 ease-in-out lg:translate-x-0 lg:shadow-none ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
         style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}
@@ -77,7 +81,7 @@ const Sidebar = ({ isOpen, onClose, onNavigationIntent }: SidebarProps) => {
             </button>
           </div>
 
-          <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
+          <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-5">
             {navigation.map((item) => (
               <NavLink
                 key={item.name}
@@ -90,38 +94,16 @@ const Sidebar = ({ isOpen, onClose, onNavigationIntent }: SidebarProps) => {
                   onNavigationIntent(item.href, event.currentTarget)
                   onClose()
                 }}
-                className="group relative isolate flex items-center gap-3 overflow-hidden rounded-lg px-3 py-2.5 text-sm transition hover:-translate-y-0.5 hover:shadow-sm"
+                className="relative flex items-center gap-3 rounded-lg border-l-2 px-3 py-2.5 text-sm transition-colors"
                 style={({ isActive }) => ({
                   color: isActive ? 'var(--accent)' : 'var(--text)',
                   fontWeight: isActive ? '600' : '500',
+                  backgroundColor: isActive ? 'var(--accent-bg)' : 'transparent',
+                  borderLeftColor: isActive ? 'var(--accent)' : 'transparent',
                 })}
               >
-                {({ isActive }) => (
-                  <>
-                    {isActive && (
-                      <motion.span
-                        layoutId="cc-sidebar-active-route"
-                        className="absolute inset-0 rounded-lg border"
-                        style={{
-                          backgroundColor: 'var(--accent-bg)',
-                          borderColor: 'var(--accent-border)',
-                          boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 12px 28px rgba(15, 118, 110, 0.14)',
-                        }}
-                        transition={{ type: 'spring', stiffness: 420, damping: 34, mass: 0.72 }}
-                      />
-                    )}
-                    {isActive && (
-                      <motion.span
-                        layoutId="cc-sidebar-active-beam"
-                        className="absolute bottom-1 left-1 top-1 w-1 rounded-full"
-                        style={{ backgroundColor: 'var(--accent)' }}
-                        transition={{ type: 'spring', stiffness: 520, damping: 36, mass: 0.64 }}
-                      />
-                    )}
-                    <item.icon className="relative z-10 h-4 w-4" aria-hidden="true" />
-                    <span className="relative z-10">{item.name}</span>
-                  </>
-                )}
+                <item.icon className="h-4 w-4" aria-hidden="true" />
+                <span>{item.name}</span>
               </NavLink>
             ))}
           </nav>
@@ -136,33 +118,22 @@ const Sidebar = ({ isOpen, onClose, onNavigationIntent }: SidebarProps) => {
                 onNavigationIntent('/account', event.currentTarget)
                 onClose()
               }}
-              className="group relative isolate flex items-center gap-3 overflow-hidden rounded-lg border p-3 text-left transition hover:-translate-y-0.5 hover:shadow-sm"
+              className="flex items-center gap-3 rounded-lg border p-3 text-left transition-colors"
               style={({ isActive }) => ({
                 borderColor: isActive ? 'var(--accent-border)' : 'var(--border)',
+                backgroundColor: isActive ? 'var(--accent-bg)' : 'transparent',
               })}
               aria-label="Открыть настройки аккаунта"
             >
-              {({ isActive }) => (
+              {() => (
                 <>
-                  {isActive && (
-                    <motion.span
-                      layoutId="cc-sidebar-active-route"
-                      className="absolute inset-0 rounded-lg border"
-                      style={{
-                        backgroundColor: 'var(--accent-bg)',
-                        borderColor: 'var(--accent-border)',
-                        boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 12px 28px rgba(15, 118, 110, 0.14)',
-                      }}
-                      transition={{ type: 'spring', stiffness: 420, damping: 34, mass: 0.72 }}
-                    />
-                  )}
                   <div
-                    className="relative z-10 flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
                     style={{ backgroundColor: 'var(--accent-bg)', color: 'var(--accent)' }}
                   >
                     <span className="text-xs font-semibold">{initials}</span>
                   </div>
-                  <div className="relative z-10 min-w-0 flex-1 text-left">
+                  <div className="min-w-0 flex-1 text-left">
                     <p className="truncate text-sm font-medium" style={{ color: 'var(--text-h)' }}>
                       Владелец
                     </p>
@@ -174,7 +145,7 @@ const Sidebar = ({ isOpen, onClose, onNavigationIntent }: SidebarProps) => {
               )}
             </NavLink>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 border-t pt-3" style={{ borderColor: 'var(--border)' }}>
               <button
                 type="button"
                 onClick={() => void handleLogout()}
@@ -184,7 +155,8 @@ const Sidebar = ({ isOpen, onClose, onNavigationIntent }: SidebarProps) => {
                 <LogOut className="h-4 w-4" aria-hidden="true" />
                 Выйти
               </button>
-              <ThemeToggle compact />
+              {actions}
+              {showThemeToggle && <ThemeToggle compact />}
             </div>
           </div>
         </div>
