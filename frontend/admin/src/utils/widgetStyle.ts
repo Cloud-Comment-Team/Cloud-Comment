@@ -37,6 +37,6 @@ function contrastRatio(first: string, second: string): number {
 
 export function isWidgetAccentAccessible(color: string): boolean {
   return /^#[0-9a-fA-F]{6}$/.test(color)
-    && contrastRatio(color, '#ffffff') >= 3
+    && contrastRatio(color, '#ffffff') >= 4.5
     && contrastRatio(color, '#141f31') >= 3
 }

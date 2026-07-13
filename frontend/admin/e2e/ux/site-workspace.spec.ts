@@ -1,5 +1,5 @@
-import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
+import { expectNoSeriousAccessibilityViolations } from './accessibility'
 
 const SITE_ID = '00000000-0000-0000-0000-000000000133'
 const OWNER_ID = '00000000-0000-0000-0000-000000000001'
@@ -19,11 +19,6 @@ async function authenticate(page: Page) {
     json: { items: [], page: 1, pageSize: 20, totalItems: 0, totalPages: 0 },
   }))
   await page.goto('/')
-}
-
-async function expectNoSeriousAccessibilityViolations(page: Page) {
-  const results = await new AxeBuilder({ page }).disableRules(['color-contrast']).analyze()
-  expect(results.violations.filter((violation) => ['critical', 'serious'].includes(violation.impact ?? ''))).toEqual([])
 }
 
 test('мастер хранит черновик, проверяет шаги и использует реальный preview', async ({ page }) => {

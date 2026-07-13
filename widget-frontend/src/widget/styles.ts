@@ -46,7 +46,7 @@ export const widgetStyles = `
   --cc-text-heading: #f5f8fc;
   --cc-placeholder: #7d8ca3;
   --cc-accent: var(--cc-custom-accent, #5eead4);
-  --cc-accent-strong: color-mix(in srgb, var(--cc-accent) 88%, #ffffff);
+  --cc-accent-strong: color-mix(in srgb, var(--cc-accent) 72%, #ffffff);
   --cc-accent-contrast: var(--cc-custom-accent-contrast, #06221f);
   --cc-accent-soft: color-mix(in srgb, var(--cc-accent) 14%, transparent);
   --cc-accent-border: color-mix(in srgb, var(--cc-accent) 30%, transparent);
@@ -148,7 +148,7 @@ export const widgetStyles = `
 
 .cloud-comment__eyebrow {
   margin: 0 0 6px;
-  color: var(--cc-accent);
+  color: var(--cc-accent-strong);
   font-size: 12px;
   font-weight: 800;
   letter-spacing: 0;
@@ -168,7 +168,7 @@ export const widgetStyles = `
   border: 1px solid var(--cc-accent-border);
   border-radius: 999px;
   background: var(--cc-accent-soft);
-  color: var(--cc-accent);
+  color: var(--cc-accent-strong);
   padding: 6px 11px;
   font-size: 12px;
   font-weight: 800;
@@ -278,7 +278,7 @@ export const widgetStyles = `
   justify-content: center;
   border-radius: 999px;
   background: var(--cc-accent-soft);
-  color: var(--cc-accent);
+  color: var(--cc-accent-strong);
   font-size: 12px;
   font-weight: 800;
 }
@@ -295,7 +295,7 @@ export const widgetStyles = `
   border: 1px solid var(--cc-accent-border);
   border-radius: 999px;
   background: var(--cc-accent-soft);
-  color: var(--cc-accent);
+  color: var(--cc-accent-strong);
   padding: 3px 8px;
   font-size: 11px;
   font-weight: 800;
@@ -356,7 +356,7 @@ export const widgetStyles = `
 .cloud-comment__reaction:hover {
   border-color: var(--cc-accent-border);
   background: var(--cc-accent-soft);
-  color: var(--cc-accent);
+  color: var(--cc-accent-strong);
   transform: translateY(-1px);
 }
 
@@ -386,7 +386,7 @@ export const widgetStyles = `
   border: 1px solid var(--cc-border);
   border-radius: 999px;
   background: var(--cc-surface-muted);
-  color: var(--cc-accent);
+  color: var(--cc-accent-strong);
   cursor: pointer;
   font: inherit;
   font-size: 12px;
@@ -466,7 +466,7 @@ export const widgetStyles = `
   border: 1px solid var(--cc-border);
   border-radius: 999px;
   background: var(--cc-surface-muted);
-  color: var(--cc-accent);
+  color: var(--cc-accent-strong);
   cursor: pointer;
   font: inherit;
   font-size: 13px;
@@ -505,7 +505,7 @@ export const widgetStyles = `
   border: 1px solid var(--cc-accent-border);
   border-radius: var(--cc-radius);
   background: var(--cc-accent-soft);
-  color: var(--cc-accent);
+  color: var(--cc-accent-strong);
   padding: 9px 11px;
   font-size: 13px;
   font-weight: 800;
@@ -716,7 +716,7 @@ export const widgetStyles = `
 .cloud-comment__account-button:hover {
   border-color: var(--cc-accent-border);
   background: var(--cc-accent-soft);
-  color: var(--cc-accent);
+  color: var(--cc-accent-strong);
   transform: translateY(-1px);
 }
 
@@ -738,7 +738,7 @@ export const widgetStyles = `
 }
 
 .cloud-comment__account-links a {
-  color: var(--cc-accent);
+  color: var(--cc-accent-strong);
   font-size: 12px;
   font-weight: 700;
   text-decoration: none;
@@ -799,7 +799,7 @@ export const widgetStyles = `
 
 .cloud-comment__tab--active {
   background: var(--cc-surface);
-  color: var(--cc-accent);
+  color: var(--cc-accent-strong);
   box-shadow: var(--cc-shadow-sm);
 }
 
