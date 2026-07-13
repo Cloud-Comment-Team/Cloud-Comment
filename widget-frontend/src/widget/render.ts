@@ -154,6 +154,7 @@ export function renderWidget(
       (element): element is HTMLElement => element !== null
     );
     shell.replaceChildren(...content);
+    localizeEnglishWidget(shell);
     focusManager.restore();
   }
 
@@ -334,7 +335,7 @@ export function renderWidget(
         return;
       }
       state.deleteConfirming = false;
-      state.notice = `Письмо для подтверждения удаления отправлено на ${state.userEmail ?? "ваш email"}. Код действует до ${formatDate(deletionRequest.expiresAt)}.`;
+      state.notice = `Письмо для подтверждения удаления отправлено на ${state.userEmail ?? (state.config?.style.locale === "EN" ? "your email" : "ваш email")}. Код действует до ${formatDate(deletionRequest.expiresAt, state.config?.style.locale)}.`;
     } catch (error) {
       if (isUnauthorized(error)) {
         if (expireAuthenticatedSession(request)) {
@@ -1485,7 +1486,7 @@ function renderComment(comment: PublicComment, state: WidgetState, depth: number
 
   const date = document.createElement("time");
   date.dateTime = comment.createdAt;
-  date.textContent = formatDate(comment.createdAt);
+  date.textContent = formatDate(comment.createdAt, state.config?.style.locale);
 
   if (state.config?.style.avatarStyle !== "HIDDEN") {
     header.append(avatar);
@@ -2312,12 +2313,12 @@ function normalizeEmail(value: string | null): string | null {
   return normalized || null;
 }
 
-function formatDate(value: string): string {
+function formatDate(value: string, locale: WidgetStyle["locale"] = "RU"): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
     return "";
   }
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(locale === "EN" ? "en-GB" : "ru-RU", {
     dateStyle: "medium",
     timeStyle: "short"
   }).format(date);
@@ -2355,6 +2356,156 @@ function getInitials(value: string): string {
     return "CC";
   }
   return normalized.slice(0, 2).toUpperCase();
+}
+
+const ENGLISH_WIDGET_COPY: Record<string, string> = {
+  "Комментарии CloudComment": "CloudComment comments",
+  "Обсуждение": "Discussion",
+  "Комментарии": "Comments",
+  "Сортировка": "Sort",
+  "Сортировка комментариев": "Sort comments",
+  "Закреплённые сначала": "Pinned first",
+  "Сначала новые": "Newest first",
+  "Сначала старые": "Oldest first",
+  "По реакциям": "Top reactions",
+  "Загружаем комментарии...": "Loading comments...",
+  "Показать ещё комментарии": "Show more comments",
+  "Пока нет комментариев. Будьте первым, кто начнет обсуждение.": "No comments yet. Be the first to start the discussion.",
+  "Комментариев пока нет": "No comments yet",
+  "Закреплён": "Pinned",
+  "Отвечаем": "Replying",
+  "Ответить": "Reply",
+  "Скрыть ответы": "Hide replies",
+  "Загружаем ответы...": "Loading replies...",
+  "Редактировать": "Edit",
+  "Удалить": "Delete",
+  "Удаляем...": "Deleting...",
+  "Редактировать комментарий": "Edit comment",
+  "Отмена": "Cancel",
+  "Сохраняем...": "Saving...",
+  "Сохранить": "Save",
+  "Удалить комментарий? Он исчезнет из публичного обсуждения.": "Delete this comment? It will disappear from the public discussion.",
+  "Да, удалить": "Yes, delete",
+  "Напишите комментарий": "Write a comment",
+  "Написать комментарий": "Write a comment",
+  "Напишите ответ": "Write a reply",
+  "Войдите, чтобы написать комментарий": "Sign in to write a comment",
+  "Вы авторизованы": "Signed in",
+  "Отправляем...": "Sending...",
+  "Отправить": "Send",
+  "Меню профиля": "Profile menu",
+  "Аккаунт комментатора": "Commenter account",
+  "Управление аккаунтом и персональными данными": "Manage your account and personal data",
+  "Скачать данные": "Download data",
+  "Выйти": "Sign out",
+  "Удалить аккаунт": "Delete account",
+  "Политика": "Privacy policy",
+  "Условия": "Terms",
+  "Персональные данные": "Personal data",
+  "Мы отправим письмо с одноразовой ссылкой и кодом. Аккаунт удалится только после подтверждения.": "We will email a one-time link and code. Your account will be deleted only after confirmation.",
+  "Отправить письмо": "Send email",
+  "Войти, чтобы участвовать": "Sign in to join",
+  "Войти": "Sign in",
+  "Регистрация": "Register",
+  "Пароль": "Password",
+  "Согласен(на) на обработку персональных данных": "I consent to personal data processing",
+  "Согласен(на) на обработку ПДн (": "I consent to personal data processing (",
+  "политика": "privacy policy",
+  "условия": "terms",
+  "Подождите...": "Please wait...",
+  "Создать аккаунт": "Create account",
+  "Автор сайта": "Site owner",
+  "Участник": "Participant",
+  "Вы": "You",
+  "Нравится": "Like",
+  "Люблю": "Love",
+  "Любовь": "Love",
+  "Смешно": "Funny",
+  "Удивительно": "Wow",
+  "Удивление": "Wow",
+  "На модерации": "Pending moderation",
+  "Опубликован": "Published",
+  "Комментарий опубликован.": "Comment published.",
+  "Ответ опубликован.": "Reply published.",
+  "Комментарий отправлен на проверку.": "Comment sent for review.",
+  "Комментарий обновлен.": "Comment updated.",
+  "Комментарий обновлен и отправлен на проверку.": "Comment updated and sent for review.",
+  "Комментарий удален.": "Comment deleted.",
+  "Комментарий уже отправлен, но список не удалось обновить. Не отправляйте его повторно.": "The comment was sent, but the list could not be refreshed. Do not send it again.",
+  "Вы вошли и можете оставить комментарий.": "You are signed in and can leave a comment.",
+  "Вы вышли из аккаунта комментатора.": "You are signed out of the commenter account.",
+  "Файл с персональными данными подготовлен.": "Your personal data file is ready.",
+  "Напишите комментарий перед отправкой.": "Write a comment before sending.",
+  "Комментарий не может быть пустым.": "The comment cannot be empty.",
+  "Сессия истекла. Войдите снова.": "Your session has expired. Sign in again.",
+  "Сессия истекла. Войдите снова, чтобы поставить реакцию.": "Your session has expired. Sign in again to react.",
+  "Войдите или зарегистрируйтесь, чтобы оставить комментарий.": "Sign in or register to leave a comment.",
+  "Войдите или зарегистрируйтесь, чтобы ответить.": "Sign in or register to reply.",
+  "Войдите или зарегистрируйтесь, чтобы поставить реакцию.": "Sign in or register to react.",
+  "Войдите, чтобы редактировать свой комментарий.": "Sign in to edit your comment.",
+  "Войдите, чтобы удалить свой комментарий.": "Sign in to delete your comment.",
+  "Войдите, чтобы скачать данные аккаунта.": "Sign in to download your account data.",
+  "Войдите, чтобы запросить удаление аккаунта.": "Sign in to request account deletion.",
+  "Необходимо согласие на обработку персональных данных.": "Consent to personal data processing is required.",
+  "Требования согласия ещё загружаются. Попробуйте снова.": "Consent requirements are still loading. Please try again.",
+  "CloudComment не смог обработать запрос. Попробуйте еще раз.": "CloudComment could not process the request. Please try again."
+};
+
+function translateEnglishWidgetText(value: string): string {
+  const direct = ENGLISH_WIDGET_COPY[value];
+  if (direct) return direct;
+
+  const replacements: Array<[RegExp, string]> = [
+    [/^Показать ещё комментарии \((\d+)\)$/, "Show more comments ($1)"],
+    [/^Показать ответы \((\d+)\)$/, "Show replies ($1)"],
+    [/^Показать ещё ответы \((\d+)\)$/, "Show more replies ($1)"],
+    [/^Ответ для (.+)$/, "Replying to $1"],
+    [/^Вы вошли как (.+)$/, "Signed in as $1"],
+    [/^Ответ для (.+) отправлен на проверку\.$/, "Reply to $1 sent for review."],
+    [/^Письмо для подтверждения удаления отправлено на (.+)\. Код действует до (.+)\.$/, "A deletion confirmation email was sent to $1. The code is valid until $2."],
+    [/^Согласен\(на\) на обработку ПДн \((.+)\)$/, "I consent to personal data processing ($1)"],
+  ];
+  for (const [pattern, replacement] of replacements) {
+    if (pattern.test(value)) return value.replace(pattern, replacement);
+  }
+  return value;
+}
+
+function localizeEnglishWidget(shell: HTMLElement): void {
+  if (shell.lang !== "en") return;
+
+  shell.setAttribute("aria-label", "CloudComment comments");
+  const excluded = ".cloud-comment__comment-content, .cloud-comment__avatar, .cloud-comment__comment-header > strong";
+  const walker = document.createTreeWalker(shell, NodeFilter.SHOW_TEXT);
+  let node = walker.nextNode();
+  while (node) {
+    const parent = node.parentElement;
+    if (parent && !parent.matches(excluded) && !parent.closest(".cloud-comment__comment-content")) {
+      const raw = node.textContent ?? "";
+      const trimmed = raw.trim();
+      if (trimmed) {
+        const translated = translateEnglishWidgetText(trimmed);
+        if (translated !== trimmed) {
+          node.textContent = raw.replace(trimmed, translated);
+        }
+      }
+    }
+    node = walker.nextNode();
+  }
+
+  for (const element of shell.querySelectorAll<HTMLElement>("[aria-label], [placeholder], [title]")) {
+    for (const attribute of ["aria-label", "placeholder", "title"] as const) {
+      const value = element.getAttribute(attribute);
+      if (value) element.setAttribute(attribute, translateEnglishWidgetText(value));
+    }
+  }
+
+  for (const time of shell.querySelectorAll<HTMLTimeElement>("time[datetime]")) {
+    const date = new Date(time.dateTime);
+    if (!Number.isNaN(date.getTime())) {
+      time.textContent = new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short" }).format(date);
+    }
+  }
 }
 
 function getPageLabel(pageUrl: string): string {

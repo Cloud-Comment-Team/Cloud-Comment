@@ -179,7 +179,7 @@ model {
 
       automodPolicyPages = component 'Политика автомодерации' 'Черновик с optimistic revision, моделирование, SHADOW/LIVE, публикация, история, откат и feedback'
 
-      analyticsPages = component 'Страницы аналитики' 'Дашборд владельца и аналитика конкретного сайта по комментариям, реакциям и модерации'
+      analyticsPages = component 'Сегодня и аналитика' 'Рабочая страница Сегодня показывает приоритетные действия, а отдельный маршрут аналитики — тенденции, реакции и нагрузку модерации'
 
       adminApiClient = component 'Admin API Client' 'Единый клиент для запросов в backend API'
       realtimeClient = component 'Notification and Realtime Client' 'Постоянный owner-scoped центр уведомлений и единое WebSocket-подключение для live-обновлений'

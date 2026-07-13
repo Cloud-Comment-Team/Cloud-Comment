@@ -94,13 +94,13 @@ test('admin использует HttpOnly cookie и CSRF без bearer/localStor
   await page.getByLabel('Email').fill(USER.email)
   await page.getByLabel('Пароль', { exact: true }).fill('Password123!')
   await page.getByRole('button', { name: 'Войти' }).click()
-  await expect(page.getByRole('heading', { name: 'Панель владельца сайта' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Сегодня' })).toBeVisible()
   expect(adminLoginCalls).toBe(1)
   expect(await page.evaluate(() => document.cookie)).not.toContain('cloud_comment_admin_session')
   expect(await page.evaluate(() => document.cookie)).not.toContain('cloud_comment_admin_csrf')
 
   await page.reload()
-  await expect(page.getByRole('heading', { name: 'Панель владельца сайта' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Сегодня' })).toBeVisible()
   await page.goto('/login')
   await expect(page).toHaveURL(/\/$/)
 
@@ -192,7 +192,9 @@ test('вкладки блокируют mutation UI до проверки нов
     })
   })
   await context.route('**/api/realtime/tickets', (route) => route.fulfill({ json: { ticket: 'offline-ticket' } }))
-  await context.route('**/api/sites**', (route) => route.fulfill({ json: [] }))
+  await context.route(/\/api\/sites(?:\?.*)?$/, (route) => route.fulfill({
+    json: { items: [], page: 1, pageSize: 100, totalItems: 0, totalPages: 0 },
+  }))
   await context.route('**/api/notifications/unread-count', (route) => route.fulfill({ json: { unreadCount: 0 } }))
   await context.route('**/api/notifications?*', (route) => route.fulfill({
     json: { items: [], page: 1, pageSize: 20, totalItems: 0, totalPages: 0 },
@@ -203,11 +205,11 @@ test('вкладки блокируют mutation UI до проверки нов
   await page.getByLabel('Email').fill(USER.email)
   await page.getByLabel('Пароль', { exact: true }).fill('Password123!')
   await page.getByRole('button', { name: 'Войти' }).click()
-  await expect(page.getByRole('heading', { name: 'Панель владельца сайта' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Сегодня' })).toBeVisible()
 
   const secondPage = await context.newPage()
   await secondPage.goto('/')
-  await expect(secondPage.getByRole('heading', { name: 'Панель владельца сайта' })).toBeVisible()
+  await expect(secondPage.getByRole('heading', { name: 'Сегодня' })).toBeVisible()
   await expect(page.locator('aside').getByText(USER.email)).toBeVisible()
   await expect(secondPage.locator('aside').getByText(USER.email)).toBeVisible()
 
@@ -224,13 +226,13 @@ test('вкладки блокируют mutation UI до проверки нов
   await secondPage.getByLabel('Email').fill(nextUser.email)
   await secondPage.getByLabel('Пароль', { exact: true }).fill('Password123!')
   await secondPage.getByRole('button', { name: 'Войти' }).click()
-  await expect(secondPage.getByRole('heading', { name: 'Панель владельца сайта' })).toBeVisible()
+  await expect(secondPage.getByRole('heading', { name: 'Сегодня' })).toBeVisible()
 
   await expect(page.getByRole('status')).toHaveText('Проверяем доступ…')
   await expect(page.getByRole('link', { name: 'Создать сайт' })).toHaveCount(0)
   releaseStaleMe?.()
 
-  await expect(page.getByRole('heading', { name: 'Панель владельца сайта' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Сегодня' })).toBeVisible()
   await expect(page.locator('aside').getByText(nextUser.email)).toBeVisible()
   expect(meCalls).toBeGreaterThanOrEqual(3)
 

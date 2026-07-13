@@ -1,11 +1,10 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
-import { Link, useBlocker, useNavigate, useParams } from 'react-router-dom'
+import { Link, useBlocker, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, Check, CircleCheck, CircleDashed, Copy, Globe, Palette, Power, Trash2, TriangleAlert } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 import { getApiErrorMessage } from '../../api/auth'
 import { deleteSite, getEmbedCode, getSite, replaceAllowedOrigins, updateSite } from '../../api/sites'
-import { OwnerAnalyticsPanel } from '../../components/analytics/OwnerAnalyticsPanel'
 import { AsyncState } from '../../components/common/AsyncState'
 import { Badge } from '../../components/common/Badge'
 import { Dialog } from '../../components/common/Workspace'
@@ -42,6 +41,10 @@ const workspaceSections: Array<{ id: SiteWorkspaceSection; label: string }> = [
   { id: 'origins', label: 'Origins' },
   { id: 'danger', label: 'Опасная зона' },
 ]
+
+function siteWorkspaceSection(value: string | null): SiteWorkspaceSection {
+  return workspaceSections.some((section) => section.id === value) ? value as SiteWorkspaceSection : 'overview'
+}
 
 const installationLabels: Record<SiteInstallationStatus['status'], { title: string; description: string; tone: 'success' | 'warning' | 'danger' | 'muted' }> = {
   NEVER_SEEN: { title: 'Виджет ещё не подключался', description: 'Скопируйте код и откройте страницу с разрешённого origin.', tone: 'muted' },
@@ -80,9 +83,10 @@ const installationReasonLabels: Record<SiteInstallationStatus['reason'], { title
 const SiteDetail = () => {
   const navigate = useNavigate()
   const { siteId = '' } = useParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [site, setSite] = useState<Site | null>(null)
   const [embedCode, setEmbedCode] = useState<EmbedCode | null>(null)
-  const [activeSection, setActiveSection] = useState<SiteWorkspaceSection>('overview')
+  const activeSection = siteWorkspaceSection(searchParams.get('section'))
   const [embedCopied, setEmbedCopied] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -93,6 +97,9 @@ const SiteDetail = () => {
   const [domain, setDomain] = useState('')
   const [moderationMode, setModerationMode] = useState<ModerationMode>('PRE_MODERATION')
   const [widgetStyle, setWidgetStyle] = useState<WidgetStyle>(DEFAULT_WIDGET_STYLE)
+  const [previewWidth, setPreviewWidth] = useState<320 | 480 | 760>(480)
+  const [previewScenario, setPreviewScenario] = useState<'thread' | 'empty' | 'auth' | 'error'>('thread')
+  const [previewTheme, setPreviewTheme] = useState<'LIGHT' | 'DARK'>('LIGHT')
   const previewRef = useRef<HTMLIFrameElement>(null)
   const {
     status: installationStatus,
@@ -182,8 +189,13 @@ const SiteDetail = () => {
   }, [settingsDirty])
 
   useEffect(() => {
-    previewRef.current?.contentWindow?.postMessage({ type: 'cloud-comment-preview', style: widgetStyle }, '*')
-  }, [widgetStyle])
+    previewRef.current?.contentWindow?.postMessage({
+      type: 'cloud-comment-preview',
+      style: { ...widgetStyle, theme: previewTheme },
+      scenario: previewScenario,
+      theme: previewTheme,
+    }, '*')
+  }, [previewScenario, previewTheme, widgetStyle])
 
   async function handleSaveSettings() {
     if (!site || activeSection === 'installation' || activeSection === 'danger') return
@@ -323,13 +335,24 @@ const SiteDetail = () => {
       setPendingSection(section)
       return
     }
-    setActiveSection(section)
+    commitSectionRoute(section)
+  }
+
+  function commitSectionRoute(section: SiteWorkspaceSection) {
+    const next = new URLSearchParams(searchParams)
+    if (section === 'overview') next.delete('section')
+    else next.set('section', section)
+    allowNavigationRef.current = true
+    setSearchParams(next, { replace: false })
+    window.setTimeout(() => {
+      allowNavigationRef.current = false
+    }, 0)
   }
 
   function handleDiscardPolicyChanges() {
     if (!pendingSection) return
     setPolicyDirty(false)
-    setActiveSection(pendingSection)
+    commitSectionRoute(pendingSection)
     setPendingSection(null)
   }
 
@@ -349,7 +372,6 @@ const SiteDetail = () => {
           <div className="space-y-6">
             <div className="cc-page-heading">
               <div>
-                <p className="cc-eyebrow">Настройки проекта</p>
                 <h1 className="cc-title flex items-center gap-2">
                   <Globe className="h-6 w-6" style={{ color: 'var(--accent)' }} aria-hidden="true" />
                   {site.name}
@@ -485,7 +507,7 @@ const SiteDetail = () => {
             )}
 
             {(['overview', 'appearance', 'moderation', 'origins'] as SiteWorkspaceSection[]).includes(activeSection) && <section
-              className="cc-card p-5 md:p-6"
+              className={`cc-card p-5 md:p-6 ${activeSection === 'appearance' ? 'cc-appearance-card' : ''}`}
               style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}
             >
               <h2 className="mb-4 text-lg font-semibold" style={{ color: 'var(--text-h)' }}>
@@ -557,7 +579,7 @@ const SiteDetail = () => {
                 </>}
 
                 {activeSection === 'appearance' && (
-                <div className="grid gap-4 md:col-span-2 md:grid-cols-3">
+                <div className="cc-widget-editor grid gap-4 md:col-span-2 md:grid-cols-3">
                   <label className="block">
                     <span className="mb-2 block text-sm font-medium" style={{ color: 'var(--text-h)' }}>
                       Тема виджета
@@ -688,7 +710,7 @@ const SiteDetail = () => {
                     <fieldset className="md:col-span-2"><legend className="mb-2 text-sm font-medium">Доступные реакции</legend><div className="flex flex-wrap gap-4">{(Object.keys(reactionLabels) as CommentReactionType[]).map((reaction) => <label key={reaction} className="inline-flex items-center gap-2 text-sm"><input type="checkbox" checked={widgetStyle.enabledReactions.includes(reaction)} onChange={(event) => updateWidgetStyle('enabledReactions', event.target.checked ? [...widgetStyle.enabledReactions, reaction] : widgetStyle.enabledReactions.filter((item) => item !== reaction))} />{reactionLabels[reaction]}</label>)}</div></fieldset>
                   </div>
 
-                  <div className="md:col-span-3">
+                  <div className="cc-widget-preview md:col-span-3">
                     <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
                       <span className="text-sm font-semibold" style={{ color: 'var(--text-h)' }}>Живой предварительный просмотр</span>
                       <div className="flex items-center gap-3">
@@ -696,16 +718,35 @@ const SiteDetail = () => {
                         <button type="button" className="cc-button-secondary" onClick={() => setWidgetStyle(DEFAULT_WIDGET_STYLE)}>Сбросить оформление</button>
                       </div>
                     </div>
+                    <div className="mb-3 grid gap-2 sm:grid-cols-3">
+                      <label className="text-xs font-semibold" style={{ color: 'var(--text)' }}>Ширина
+                        <select className="cc-field mt-1" value={previewWidth} onChange={(event) => setPreviewWidth(Number(event.target.value) as 320 | 480 | 760)}>
+                          <option value="320">320 px</option><option value="480">480 px</option><option value="760">760 px</option>
+                        </select>
+                      </label>
+                      <label className="text-xs font-semibold" style={{ color: 'var(--text)' }}>Тема
+                        <select className="cc-field mt-1" value={previewTheme} onChange={(event) => setPreviewTheme(event.target.value as 'LIGHT' | 'DARK')}>
+                          <option value="LIGHT">Светлая</option><option value="DARK">Тёмная</option>
+                        </select>
+                      </label>
+                      <label className="text-xs font-semibold" style={{ color: 'var(--text)' }}>Состояние
+                        <select className="cc-field mt-1" value={previewScenario} onChange={(event) => setPreviewScenario(event.target.value as typeof previewScenario)}>
+                          <option value="thread">Ветка</option><option value="empty">Пусто</option><option value="auth">Авторизация</option><option value="error">Ошибка</option>
+                        </select>
+                      </label>
+                    </div>
                     {!widgetColorAccessible && <p className="mb-3 text-sm" style={{ color: 'var(--danger)' }}>Цвет недостаточно контрастен для светлой или тёмной темы. Сохранение недоступно.</p>}
-                    <iframe
-                      ref={previewRef}
-                      title="Предварительный просмотр виджета"
-                      src="/widget-preview.html"
-                      sandbox="allow-scripts"
-                      className="h-[560px] w-full rounded-lg border bg-white"
-                      style={{ borderColor: 'var(--border)' }}
-                      onLoad={() => previewRef.current?.contentWindow?.postMessage({ type: 'cloud-comment-preview', style: widgetStyle }, '*')}
-                    />
+                    <div className="overflow-x-auto rounded-lg p-2" style={{ backgroundColor: 'var(--surface-muted)' }}>
+                      <iframe
+                        ref={previewRef}
+                        title="Предварительный просмотр виджета"
+                        src="/widget-preview.html"
+                        sandbox="allow-scripts"
+                        className="mx-auto h-[560px] max-w-full rounded-lg border bg-white transition-[width]"
+                        style={{ borderColor: 'var(--border)', width: previewWidth }}
+                        onLoad={() => previewRef.current?.contentWindow?.postMessage({ type: 'cloud-comment-preview', style: { ...widgetStyle, theme: previewTheme }, scenario: previewScenario, theme: previewTheme }, '*')}
+                      />
+                    </div>
                   </div>
                 </div>
                 )}
@@ -722,18 +763,19 @@ const SiteDetail = () => {
                 </label>
                 )}
               </div>
-              {activeSection !== 'moderation' && <button
-                type="button"
-                onClick={() => void handleSaveSettings()}
-                disabled={saving || (activeSection === 'appearance' && !widgetColorAccessible)}
-                className="cc-button-primary mt-4"
-              >
-                <Check className="h-4 w-4" aria-hidden="true" />
-                {saving ? 'Сохраняем...' : 'Сохранить раздел'}
-              </button>}
+              {activeSection !== 'moderation' && <div className="cc-site-save-bar">
+                <span className="text-sm" style={{ color: 'var(--text)' }}>{settingsDirty ? 'Есть несохранённые изменения' : 'Все изменения сохранены'}</span>
+                <button
+                  type="button"
+                  onClick={() => void handleSaveSettings()}
+                  disabled={saving || !settingsDirty || (activeSection === 'appearance' && !widgetColorAccessible)}
+                  className="cc-button-primary"
+                >
+                  <Check className="h-4 w-4" aria-hidden="true" />
+                  {saving ? 'Сохраняем...' : 'Сохранить'}
+                </button>
+              </div>}
             </section>}
-
-            {activeSection === 'overview' && <OwnerAnalyticsPanel siteId={site.id} variant="site-summary" />}
 
             {activeSection === 'installation' && <section
               className="cc-card p-5 md:p-6"

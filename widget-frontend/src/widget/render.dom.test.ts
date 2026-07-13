@@ -250,11 +250,38 @@ beforeEach(() => {
   window.localStorage.clear();
   window.sessionStorage.clear();
   window.localStorage.setItem(WIDGET_AUTH_TOKEN_KEY, token);
+  config.style.locale = "RU";
+  config.style.headerTitle = "Комментарии";
+  config.style.commentsTitle = "Комментарии";
+  config.style.composerPlaceholder = "Напишите комментарий";
+  config.style.emptyMessage = "Комментариев пока нет";
 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+});
+
+describe("локализация интерфейса", () => {
+  it("полностью переключает системные подписи, контролы и даты на английский", async () => {
+    config.style.locale = "EN";
+    installApiMock();
+
+    const { shadowRoot } = await renderReadyWidget();
+    const shell = shadowRoot.querySelector<HTMLElement>(".cloud-comment");
+
+    expect(shell?.lang).toBe("en");
+    expect(shell?.getAttribute("aria-label")).toBe("CloudComment comments");
+    expect(shadowRoot.textContent).toContain("Discussion");
+    expect(shadowRoot.textContent).toContain("Comments");
+    expect(shadowRoot.textContent).toContain("Pinned first");
+    expect(shadowRoot.textContent).toContain("Reply");
+    expect(shadowRoot.textContent).toContain("Edit");
+    expect(composer(shadowRoot).getAttribute("placeholder")).toBe("Write a comment");
+    expect(shadowRoot.querySelector("select")?.getAttribute("aria-label")).toBe("Sort comments");
+    expect(shadowRoot.querySelector("time")?.textContent).toMatch(/13 Jul 2026/);
+    expect(shadowRoot.querySelector(".cloud-comment__comment-content")?.textContent).toBe("Исходный комментарий");
+  });
 });
 
 describe("пагинация корневых комментариев", () => {

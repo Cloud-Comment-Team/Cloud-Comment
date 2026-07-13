@@ -29,6 +29,11 @@ export async function confirmAccountDeletion(token: string): Promise<void> {
   await apiClient.post('/account/deletion-confirmations', { token })
 }
 
+export async function exportPersonalData(): Promise<unknown> {
+  const response = await apiClient.get<unknown>('/account/personal-data')
+  return response.data
+}
+
 function isNotFoundError(error: unknown): boolean {
   return (
     typeof error === 'object' &&

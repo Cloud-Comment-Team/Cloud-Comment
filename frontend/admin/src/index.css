@@ -194,6 +194,33 @@ pre {
 }
 
 @layer components {
+  .cc-today-row {
+    @apply grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-4 py-3 text-left transition-colors;
+  }
+
+  .cc-today-row:hover {
+    background: var(--surface-muted);
+  }
+
+  .cc-site-save-bar {
+    @apply sticky bottom-0 z-10 mt-5 flex items-center justify-between gap-4 border-t px-1 pt-4;
+    background: var(--surface);
+    border-color: var(--border);
+  }
+
+  @media (min-width: 1280px) {
+    .cc-widget-editor {
+      grid-template-columns: repeat(3, minmax(0, 0.72fr)) minmax(28rem, 1.45fr);
+    }
+
+    .cc-widget-preview {
+      grid-column: 4 !important;
+      grid-row: 1 / span 20 !important;
+      position: sticky;
+      top: 1rem;
+      align-self: start;
+    }
+  }
   .cc-page {
     @apply text-left;
   }

@@ -16,6 +16,7 @@
         const SITE_ID = '00000000-0000-0000-0000-000000000001';
         let style = null;
         let instance = null;
+        let scenario = 'thread';
         const json = (body) => Promise.resolve(new Response(JSON.stringify(body), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
@@ -38,7 +39,11 @@
         window.fetch = (input) => {
           const url = String(input);
           if (url.endsWith('/config')) return json({ siteId: SITE_ID, moderationMode: 'POST_MODERATION', style });
-          if (url.includes('/pages/comments')) return json({ items: [comment], page: 0, pageSize: 20, totalItems: 1, totalPages: 1 });
+          if (url.includes('/pages/comments')) {
+            if (scenario === 'error') return Promise.resolve(new Response('{"message":"preview error"}', { status: 503, headers: { 'Content-Type': 'application/json' } }));
+            const items = scenario === 'empty' ? [] : [comment];
+            return json({ items, page: 0, pageSize: 20, totalItems: items.length, totalPages: items.length ? 1 : 0 });
+          }
           if (url.endsWith('/privacy/consent-requirements')) return json({
             privacyPolicyVersion: 'preview', termsVersion: 'preview', privacyPolicyUrl: '#', termsUrl: '#',
             personalDataNoticeUrl: '#', dataExportInfoUrl: '#',
@@ -53,10 +58,20 @@
             siteId: SITE_ID, apiBaseUrl: 'https://preview.invalid/api',
             pageUrl: 'https://preview.invalid/article', target: '#cloud-comment-preview',
           });
+          if (scenario === 'auth') {
+            window.setTimeout(() => {
+              const target = document.getElementById('cloud-comment-preview');
+              const button = target?.shadowRoot?.querySelector('[data-auth-action="expand"]');
+              button?.click();
+            }, 50);
+          }
         }
         window.addEventListener('message', (event) => {
           if (event.source !== parent || event.data?.type !== 'cloud-comment-preview') return;
           style = event.data.style;
+          scenario = event.data.scenario ?? 'thread';
+          document.documentElement.style.colorScheme = event.data.theme === 'DARK' ? 'dark' : 'light';
+          document.documentElement.style.background = event.data.theme === 'DARK' ? '#0f172a' : '#f8fafc';
           render();
         });
         const script = document.createElement('script');

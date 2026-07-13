@@ -1,6 +1,7 @@
 import { lazy } from 'react'
 
 const loaders = {
+  analytics: () => import('../pages/Analytics/Analytics'),
   account: () => import('../pages/Account/AccountSettings'),
   accountDeletion: () => import('../pages/Account/AccountDeletionConfirm'),
   comments: () => import('../pages/Comments/Comments'),
@@ -21,10 +22,12 @@ export function preloadRoute(path: string) {
   if (path === '/moderation') return loaders.moderation()
   if (path === '/comments') return loaders.comments()
   if (path === '/account') return loaders.account()
+  if (path === '/analytics') return loaders.analytics()
   return Promise.resolve()
 }
 
 export const AccountDeletionConfirm = lazy(loaders.accountDeletion)
+export const Analytics = lazy(loaders.analytics)
 export const AccountSettings = lazy(loaders.account)
 export const Comments = lazy(loaders.comments)
 export const Dashboard = lazy(loaders.dashboard)

@@ -46,7 +46,7 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   await page.getByLabel('Пароль', { exact: true }).fill(PASSWORD)
   await page.getByRole('button', { name: 'Войти' }).click()
 
-  await expect(page.getByRole('heading', { name: 'Панель владельца сайта' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Сегодня' })).toBeVisible()
   expect(await page.evaluate(() => window.localStorage.getItem('cloud-comment.admin.authToken'))).toBeNull()
   expect(await page.evaluate(() => document.cookie)).not.toContain('cloud_comment_admin_session')
   expect(await page.evaluate(() => document.cookie)).not.toContain('cloud_comment_admin_csrf')
@@ -60,7 +60,7 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
     sameSite: 'Strict',
   })
   await page.reload()
-  await expect(page.getByRole('heading', { name: 'Панель владельца сайта' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Сегодня' })).toBeVisible()
   await page.getByRole('link', { name: 'Сайты' }).click()
   await expect(page.getByRole('heading', { name: 'Сайты' })).toBeVisible()
   await page.getByRole('link', { name: 'Создать сайт' }).first().click()

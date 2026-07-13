@@ -40,6 +40,12 @@ interface SiteFormValues {
   automodBlockedWords: string
 }
 
+interface SiteDraft {
+  values: Partial<SiteFormValues>
+  currentStep: number
+  focusTarget: string | null
+}
+
 const WIDGET_SCRIPT_PATH = '/widget/cloud-comment-widget.js'
 const DEFAULT_WIDGET_ACCENT = '#0f766e'
 const LEGACY_SITE_DRAFT_KEY = 'cloud-comment:site-create-draft:v1'
@@ -83,17 +89,22 @@ function removeSiteDraft(key: string): void {
   }
 }
 
-function readSiteDraft(draftKey: string): Partial<SiteFormValues> {
+function readSiteDraft(draftKey: string): SiteDraft {
   try {
     const raw = localStorage.getItem(draftKey)
-    if (!raw) return {}
-    const draft = JSON.parse(raw) as { expiresAt?: number; values?: Partial<SiteFormValues> }
+    if (!raw) return { values: {}, currentStep: 0, focusTarget: null }
+    const draft = JSON.parse(raw) as {
+      expiresAt?: number
+      values?: Partial<SiteFormValues>
+      currentStep?: number
+      focusTarget?: string | null
+    }
     if (!draft.expiresAt || draft.expiresAt <= Date.now() || !draft.values) {
       removeSiteDraft(draftKey)
-      return {}
+      return { values: {}, currentStep: 0, focusTarget: null }
     }
     const values = draft.values as Record<string, unknown>
-    return {
+    return { values: {
       name: typeof values.name === 'string' ? values.name : DEFAULT_SITE_FORM_VALUES.name,
       domain: typeof values.domain === 'string' ? values.domain : DEFAULT_SITE_FORM_VALUES.domain,
       moderationMode: ['PRE_MODERATION', 'POST_MODERATION', 'DISABLED'].includes(String(values.moderationMode))
@@ -117,10 +128,15 @@ function readSiteDraft(draftKey: string): Partial<SiteFormValues> {
         ? values.automodMaxLinks
         : DEFAULT_SITE_FORM_VALUES.automodMaxLinks,
       automodBlockedWords: typeof values.automodBlockedWords === 'string' ? values.automodBlockedWords : DEFAULT_SITE_FORM_VALUES.automodBlockedWords,
+    },
+    currentStep: Number.isInteger(draft.currentStep) && Number(draft.currentStep) >= 0 && Number(draft.currentStep) < wizardSteps.length
+      ? Number(draft.currentStep)
+      : 0,
+    focusTarget: typeof draft.focusTarget === 'string' ? draft.focusTarget : null,
     }
   } catch {
     removeSiteDraft(draftKey)
-    return {}
+    return { values: {}, currentStep: 0, focusTarget: null }
   }
 }
 
@@ -163,12 +179,19 @@ const SiteCreate = () => {
 const SiteCreateForm = ({ ownerId }: { ownerId: string }) => {
   const navigate = useNavigate()
   const draftKey = getSiteDraftKey(ownerId)
-  const [initialValues] = useState<SiteFormValues>(() => {
+  const [initialDraft] = useState<SiteDraft>(() => {
     removeSiteDraft(LEGACY_SITE_DRAFT_KEY)
-    return { ...DEFAULT_SITE_FORM_VALUES, ...readSiteDraft(draftKey) }
+    return readSiteDraft(draftKey)
   })
+  const initialValues = useMemo(
+    () => ({ ...DEFAULT_SITE_FORM_VALUES, ...initialDraft.values }),
+    [initialDraft.values],
+  )
   const [serverError, setServerError] = useState<string | null>(null)
-  const [currentStep, setCurrentStep] = useState(0)
+  const [currentStep, setCurrentStep] = useState(initialDraft.currentStep)
+  const [focusTarget, setFocusTarget] = useState<string | null>(initialDraft.focusTarget)
+  const formRef = useRef<HTMLFormElement>(null)
+  const serverErrorRef = useRef<HTMLDivElement>(null)
   const previewRef = useRef<HTMLIFrameElement>(null)
   const {
     register,
@@ -221,13 +244,28 @@ const SiteCreateForm = ({ ownerId }: { ownerId: string }) => {
   useEffect(() => {
     try {
       localStorage.setItem(draftKey, JSON.stringify({
+        version: 2,
         expiresAt: Date.now() + SITE_DRAFT_TTL_MS,
         values: watchedValues,
+        currentStep,
+        focusTarget,
       }))
     } catch {
       // Мастер остаётся рабочим, даже если браузер запретил локальное хранилище.
     }
-  }, [draftKey, watchedValues])
+  }, [currentStep, draftKey, focusTarget, watchedValues])
+
+  useEffect(() => {
+    const preferred = focusTarget
+      ? formRef.current?.elements.namedItem(focusTarget) as HTMLElement | null
+      : null
+    const fallback = formRef.current?.querySelector<HTMLElement>(`[data-step-heading="${currentStep}"]`)
+    requestAnimationFrame(() => (preferred ?? fallback)?.focus())
+  }, [currentStep, focusTarget])
+
+  useEffect(() => {
+    if (serverError) requestAnimationFrame(() => serverErrorRef.current?.focus())
+  }, [serverError])
 
   useEffect(() => {
     if (!watchedAutomodEnabled) {
@@ -241,7 +279,10 @@ const SiteCreateForm = ({ ownerId }: { ownerId: string }) => {
 
   async function goToNextStep() {
     const valid = await trigger(stepFields[currentStep], { shouldFocus: true })
-    if (valid) setCurrentStep((step) => Math.min(step + 1, wizardSteps.length - 1))
+    if (valid) {
+      setFocusTarget(null)
+      setCurrentStep((step) => Math.min(step + 1, wizardSteps.length - 1))
+    }
   }
 
   const onSubmit: SubmitHandler<SiteFormValues> = async (values) => {
@@ -326,7 +367,12 @@ const SiteCreateForm = ({ ownerId }: { ownerId: string }) => {
       </nav>
 
       <form
+        ref={formRef}
         className="grid min-w-0 items-start gap-6 xl:grid-cols-[minmax(0,1fr)_420px]"
+        onFocusCapture={(event) => {
+          const name = (event.target as HTMLElement).getAttribute('name')
+          if (name) setFocusTarget(name)
+        }}
         onSubmit={(event) => {
           if (currentStep < wizardSteps.length - 1) {
             event.preventDefault()
@@ -340,6 +386,9 @@ const SiteCreateForm = ({ ownerId }: { ownerId: string }) => {
         <div className="min-w-0 space-y-4">
           {serverError && (
             <div
+              ref={serverErrorRef}
+              role="alert"
+              tabIndex={-1}
               className="rounded-lg border px-4 py-3 text-sm"
               style={{ borderColor: 'var(--danger)', color: 'var(--danger)', backgroundColor: 'var(--danger-bg)' }}
             >
@@ -347,7 +396,7 @@ const SiteCreateForm = ({ ownerId }: { ownerId: string }) => {
             </div>
           )}
 
-          <section className={`${currentStep === 0 ? '' : 'hidden'} cc-card p-5 md:p-6`}>
+          <section className={`${currentStep === 0 ? '' : 'hidden'} cc-card p-5 md:p-6`} data-step-heading="0" tabIndex={-1}>
             <OnboardingStepHeader
               icon={<Sparkles className="h-5 w-5" aria-hidden="true" />}
               index="01"
@@ -388,7 +437,7 @@ const SiteCreateForm = ({ ownerId }: { ownerId: string }) => {
             </div>
           </section>
 
-          <section className={`${currentStep === 1 ? '' : 'hidden'} cc-card p-5 md:p-6`}>
+          <section className={`${currentStep === 1 ? '' : 'hidden'} cc-card p-5 md:p-6`} data-step-heading="1" tabIndex={-1}>
             <OnboardingStepHeader
               icon={<ShieldCheck className="h-5 w-5" aria-hidden="true" />}
               index="02"
@@ -535,7 +584,7 @@ const SiteCreateForm = ({ ownerId }: { ownerId: string }) => {
             </div>
           </section>
 
-          <section className={`${currentStep === 2 ? '' : 'hidden'} cc-card p-5 md:p-6`}>
+          <section className={`${currentStep === 2 ? '' : 'hidden'} cc-card p-5 md:p-6`} data-step-heading="2" tabIndex={-1}>
             <OnboardingStepHeader
               icon={<Palette className="h-5 w-5" aria-hidden="true" />}
               index="03"
@@ -608,7 +657,7 @@ const SiteCreateForm = ({ ownerId }: { ownerId: string }) => {
             </div>
           </section>
 
-          <section className={`${currentStep === 3 ? '' : 'hidden'} cc-card p-5 md:p-6`}>
+          <section className={`${currentStep === 3 ? '' : 'hidden'} cc-card p-5 md:p-6`} data-step-heading="3" tabIndex={-1}>
             <OnboardingStepHeader
               icon={<Code2 className="h-5 w-5" aria-hidden="true" />}
               index="04"

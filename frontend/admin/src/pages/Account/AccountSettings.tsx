@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import { ExternalLink, Shield, Trash2 } from 'lucide-react'
+import { Download, ExternalLink, Shield, Trash2 } from 'lucide-react'
 
 import {
   createAccountDeletionRequest,
+  exportPersonalData,
   getCurrentAccountDeletionRequest,
   type AccountDeletionRequest,
 } from '../../api/account'
@@ -17,6 +18,7 @@ const AccountSettings = () => {
   const [deletionRequest, setDeletionRequest] = useState<AccountDeletionRequest | null>(null)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
 
@@ -68,6 +70,30 @@ const AccountSettings = () => {
       setError(getApiErrorMessage(err, 'Не удалось создать запрос на удаление.'))
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  async function handleDataExport() {
+    setExporting(true)
+    setError(null)
+    setNotice(null)
+
+    try {
+      const personalData = await exportPersonalData()
+      const blob = new Blob([JSON.stringify(personalData, null, 2)], { type: 'application/json;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `cloudcomment-personal-data-${new Date().toISOString().slice(0, 10)}.json`
+      document.body.append(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+      setNotice('Архив персональных данных скачан в формате JSON. Храните файл в безопасном месте.')
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Не удалось скачать персональные данные.'))
+    } finally {
+      setExporting(false)
     }
   }
 
@@ -148,12 +174,24 @@ const AccountSettings = () => {
               </section>
 
               <section className="cc-section space-y-4 p-5 text-left md:p-6">
-                <h2 className="text-lg font-semibold" style={{ color: 'var(--text-h)' }}>
-                  Экспорт данных
-                </h2>
+                <div className="flex items-center gap-3">
+                  <div className="rounded-lg p-2" style={{ backgroundColor: 'var(--accent-bg)', color: 'var(--accent)' }}>
+                    <Download className="h-5 w-5" aria-hidden="true" />
+                  </div>
+                  <h2 className="text-lg font-semibold" style={{ color: 'var(--text-h)' }}>Экспорт данных</h2>
+                </div>
                 <p className="text-sm" style={{ color: 'var(--text)' }}>
-                  Чтобы запросить копию ваших персональных данных, следуйте инструкции в уведомлении об обработке ПДн.
+                  Скачайте копию профиля, согласий, сессий и связанных ресурсов. Файл содержит персональные данные — не передавайте его третьим лицам.
                 </p>
+                <button
+                  type="button"
+                  className="cc-button-primary disabled:cursor-not-allowed"
+                  disabled={exporting}
+                  onClick={() => void handleDataExport()}
+                >
+                  <Download className="h-4 w-4" aria-hidden="true" />
+                  {exporting ? 'Готовим файл…' : 'Скачать мои данные'}
+                </button>
                 <a
                   className="inline-flex items-center gap-1 text-sm font-medium hover:underline"
                   href={requirements.dataExportInfoUrl}
