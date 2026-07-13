@@ -642,7 +642,7 @@ Script attributes:
 
 - `data-site-id` — обязателен для `autoInit()`
 - `data-api-base-url` — optional, default from build config
-- `data-page-url` — optional, default `window.location.href`
+- `data-page-url` — optional, default `window.location.href`; перед API-запросом виджет удаляет только fragment, сохраняя query без изменений
 - `data-target` — optional CSS selector or element id
 - `data-theme` — optional `auto | light | dark`; default `auto`, виджет подстраивается под тему страницы
 

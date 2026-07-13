@@ -2,6 +2,45 @@ import { resolve } from 'node:path'
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '@playwright/test'
 
+test('autoInit удаляет fragment из pageUrl перед запросом комментариев', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-light', 'Проверку контракта URL достаточно выполнить в одном профиле')
+
+  await page.route('**/widget/cloud-comment-widget.js', (route) => route.fulfill({
+    path: resolve('../../widget-frontend/dist/widget/cloud-comment-widget.js'),
+    contentType: 'application/javascript',
+  }))
+
+  let requestedPageUrl: string | null = null
+  await page.route('**/public/sites/**/config', (route) => route.fulfill({
+    json: { siteId: '00000000-0000-0000-0000-000000000001', moderationMode: 'POST_MODERATION', style: { theme: 'LIGHT', accentColor: '#0f766e', cornerRadius: 'MEDIUM' } },
+  }))
+  await page.route('**/public/sites/**/pages/comments**', (route) => {
+    requestedPageUrl = new URL(route.request().url()).searchParams.get('pageUrl')
+    return route.fulfill({
+      json: { items: [], page: 1, pageSize: 20, totalItems: 0, totalPages: 0 },
+    })
+  })
+
+  await page.goto('/login?source=anchor-test#comments')
+  const expectedPageUrl = new URL(page.url())
+  expectedPageUrl.hash = ''
+  await page.evaluate(() => {
+    document.body.innerHTML = '<div id="cloud-comment-widget"></div>'
+  })
+  await page.evaluate(() => new Promise<void>((resolveScript, rejectScript) => {
+    const script = document.createElement('script')
+    script.src = '/widget/cloud-comment-widget.js'
+    script.dataset.siteId = '00000000-0000-0000-0000-000000000001'
+    script.dataset.apiBaseUrl = 'https://api.example.test'
+    script.addEventListener('load', () => resolveScript())
+    script.addEventListener('error', () => rejectScript(new Error('Не удалось загрузить bundle виджета')))
+    document.body.append(script)
+  }))
+
+  await expect.poll(() => requestedPageUrl).toBe(expectedPageUrl.href)
+  await expect(page).toHaveURL(/#comments$/)
+})
+
 test('виджет изолирован от стилей страницы через Shadow DOM', async ({ page }) => {
   await page.route('**/public/sites/**/config', (route) => route.fulfill({
     json: { siteId: '00000000-0000-0000-0000-000000000001', moderationMode: 'POST_MODERATION', style: { theme: 'LIGHT', accentColor: '#0f766e', cornerRadius: 'MEDIUM' } },
