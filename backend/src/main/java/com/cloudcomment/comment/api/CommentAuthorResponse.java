@@ -1,18 +1,23 @@
 package com.cloudcomment.comment.api;
 
 import com.cloudcomment.comment.domain.CommentAuthor;
+import com.cloudcomment.comment.domain.CommentAuthorKind;
 
 import java.util.UUID;
 
 record CommentAuthorResponse(
     UUID id,
-    String displayName
+    String displayName,
+    CommentAuthorKind kind
 ) {
 
     private static final String ANONYMOUS_DISPLAY_NAME = "Участник";
 
     static CommentAuthorResponse from(CommentAuthor author) {
-        return new CommentAuthorResponse(author.id(), publicDisplayName(author));
+        String displayName = author.kind() == CommentAuthorKind.OWNER
+            ? "Автор сайта"
+            : publicDisplayName(author);
+        return new CommentAuthorResponse(author.id(), displayName, author.kind());
     }
 
     static String publicDisplayName(CommentAuthor author) {

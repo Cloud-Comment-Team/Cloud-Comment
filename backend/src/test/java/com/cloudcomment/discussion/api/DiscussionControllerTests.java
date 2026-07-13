@@ -11,6 +11,7 @@ import com.cloudcomment.discussion.domain.DiscussionMessage;
 import com.cloudcomment.discussion.domain.DiscussionStatus;
 import com.cloudcomment.discussion.domain.DiscussionSummary;
 import com.cloudcomment.discussion.domain.DiscussionThread;
+import com.cloudcomment.discussion.domain.OwnerReplyResult;
 import com.cloudcomment.shared.error.ApiErrorCode;
 import com.cloudcomment.shared.error.ApplicationException;
 import org.junit.jupiter.api.Test;
@@ -19,6 +20,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.http.MediaType;
 
 import java.time.Instant;
 import java.util.List;
@@ -26,6 +28,7 @@ import java.util.Set;
 import java.util.UUID;
 
 import static com.cloudcomment.support.AdminSecurityTestSupport.adminRequest;
+import static com.cloudcomment.support.AdminSecurityTestSupport.csrf;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.containsString;
@@ -35,6 +38,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -62,6 +66,13 @@ class DiscussionControllerTests {
         mockMvc.perform(get("/api/discussions"))
             .andExpect(status().isUnauthorized());
         mockMvc.perform(get("/api/discussions/{rootCommentId}", ROOT_ID))
+            .andExpect(status().isUnauthorized());
+        mockMvc.perform(post("/api/discussions/{rootCommentId}/replies", ROOT_ID)
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"operationId":"00000000-0000-4000-8000-000000000177","content":"Ответ"}
+                    """))
             .andExpect(status().isUnauthorized());
 
         verifyNoInteractions(discussionService);
@@ -148,6 +159,64 @@ class DiscussionControllerTests {
                 .queryParam("search", "x".repeat(121))
                 .with(adminRequest("session-token")))
             .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(discussionService);
+    }
+
+    @Test
+    void createsOwnerReplyAndReturnsIdempotentReplayWithoutPrivateFields() throws Exception {
+        AuthenticatedUser user = currentUser();
+        UUID operationId = UUID.fromString("00000000-0000-4000-8000-000000000177");
+        DiscussionMessage message = new DiscussionMessage(
+            UUID.fromString("00000000-0000-4000-8000-000000000178"),
+            ROOT_ID,
+            new DiscussionAuthor(user.id(), "Автор сайта", true),
+            "Спасибо за вопрос",
+            CREATED_AT,
+            CREATED_AT,
+            false
+        );
+        when(currentUserService.getCurrentUser(eq("session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN)))
+            .thenReturn(user);
+        when(discussionService.reply(user, ROOT_ID, operationId, "Спасибо за вопрос"))
+            .thenReturn(
+                new OwnerReplyResult(message, SITE_ID, PAGE_ID, true),
+                new OwnerReplyResult(message, SITE_ID, PAGE_ID, false)
+            );
+
+        String request = """
+            {"operationId":"%s","content":"Спасибо за вопрос"}
+            """.formatted(operationId);
+        mockMvc.perform(post("/api/discussions/{rootCommentId}/replies", ROOT_ID)
+                .with(adminRequest("session-token"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(request))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.created", is(true)))
+            .andExpect(jsonPath("$.message.author.owner", is(true)))
+            .andExpect(jsonPath("$.message.content", is("Спасибо за вопрос")))
+            .andExpect(content().string(not(containsString("owner@example.com"))));
+
+        mockMvc.perform(post("/api/discussions/{rootCommentId}/replies", ROOT_ID)
+                .with(adminRequest("session-token"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(request))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.created", is(false)))
+            .andExpect(jsonPath("$.message.id", is(message.id().toString())));
+    }
+
+    @Test
+    void validatesOwnerReplyRequestBeforeServiceCall() throws Exception {
+        when(currentUserService.getCurrentUser(eq("session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN)))
+            .thenReturn(currentUser());
+
+        mockMvc.perform(post("/api/discussions/{rootCommentId}/replies", ROOT_ID)
+                .with(adminRequest("session-token"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"content\":\"   \"}"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code", is("VALIDATION_FAILED")));
 
         verifyNoInteractions(discussionService);
     }

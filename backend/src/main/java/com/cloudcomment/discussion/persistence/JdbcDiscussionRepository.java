@@ -7,6 +7,7 @@ import com.cloudcomment.discussion.domain.DiscussionMessage;
 import com.cloudcomment.discussion.domain.DiscussionStatus;
 import com.cloudcomment.discussion.domain.DiscussionSummary;
 import com.cloudcomment.discussion.domain.DiscussionThread;
+import com.cloudcomment.discussion.domain.OwnerReplyResult;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -159,6 +160,97 @@ class JdbcDiscussionRepository implements DiscussionRepository {
             rootCommentId
         );
         return Optional.of(new DiscussionThread(summaries.getFirst(), messages));
+    }
+
+    @Override
+    @Transactional
+    public Optional<OwnerReplyResult> createOwnerReply(
+        UUID ownerId,
+        UUID rootCommentId,
+        UUID operationId,
+        String content
+    ) {
+        int inserted = jdbcTemplate.update(
+            """
+                insert into comments (
+                    page_id,
+                    parent_id,
+                    author_user_id,
+                    author_name,
+                    author_email,
+                    author_kind,
+                    body,
+                    status,
+                    owner_reply_operation_id
+                )
+                select
+                    root.page_id,
+                    root.id,
+                    owner.id,
+                    coalesce(nullif(btrim(owner.display_name), ''), 'Автор сайта'),
+                    owner.email,
+                    'OWNER',
+                    ?,
+                    'APPROVED',
+                    ?
+                from comments root
+                join pages page on page.id = root.page_id
+                join sites site on site.id = page.site_id
+                join app_users owner on owner.id = site.owner_id
+                where site.owner_id = ?
+                  and root.id = ?
+                  and root.parent_id is null
+                  and root.status = 'APPROVED'
+                  and root.deleted_at is null
+                on conflict (author_user_id, owner_reply_operation_id)
+                    where owner_reply_operation_id is not null
+                    do nothing
+                """,
+            content,
+            operationId,
+            ownerId,
+            rootCommentId
+        );
+
+        List<OwnerReplyResult> replies = jdbcTemplate.query(
+            """
+                select
+                    reply.id,
+                    reply.parent_id,
+                    reply.author_user_id,
+                    coalesce(author.email, reply.author_email) as author_email,
+                    coalesce(author.display_name, reply.author_name) as author_display_name,
+                    reply.body,
+                    reply.created_at,
+                    reply.updated_at,
+                    reply.is_pinned,
+                    page.site_id,
+                    reply.page_id,
+                    site.owner_id
+                from comments reply
+                join pages page on page.id = reply.page_id
+                join sites site on site.id = page.site_id
+                left join app_users author on author.id = reply.author_user_id
+                where site.owner_id = ?
+                  and reply.author_user_id = ?
+                  and reply.owner_reply_operation_id = ?
+                  and reply.parent_id = ?
+                  and reply.author_kind = 'OWNER'
+                  and reply.status = 'APPROVED'
+                  and reply.deleted_at is null
+                """,
+            (resultSet, rowNumber) -> new OwnerReplyResult(
+                mapMessage(resultSet, rowNumber),
+                resultSet.getObject("site_id", UUID.class),
+                resultSet.getObject("page_id", UUID.class),
+                inserted == 1
+            ),
+            ownerId,
+            ownerId,
+            operationId,
+            rootCommentId
+        );
+        return replies.stream().findFirst();
     }
 
     private OuterFilter outerFilter(DiscussionFilters filters) {

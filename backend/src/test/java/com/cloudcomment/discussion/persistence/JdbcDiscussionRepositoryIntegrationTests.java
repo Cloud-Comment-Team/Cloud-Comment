@@ -122,6 +122,45 @@ class JdbcDiscussionRepositoryIntegrationTests {
         assertThat(discussionRepository.findThreadByOwnerId(ownerId, foreignRootId)).isEmpty();
     }
 
+    @Test
+    void createsOwnerReplyOnceAndRejectsForeignThread() {
+        UUID ownerId = insertUser("reply-owner", "Редактор");
+        UUID visitorId = insertUser("reply-visitor", "Анна");
+        UUID foreignOwnerId = insertUser("reply-foreign", "Другой владелец");
+        UUID siteId = insertSite(ownerId, "Редакция");
+        UUID foreignSiteId = insertSite(foreignOwnerId, "Чужая редакция");
+        UUID pageId = insertPage(siteId, "https://example.com/reply", "Ответы");
+        UUID foreignPageId = insertPage(foreignSiteId, "https://foreign.example/reply", "Чужие ответы");
+        UUID rootId = insertComment(pageId, null, visitorId, null, "Анна",
+            "Можно уточнить?", "APPROVED", Instant.parse("2026-07-13T10:00:00Z"));
+        UUID foreignRootId = insertComment(foreignPageId, null, visitorId, null, "Анна",
+            "Чужой вопрос", "APPROVED", Instant.parse("2026-07-13T10:01:00Z"));
+        UUID operationId = UUID.randomUUID();
+
+        var created = discussionRepository.createOwnerReply(
+            ownerId, rootId, operationId, "  Да, конечно.  "
+        ).orElseThrow();
+        var replayed = discussionRepository.createOwnerReply(
+            ownerId, rootId, operationId, "Да, конечно."
+        ).orElseThrow();
+
+        assertThat(created.created()).isTrue();
+        assertThat(replayed.created()).isFalse();
+        assertThat(replayed.message().id()).isEqualTo(created.message().id());
+        assertThat(created.message().author().owner()).isTrue();
+        assertThat(created.message().author().displayName()).isEqualTo("Редактор");
+        assertThat(created.message().content()).isEqualTo("  Да, конечно.  ");
+        assertThat(jdbcTemplate.queryForObject(
+            "select count(*) from comments where owner_reply_operation_id = ?", Integer.class, operationId
+        )).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+            "select author_kind from comments where id = ?", String.class, created.message().id()
+        )).isEqualTo("OWNER");
+        assertThat(discussionRepository.createOwnerReply(
+            ownerId, foreignRootId, UUID.randomUUID(), "Недоступный ответ"
+        )).isEmpty();
+    }
+
     private UUID insertUser(String suffix, String displayName) {
         return jdbcTemplate.queryForObject(
             "insert into app_users (email, password_hash, display_name) values (?, 'hash', ?) returning id",

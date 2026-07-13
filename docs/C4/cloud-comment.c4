@@ -322,7 +322,7 @@ model {
 
   cloudComment.adminWebApp.realtimeClient -[http]-> cloudComment.backendApi.adminApiController 'Читает и отмечает постоянные уведомления владельца'
 
-  cloudComment.adminWebApp.realtimeClient -[websocket]-> cloudComment.backendApi.realtimeGateway 'Получает owner-scoped события comment.created и comment.moderation_action_applied'
+  cloudComment.adminWebApp.realtimeClient -[websocket]-> cloudComment.backendApi.realtimeGateway 'Получает owner-scoped события comment.created, comment.owner_reply_created и comment.moderation_action_applied'
 
   cloudComment.widgetRuntime.embedLoader -[internal]-> cloudComment.widgetRuntime.widgetShell 'Инициализирует виджет на странице'
 
@@ -373,6 +373,8 @@ model {
   cloudComment.backendApi.commentModule -[internal]-> cloudComment.backendApi.notificationModule 'Создаёт идемпотентное постоянное уведомление после сохранения комментария'
 
   cloudComment.backendApi.notificationModule -[internal]-> cloudComment.backendApi.realtimeGateway 'Публикует comment.created с идентификатором постоянного уведомления'
+
+  cloudComment.backendApi.discussionModule -[internal]-> cloudComment.backendApi.realtimeGateway 'Публикует безопасное comment.owner_reply_created без self-notification'
 
   cloudComment.backendApi.moderationModule -[internal]-> cloudComment.backendApi.realtimeGateway 'Публикует события comment.moderation_action_applied после действий модерации'
 
@@ -558,6 +560,11 @@ views {
     cloudComment.backendApi.persistenceModule -> cloudComment.postgres 'SELECT comments, pages, sites, owner_notifications'
     cloudComment.adminWebApp.adminApiClient -> cloudComment.backendApi.adminApiController 'GET /api/discussions/{rootCommentId}'
     cloudComment.backendApi.adminApiController -> cloudComment.backendApi.discussionModule 'Получает сообщения выбранной ветки без email'
+    websiteOwner -> cloudComment.adminWebApp.discussionPages 'Пишет ответ от имени сайта'
+    cloudComment.adminWebApp.discussionPages -> cloudComment.adminWebApp.adminApiClient 'Сохраняет черновик и передаёт стабильный operationId'
+    cloudComment.adminWebApp.adminApiClient -> cloudComment.backendApi.adminApiController 'POST /api/discussions/{rootCommentId}/replies'
+    cloudComment.backendApi.adminApiController -> cloudComment.backendApi.discussionModule 'Проверяет owner scope и публикует APPROVED ответ'
+    cloudComment.backendApi.discussionModule -> cloudComment.postgres 'INSERT один раз по ownerId + operationId с authorKind OWNER'
 
     autoLayout LeftRight
   }

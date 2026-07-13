@@ -73,7 +73,23 @@ async function authenticate(page: Page) {
 test('master-detail обсуждений сохраняет фильтры и работает как отдельный экран на узкой ширине', async ({ page }) => {
   await authenticate(page)
   const listRequests: URL[] = []
-  await page.route(`**/api/discussions/${ROOT_ID}`, (route) => route.fulfill({ json: thread }))
+  let currentThread = structuredClone(thread)
+  await page.route(`**/api/discussions/${ROOT_ID}/replies`, async (route) => {
+    const request = route.request().postDataJSON() as { operationId: string; content: string }
+    expect(request.operationId).toMatch(/^[0-9a-f-]{36}$/)
+    const message = {
+      id: '00000000-0000-4000-8000-000000000178',
+      parentId: ROOT_ID,
+      author: { id: OWNER_ID, displayName: 'Автор сайта', owner: true },
+      content: request.content,
+      createdAt: '2026-07-13T12:05:00Z',
+      updatedAt: '2026-07-13T12:05:00Z',
+      pinned: false,
+    }
+    currentThread = { ...currentThread, messages: [...currentThread.messages, message] }
+    return route.fulfill({ status: 201, json: { message, created: true } })
+  })
+  await page.route(`**/api/discussions/${ROOT_ID}`, (route) => route.fulfill({ json: currentThread }))
   await page.route('**/api/discussions?**', (route) => {
     listRequests.push(new URL(route.request().url()))
     return route.fulfill({
@@ -94,6 +110,13 @@ test('master-detail обсуждений сохраняет фильтры и р
   await expect(page.getByText('Спасибо, что написали нам.')).toBeVisible()
   await expect(page.getByText('Автор сайта')).toBeVisible()
   await expect(page.getByRole('link', { name: 'Открыть страницу' })).toHaveAttribute('href', summary.pageUrl)
+
+  const replyEditor = page.getByLabel('Ответить как владелец сайта')
+  await replyEditor.fill('Ответ из панели')
+  await page.getByRole('button', { name: 'Ответить' }).click()
+  await expect(page.getByText('Ответ из панели')).toHaveCount(1)
+  await expect(replyEditor).toHaveValue('')
+  await expect(page.getByText('Ответ опубликован.')).toBeAttached()
 
   const viewportWidth = page.viewportSize()?.width ?? 0
   if (viewportWidth < 1280) {

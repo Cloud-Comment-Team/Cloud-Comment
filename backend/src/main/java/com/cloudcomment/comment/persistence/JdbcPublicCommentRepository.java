@@ -4,6 +4,7 @@ import com.cloudcomment.automoderation.domain.AutoModerationSnapshot;
 import com.cloudcomment.comment.application.CommentPage;
 import com.cloudcomment.comment.application.WidgetSite;
 import com.cloudcomment.comment.domain.CommentAuthor;
+import com.cloudcomment.comment.domain.CommentAuthorKind;
 import com.cloudcomment.comment.domain.CommentReactionSummary;
 import com.cloudcomment.comment.domain.CommentReactionType;
 import com.cloudcomment.comment.domain.CommentStatus;
@@ -196,6 +197,7 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
                        c.author_user_id,
                        coalesce(c.author_email, u.email) as author_email,
                        coalesce(c.author_name, nullif(u.display_name, ''), c.author_email, u.email) as author_name,
+                       c.author_kind,
                        c.body,
                        c.status,
                        c.is_pinned,
@@ -282,6 +284,7 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
                 select c.id, p.site_id, c.page_id, c.parent_id, c.author_user_id,
                        coalesce(c.author_email, u.email) as author_email,
                        coalesce(c.author_name, nullif(u.display_name, ''), c.author_email, u.email) as author_name,
+                       c.author_kind,
                        c.body, c.status, c.is_pinned, c.created_at, c.updated_at, c.edited_at
                 from comments c
                 join pages p on p.id = c.page_id
@@ -448,6 +451,7 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
                           author_user_id,
                           author_email,
                           author_name,
+                          author_kind,
                           body,
                           status,
                           is_pinned,
@@ -576,6 +580,7 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
                           c.author_user_id,
                           c.author_email,
                           c.author_name,
+                          c.author_kind,
                           c.body,
                           c.status,
                           c.is_pinned,
@@ -687,12 +692,13 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
 
         return namedParameterJdbcTemplate.query(
             """
-                select id, site_id, page_id, parent_id, author_user_id, author_email, author_name,
+                select id, site_id, page_id, parent_id, author_user_id, author_email, author_name, author_kind,
                        body, status, is_pinned, created_at, updated_at, edited_at
                 from (
                     select c.id, p.site_id, c.page_id, c.parent_id, c.author_user_id,
                            coalesce(c.author_email, u.email) as author_email,
                            coalesce(c.author_name, nullif(u.display_name, ''), c.author_email, u.email) as author_name,
+                           c.author_kind,
                            c.body, c.status, c.is_pinned, c.created_at, c.updated_at, c.edited_at,
                            row_number() over (partition by c.parent_id order by c.created_at asc, c.id asc) as reply_rank
                     from comments c
@@ -782,7 +788,7 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
             row.siteId(),
             row.pageId(),
             row.parentId(),
-            new CommentAuthor(row.authorUserId(), row.authorEmail(), row.authorName()),
+            new CommentAuthor(row.authorUserId(), row.authorEmail(), row.authorName(), row.authorKind()),
             row.body(),
             row.status(),
             row.createdAt(),
@@ -877,6 +883,7 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
             resultSet.getObject("author_user_id", UUID.class),
             resultSet.getString("author_email"),
             resultSet.getString("author_name"),
+            CommentAuthorKind.valueOf(resultSet.getString("author_kind")),
             resultSet.getString("body"),
             CommentStatus.valueOf(resultSet.getString("status")),
             resultSet.getBoolean("is_pinned"),
@@ -931,6 +938,7 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
         UUID authorUserId,
         String authorEmail,
         String authorName,
+        CommentAuthorKind authorKind,
         String body,
         CommentStatus status,
         boolean pinned,

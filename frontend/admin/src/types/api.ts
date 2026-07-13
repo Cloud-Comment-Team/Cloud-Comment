@@ -366,6 +366,16 @@ export interface DiscussionThread {
   messages: DiscussionMessage[]
 }
 
+export interface CreateOwnerReplyRequest {
+  operationId: string
+  content: string
+}
+
+export interface CreateOwnerReplyResponse {
+  message: DiscussionMessage
+  created: boolean
+}
+
 export interface ListDiscussionsParams {
   siteId?: string
   view?: DiscussionFilter
@@ -525,6 +535,15 @@ export interface ModerationActionNotification {
   createdAt: string
 }
 
+export interface OwnerReplyRealtimeNotification {
+  commentId: string
+  rootCommentId: string
+  siteId: string
+  pageId: string
+  createdAt: string
+}
+
 export type RealtimeEvent =
   | (RealtimeEnvelope<NewCommentNotification> & { type: 'comment.created' })
+  | (RealtimeEnvelope<OwnerReplyRealtimeNotification> & { type: 'comment.owner_reply_created' })
   | (RealtimeEnvelope<ModerationActionNotification> & { type: 'comment.moderation_action_applied' })

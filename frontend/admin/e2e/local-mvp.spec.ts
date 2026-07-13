@@ -13,6 +13,7 @@ async function issueAdminCsrf(adminRequest: APIRequestContext): Promise<Record<s
 }
 
 test('local MVP flow: auth, site admin, public comments API and widget script', async ({ page, request, context }) => {
+  test.setTimeout(60_000)
   const adminRequest = context.request
   const suffix = Date.now().toString(36)
   const email = `e2e-${suffix}@example.com`
@@ -22,6 +23,7 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   const commentText = `E2E comment ${suffix}`
   const editedCommentText = `E2E edited comment ${suffix}`
   const apiReplyText = `E2E API reply ${suffix}`
+  const ownerReplyText = `E2E owner reply ${suffix}`
   const pendingWidgetReplyText = `E2E widget pending reply ${suffix}`
   const deleteCommentText = `E2E comment to delete ${suffix}`
   const crossOriginCommentText = `E2E cross-origin comment ${suffix}`
@@ -937,6 +939,76 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   await expect(widget.getByText(pendingWidgetReplyText)).toBeVisible()
   await expect(widget.getByText(pendingWidgetReplyText).locator('..').locator('.cloud-comment__status')).toBeVisible()
 
+  const ownerReplyPage = await context.newPage()
+  await ownerReplyPage.goto(`/demo-page.html?siteId=${siteId}`)
+  const ownerReplyWidget = ownerReplyPage.locator('#comments')
+  await expect(ownerReplyWidget.locator('.cloud-comment__title')).toHaveText('Комментарии')
+  await expect(ownerReplyWidget.getByText(ownerReplyText)).toHaveCount(0)
+
+  const unreadBeforeOwnerReply = await adminRequest.get(`${API_BASE_URL}/notifications/unread-count`)
+  await expect(unreadBeforeOwnerReply).toBeOK()
+  const unreadBefore = (await unreadBeforeOwnerReply.json()).unreadCount as number
+  const ownerReplyOperationId = '00000000-0000-4000-8000-000000000175'
+  const ownerReplyCsrfHeaders = await issueAdminCsrf(adminRequest)
+  const createOwnerReplyResponse = await adminRequest.post(
+    `${API_BASE_URL}/discussions/${createdComment.id}/replies`,
+    {
+      headers: ownerReplyCsrfHeaders,
+      data: { operationId: ownerReplyOperationId, content: ownerReplyText },
+    },
+  )
+  expect(createOwnerReplyResponse.status()).toBe(201)
+  const ownerReply = await createOwnerReplyResponse.json()
+  expect(ownerReply).toMatchObject({
+    created: true,
+    message: {
+      parentId: createdComment.id,
+      content: ownerReplyText,
+      author: { owner: true },
+    },
+  })
+  expect(JSON.stringify(ownerReply)).not.toContain(email)
+
+  const replayOwnerReplyResponse = await adminRequest.post(
+    `${API_BASE_URL}/discussions/${createdComment.id}/replies`,
+    {
+      headers: ownerReplyCsrfHeaders,
+      data: { operationId: ownerReplyOperationId, content: ownerReplyText },
+    },
+  )
+  expect(replayOwnerReplyResponse.status()).toBe(200)
+  expect(await replayOwnerReplyResponse.json()).toMatchObject({
+    created: false,
+    message: { id: ownerReply.message.id },
+  })
+
+  const publicThreadWithOwnerReply = await request.get(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
+    headers: { Origin: ADMIN_ORIGIN },
+    params: { pageUrl, page: '1', pageSize: '20', replyLimit: '100' },
+  })
+  await expect(publicThreadWithOwnerReply).toBeOK()
+  const publicThread = await publicThreadWithOwnerReply.json()
+  const publicOwnerReplies = publicThread.items
+    .flatMap((comment: { replies: unknown[] }) => comment.replies)
+    .filter((reply: { id: string }) => reply.id === ownerReply.message.id)
+  expect(publicOwnerReplies).toHaveLength(1)
+  expect(publicOwnerReplies[0]).toMatchObject({
+    content: ownerReplyText,
+    author: { displayName: 'Автор сайта', kind: 'OWNER' },
+  })
+  expect(publicOwnerReplies[0].author).not.toHaveProperty('email')
+
+  await ownerReplyPage.evaluate(() => window.localStorage.removeItem('cloud-comment.widget.authToken'))
+  await ownerReplyPage.reload()
+  const ownerReplyLoadMore = ownerReplyWidget.getByRole('button', { name: /Показать ещё ответы/ }).first()
+  if (await ownerReplyLoadMore.isVisible()) await ownerReplyLoadMore.click()
+  await expect(ownerReplyWidget.getByText(ownerReplyText)).toHaveCount(1)
+  await expect(ownerReplyWidget.getByText(ownerReplyText).locator('..').locator('header strong')).toHaveText('Автор сайта')
+  const unreadAfterOwnerReply = await adminRequest.get(`${API_BASE_URL}/notifications/unread-count`)
+  await expect(unreadAfterOwnerReply).toBeOK()
+  expect((await unreadAfterOwnerReply.json()).unreadCount).toBe(unreadBefore)
+  await ownerReplyPage.close()
+
   const externalPage = await context.newPage()
   await externalPage.goto(`http://127.0.0.1/demo-page.html?siteId=${siteId}`)
   await externalPage.evaluate(
@@ -1013,6 +1085,8 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   expect(widgetLogoutResponse.status()).toBe(204)
   await expect(await adminRequest.get(`${API_BASE_URL}/auth/me`)).toBeOK()
 
+  const openPanelBackdrop = moderationPage.getByRole('button', { name: 'Закрыть панель по фону' })
+  if (await openPanelBackdrop.isVisible()) await openPanelBackdrop.click()
   await moderationPage.getByRole('button', { name: 'Выйти' }).click()
   await expect(moderationPage).toHaveURL(/\/login$/)
   expect((await adminRequest.get(`${API_BASE_URL}/auth/me`)).status()).toBe(401)

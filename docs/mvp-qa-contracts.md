@@ -276,6 +276,7 @@ Response `204`, body отсутствует.
 | `/api/analytics/owner` | `GET` | Owner-scoped analytics for dashboard and site detail |
 | `/api/discussions` | `GET` | Получить опубликованные корневые ветки владельца |
 | `/api/discussions/{rootCommentId}` | `GET` | Получить опубликованные сообщения выбранной ветки |
+| `/api/discussions/{rootCommentId}/replies` | `POST` | Идемпотентно опубликовать ответ владельца сайта |
 | `/api/moderation/comments` | `GET` | Получить страницу комментариев в очереди модерации |
 | `/api/moderation/counts` | `GET` | Получить owner-scoped счётчики по статусам |
 | `/api/moderation/comments/{commentId}` | `GET` | Получить подробности комментария |
@@ -290,6 +291,8 @@ Response `204`, body отсутствует.
 `GET /api/moderation/comments` поддерживает необязательные фильтры `siteId`, `pageId`, `pageUrl`, `status`, повторяемый `statuses`, `createdFrom`, `createdTo`, `search`, `favorite`, `page`, `pageSize`, `sortBy`, `sortOrder`. Одновременная передача `status` и `statuses` возвращает `400 BAD_REQUEST`. `sortBy` дополнительно принимает `PINNED` и `FAVORITE`; сортировка по умолчанию — `sortBy=SMART&sortOrder=DESC`.
 
 `GET /api/discussions` возвращает только опубликованные корневые ветки сайтов текущего владельца. Необязательные query-параметры: `siteId`, `view=ALL|UNREAD|NEEDS_REPLY`, `search`, `page`, `pageSize`. Поиск охватывает сайт, заголовок/URL страницы и любую опубликованную реплику ветки. Сначала идут непрочитанные и ожидающие ответа ветки, затем остальные по последней активности. `GET /api/discussions/{rootCommentId}` маскирует чужой, скрытый, удалённый и отсутствующий корень одинаковым `404 NOT_FOUND`. Оба ответа содержат только безопасное `displayName` и признак `owner`; email автора не включается.
+
+`POST /api/discussions/{rootCommentId}/replies` принимает обязательные `operationId` (UUID) и `content` длиной до 5000 символов. Endpoint доступен только admin cookie-сессии с CSRF, одинаково маскирует чужой и отсутствующий опубликованный корень через `404 NOT_FOUND`, не запускает visitor automoderation и сразу создаёт `APPROVED` reply. Первая вставка возвращает `201` и `created=true`; повтор того же `operationId` для того же владельца и корня возвращает прежний reply с `200` и `created=false`. Публичный контракт автора содержит `kind=OWNER` и метку «Автор сайта», но не email и не роли. Собственный ответ не создаёт владельцу постоянное уведомление; другие активные admin-вкладки получают безопасное событие `comment.owner_reply_created`. Public realtime не добавляется: внешний widget получает ответ после reload/refetch.
 
 #### `GET /api/analytics/owner`
 

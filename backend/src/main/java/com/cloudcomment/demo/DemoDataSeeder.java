@@ -166,17 +166,19 @@ class DemoDataSeeder implements ApplicationRunner {
                     author_user_id,
                     author_name,
                     author_email,
+                    author_kind,
                     body,
                     status,
                     created_at,
                     updated_at
                 )
-                values (?, ?, ?, ?, ?, ?, 'APPROVED', ?, ?)
+                values (?, ?, ?, ?, ?, 'OWNER', ?, 'APPROVED', ?, ?)
                 on conflict (id) do update
                 set page_id = excluded.page_id,
                     author_user_id = excluded.author_user_id,
                     author_name = excluded.author_name,
                     author_email = excluded.author_email,
+                    author_kind = excluded.author_kind,
                     body = excluded.body,
                     status = 'APPROVED',
                     deleted_at = null,
@@ -202,18 +204,20 @@ class DemoDataSeeder implements ApplicationRunner {
                     author_user_id,
                     author_name,
                     author_email,
+                    author_kind,
                     body,
                     status,
                     created_at,
                     updated_at
                 )
-                values (?, ?, ?, ?, ?, ?, ?, 'APPROVED', ?, ?)
+                values (?, ?, ?, ?, ?, ?, 'OWNER', ?, 'APPROVED', ?, ?)
                 on conflict (id) do update
                 set page_id = excluded.page_id,
                     parent_id = excluded.parent_id,
                     author_user_id = excluded.author_user_id,
                     author_name = excluded.author_name,
                     author_email = excluded.author_email,
+                    author_kind = excluded.author_kind,
                     body = excluded.body,
                     status = 'APPROVED',
                     deleted_at = null,
