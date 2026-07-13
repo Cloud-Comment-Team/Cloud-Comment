@@ -3,6 +3,7 @@ package com.cloudcomment.auth.application;
 import com.cloudcomment.shared.error.ApiErrorCode;
 import com.cloudcomment.shared.error.ApplicationException;
 import com.cloudcomment.auth.persistence.UserAccountRepository;
+import com.cloudcomment.auth.domain.SessionAudience;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -40,7 +41,29 @@ public class LoginService {
     }
 
     @Transactional
-    public LoginResult login(String email, String password) {
+    public LoginResult login(String email, String password, SessionAudience audience) {
+        return createSession(email, password, audience, null);
+    }
+
+    @Transactional
+    public LoginResult loginReplacing(
+        String email,
+        String password,
+        SessionAudience audience,
+        String previousToken
+    ) {
+        return createSession(email, password, audience, previousToken);
+    }
+
+    private LoginResult createSession(
+        String email,
+        String password,
+        SessionAudience audience,
+        String previousToken
+    ) {
+        if (audience == SessionAudience.LEGACY) {
+            throw new IllegalArgumentException("New sessions must have an explicit non-legacy audience");
+        }
         String normalizedEmail = normalizeEmail(email);
         UserCredentials user = userAccountRepository.findCredentialsByEmail(normalizedEmail)
             .filter(UserCredentials::enabled)
@@ -49,7 +72,11 @@ public class LoginService {
 
         String token = generateToken();
         Instant expiresAt = clock.instant().plus(SESSION_TTL);
-        userAccountRepository.createSession(user.id(), sessionTokenHasher.hash(token), expiresAt);
+        userAccountRepository.createSession(user.id(), sessionTokenHasher.hash(token), audience, expiresAt);
+
+        if (previousToken != null && !previousToken.isBlank()) {
+            userAccountRepository.revokeSession(sessionTokenHasher.hash(previousToken), audience, clock.instant());
+        }
 
         return new LoginResult(
             token,

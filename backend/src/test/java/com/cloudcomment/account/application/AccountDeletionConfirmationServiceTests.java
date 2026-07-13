@@ -238,6 +238,7 @@ class AccountDeletionConfirmationServiceTests {
         @Override
         public Optional<com.cloudcomment.auth.application.AuthenticatedUser> findUserByActiveSessionTokenHash(
             String tokenHash,
+            com.cloudcomment.auth.domain.SessionAudience audience,
             Instant now
         ) {
             return Optional.empty();
@@ -253,11 +254,20 @@ class AccountDeletionConfirmationServiceTests {
         }
 
         @Override
-        public void createSession(UUID userId, String tokenHash, Instant expiresAt) {
+        public void createSession(
+            UUID userId,
+            String tokenHash,
+            com.cloudcomment.auth.domain.SessionAudience audience,
+            Instant expiresAt
+        ) {
         }
 
         @Override
-        public com.cloudcomment.auth.persistence.SessionRevocationResult revokeSession(String tokenHash, Instant revokedAt) {
+        public com.cloudcomment.auth.persistence.SessionRevocationResult revokeSession(
+            String tokenHash,
+            com.cloudcomment.auth.domain.SessionAudience audience,
+            Instant revokedAt
+        ) {
             return com.cloudcomment.auth.persistence.SessionRevocationResult.NOT_FOUND_OR_EXPIRED;
         }
 

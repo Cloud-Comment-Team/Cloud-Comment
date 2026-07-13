@@ -7,7 +7,6 @@ import Header from './Header'
 import Sidebar from './Sidebar'
 import { RealtimeNotifications } from '../notifications/RealtimeNotifications'
 import { RealtimeProvider } from '../realtime/RealtimeProvider'
-import { useAuthStore } from '../../store'
 import { PageTransition } from './RouteTransition'
 import {
   FLOW_INTENT_TTL_MS,
@@ -19,7 +18,6 @@ import {
 const Layout = () => {
   const outlet = useOutlet()
   const location = useLocation()
-  const token = useAuthStore((state) => state.token)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [navigationIntent, setNavigationIntent] = useState<NavigationIntent | null>(null)
   const mainRef = useRef<HTMLDivElement>(null)
@@ -76,7 +74,7 @@ const Layout = () => {
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: 'var(--bg)' }}>
-      <RealtimeProvider key={token ?? 'guest'}>
+      <RealtimeProvider>
         <Toaster
           position="top-right"
           toastOptions={{

@@ -4,6 +4,7 @@ import com.cloudcomment.shared.error.ApiErrorCode;
 import com.cloudcomment.shared.error.ApplicationException;
 import com.cloudcomment.auth.persistence.SessionRevocationResult;
 import com.cloudcomment.auth.persistence.UserAccountRepository;
+import com.cloudcomment.auth.domain.SessionAudience;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,15 +28,25 @@ public class LogoutService {
     }
 
     @Transactional
-    public void logout(String token) {
+    public void logout(String token, SessionAudience audience) {
         SessionRevocationResult result = userAccountRepository.revokeSession(
             sessionTokenHasher.hash(token),
+            audience,
             clock.instant()
         );
 
         if (result == SessionRevocationResult.NOT_FOUND_OR_EXPIRED) {
             throw invalidSession();
         }
+    }
+
+    @Transactional
+    public void logoutIfPresent(String token, SessionAudience audience) {
+        userAccountRepository.revokeSession(
+            sessionTokenHasher.hash(token),
+            audience,
+            clock.instant()
+        );
     }
 
     private ApplicationException invalidSession() {

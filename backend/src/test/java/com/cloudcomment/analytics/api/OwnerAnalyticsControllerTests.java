@@ -40,6 +40,7 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static com.cloudcomment.support.AdminSecurityTestSupport.adminRequest;
 
 @SpringBootTest(properties = "spring.flyway.enabled=false")
 @AutoConfigureMockMvc
@@ -69,12 +70,12 @@ class OwnerAnalyticsControllerTests {
         AuthenticatedUser currentUser = currentUser();
         UUID siteId = UUID.randomUUID();
         OwnerAnalytics analytics = analytics(siteId);
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
         when(ownerAnalyticsService.getOwnerAnalytics(currentUser, "30d", siteId, "UTC")).thenReturn(analytics);
 
         mockMvc.perform(get("/api/analytics/owner")
                 .param("siteId", siteId.toString())
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
+                .with(adminRequest("plain-session-token")))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.range", is("30d")))
             .andExpect(jsonPath("$.siteId", is(siteId.toString())))
@@ -102,12 +103,12 @@ class OwnerAnalyticsControllerTests {
     @Test
     void ownerAnalyticsUsesDefaultRange() throws Exception {
         AuthenticatedUser currentUser = currentUser();
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
         when(ownerAnalyticsService.getOwnerAnalytics(eq(currentUser), eq("30d"), isNull(), eq("UTC")))
             .thenReturn(analytics(null));
 
         mockMvc.perform(get("/api/analytics/owner")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
+                .with(adminRequest("plain-session-token")))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.range", is("30d")))
             .andExpect(jsonPath("$.timeZone", is("UTC")));
@@ -118,14 +119,14 @@ class OwnerAnalyticsControllerTests {
     @Test
     void ownerAnalyticsPassesRequestedTimeZone() throws Exception {
         AuthenticatedUser currentUser = currentUser();
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
         when(ownerAnalyticsService.getOwnerAnalytics(currentUser, "90d", null, "Europe/Moscow"))
             .thenReturn(analytics(null));
 
         mockMvc.perform(get("/api/analytics/owner")
                 .param("range", "90d")
                 .param("timeZone", "Europe/Moscow")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
+                .with(adminRequest("plain-session-token")))
             .andExpect(status().isOk());
 
         verify(ownerAnalyticsService).getOwnerAnalytics(currentUser, "90d", null, "Europe/Moscow");
@@ -134,11 +135,11 @@ class OwnerAnalyticsControllerTests {
     @Test
     void ownerAnalyticsRejectsInvalidRange() throws Exception {
         AuthenticatedUser currentUser = currentUser();
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
 
         mockMvc.perform(get("/api/analytics/owner")
                 .param("range", "365d")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
+                .with(adminRequest("plain-session-token")))
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error.code", is("VALIDATION_FAILED")))
             .andExpect(jsonPath("$.error.path", is("/api/analytics/owner")));
@@ -149,11 +150,11 @@ class OwnerAnalyticsControllerTests {
     @Test
     void ownerAnalyticsRejectsOversizedTimeZoneBeforeServiceCall() throws Exception {
         AuthenticatedUser currentUser = currentUser();
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
 
         mockMvc.perform(get("/api/analytics/owner")
                 .param("timeZone", "x".repeat(65))
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
+                .with(adminRequest("plain-session-token")))
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error.code", is("VALIDATION_FAILED")))
             .andExpect(jsonPath("$.error.fields[0].field", is("timeZone")));
@@ -165,14 +166,14 @@ class OwnerAnalyticsControllerTests {
     void ownerAnalyticsMasksForeignSiteAsNotFound() throws Exception {
         AuthenticatedUser currentUser = currentUser();
         UUID siteId = UUID.randomUUID();
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
         when(ownerAnalyticsService.getOwnerAnalytics(currentUser, "7d", siteId, "UTC"))
             .thenThrow(new ApplicationException(ApiErrorCode.NOT_FOUND, "Resource not found"));
 
         mockMvc.perform(get("/api/analytics/owner")
                 .param("range", "7d")
                 .param("siteId", siteId.toString())
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
+                .with(adminRequest("plain-session-token")))
             .andExpect(status().isNotFound())
             .andExpect(jsonPath("$.error.code", is("NOT_FOUND")))
             .andExpect(jsonPath("$.error.message", is("Resource not found")))

@@ -9,6 +9,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.mock.web.MockCookie;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -26,6 +27,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static com.cloudcomment.support.AdminSecurityTestSupport.adminRequest;
+import static com.cloudcomment.support.AdminSecurityTestSupport.adminSession;
+import static com.cloudcomment.support.AdminSecurityTestSupport.csrf;
 
 /**
  * Acceptance smoke tests for implemented MVP endpoints.
@@ -54,6 +58,7 @@ class MvpApiSmokeTests {
             .andExpect(jsonPath("$.application", is("cloud-comment")));
 
         mockMvc.perform(post("/api/auth/register")
+                .with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -69,31 +74,21 @@ class MvpApiSmokeTests {
         String email = "smoke-" + UUID.randomUUID() + "@example.com";
 
         mockMvc.perform(post("/api/auth/register")
+                .with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(registerRequestJson(email, "strong-password")))
             .andExpect(status().isCreated())
             .andExpect(jsonPath("$.email", is(email)))
             .andExpect(jsonPath("$.roles", contains("COMMENTER")));
 
-        String loginResponse = mockMvc.perform(post("/api/auth/login")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("""
-                    {
-                      "email": "%s",
-                      "password": "strong-password"
-                    }
-                    """.formatted(email)))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.tokenType", is("Bearer")))
-            .andExpect(jsonPath("$.user.email", is(email)))
-            .andReturn()
-            .getResponse()
-            .getContentAsString();
-        String token = extractToken(loginResponse);
+        LoginSession loginSession = adminLogin(email, "strong-password");
+        String token = loginSession.token();
+        assertThat(loginSession.body()).contains("\"email\":\"" + email + "\"");
+        assertThat(loginSession.body()).doesNotContain("\"token\"").doesNotContain("tokenType");
         assertThat(token).isNotBlank();
 
         mockMvc.perform(get("/api/auth/me")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .with(adminRequest(token)))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.email", is(email)));
 
@@ -102,7 +97,7 @@ class MvpApiSmokeTests {
         String pageUrl = origin + "/blog/post-1";
 
         String siteResponse = mockMvc.perform(post("/api/sites")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                .with(adminRequest(token))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -125,7 +120,7 @@ class MvpApiSmokeTests {
         assertThat(publicKey).matches("[0-9a-f]{64}");
 
         mockMvc.perform(get("/api/sites/{siteId}/embed-code", siteId)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .with(adminRequest(token)))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.siteId", is(siteId)))
             .andExpect(jsonPath("$.scriptUrl", is("http://localhost/widget/cloud-comment-widget.js")))
@@ -140,7 +135,7 @@ class MvpApiSmokeTests {
             .andExpect(jsonPath("$.moderationMode", is("POST_MODERATION")));
 
         mockMvc.perform(get("/api/sites/{siteId}/installation-status", siteId)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .with(adminRequest(token)))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.status", is("HEALTHY")))
             .andExpect(jsonPath("$.reason", is("RECENT_SUCCESS")))
@@ -154,9 +149,11 @@ class MvpApiSmokeTests {
             .andExpect(jsonPath("$.items", empty()))
             .andExpect(jsonPath("$.totalItems", is(0)));
 
+        String widgetToken = widgetLogin(siteId, origin, email, "strong-password");
+
         String commentResponse = mockMvc.perform(post("/api/public/sites/{siteId}/pages/comments", siteId)
                 .header(HttpHeaders.ORIGIN, origin)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + widgetToken)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -184,30 +181,19 @@ class MvpApiSmokeTests {
 
         String otherEmail = "other-" + UUID.randomUUID() + "@example.com";
         mockMvc.perform(post("/api/auth/register")
+                .with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(registerRequestJson(otherEmail, "strong-password")))
             .andExpect(status().isCreated());
-        String otherLoginResponse = mockMvc.perform(post("/api/auth/login")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("""
-                    {
-                      "email": "%s",
-                      "password": "strong-password"
-                    }
-                    """.formatted(otherEmail)))
-            .andExpect(status().isOk())
-            .andReturn()
-            .getResponse()
-            .getContentAsString();
-        String otherToken = extractToken(otherLoginResponse);
+        String otherToken = adminLogin(otherEmail, "strong-password").token();
 
         mockMvc.perform(get("/api/sites/{siteId}/installation-status", siteId)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + otherToken))
+                .with(adminRequest(otherToken)))
             .andExpect(status().isNotFound())
             .andExpect(jsonPath("$.error.code", is("NOT_FOUND")))
             .andExpect(jsonPath("$.error.message", is("Resource not found")));
         mockMvc.perform(get("/api/sites/{siteId}/installation-status", UUID.randomUUID())
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + otherToken))
+                .with(adminRequest(otherToken)))
             .andExpect(status().isNotFound())
             .andExpect(jsonPath("$.error.code", is("NOT_FOUND")))
             .andExpect(jsonPath("$.error.message", is("Resource not found")));
@@ -219,11 +205,11 @@ class MvpApiSmokeTests {
             .andExpect(jsonPath("$.error.fields", empty()));
 
         mockMvc.perform(post("/api/auth/logout")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .with(adminRequest(token)))
             .andExpect(status().isNoContent());
 
         mockMvc.perform(get("/api/auth/me")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .with(adminSession(token)))
             .andExpect(status().isUnauthorized())
             .andExpect(jsonPath("$.error.code", is("INVALID_SESSION")));
     }
@@ -233,28 +219,17 @@ class MvpApiSmokeTests {
         String suffix = UUID.randomUUID().toString().replace("-", "");
         String email = "canonical-" + suffix + "@example.com";
         mockMvc.perform(post("/api/auth/register")
+                .with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(registerRequestJson(email, "strong-password")))
             .andExpect(status().isCreated());
 
-        String loginResponse = mockMvc.perform(post("/api/auth/login")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("""
-                    {
-                      "email": "%s",
-                      "password": "strong-password"
-                    }
-                    """.formatted(email)))
-            .andExpect(status().isOk())
-            .andReturn()
-            .getResponse()
-            .getContentAsString();
-        String token = extractToken(loginResponse);
+        String token = adminLogin(email, "strong-password").token();
 
         String siteDomain = "canonical-" + suffix + ".example.com";
         String origin = "https://" + siteDomain;
         String siteResponse = mockMvc.perform(post("/api/sites")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                .with(adminRequest(token))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -269,6 +244,7 @@ class MvpApiSmokeTests {
             .getResponse()
             .getContentAsString();
         String siteId = extractString(siteResponse, "id");
+        String widgetToken = widgetLogin(siteId, origin, email, "strong-password");
 
         String trackingGetUrl = origin + "/article?tab=comments&%67braid=first&srsltid=result#thread";
         mockMvc.perform(get("/api/public/sites/{siteId}/pages/comments", siteId)
@@ -281,7 +257,7 @@ class MvpApiSmokeTests {
             + "&gad_campaignid=2&client_secret=secret&x%2Damz%2Dsignature=signed#comments";
         String commentResponse = mockMvc.perform(post("/api/public/sites/{siteId}/pages/comments", siteId)
                 .header(HttpHeaders.ORIGIN, origin)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + widgetToken)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -305,7 +281,7 @@ class MvpApiSmokeTests {
         String functionalPageUrl = origin + "/article?tab=popular&x-goog-signature=secret&gbraid=third";
         String functionalCommentResponse = mockMvc.perform(post("/api/public/sites/{siteId}/pages/comments", siteId)
                 .header(HttpHeaders.ORIGIN, origin)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + widgetToken)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -345,6 +321,44 @@ class MvpApiSmokeTests {
 
     private String extractToken(String json) {
         return extractString(json, "token");
+    }
+
+    private LoginSession adminLogin(String email, String password) throws Exception {
+        var response = mockMvc.perform(post("/api/auth/login")
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "email": "%s",
+                      "password": "%s"
+                    }
+                    """.formatted(email, password)))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse();
+        String setCookie = response.getHeader(HttpHeaders.SET_COOKIE);
+        assertThat(setCookie).isNotNull();
+        return new LoginSession(response.getContentAsString(), MockCookie.parse(setCookie).getValue());
+    }
+
+    private String widgetLogin(String siteId, String origin, String email, String password) throws Exception {
+        String response = mockMvc.perform(post("/api/public/sites/{siteId}/auth/login", siteId)
+                .header(HttpHeaders.ORIGIN, origin)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "email": "%s",
+                      "password": "%s"
+                    }
+                    """.formatted(email, password)))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+        return extractToken(response);
+    }
+
+    private record LoginSession(String body, String token) {
     }
 
     private String extractString(String json, String fieldName) {

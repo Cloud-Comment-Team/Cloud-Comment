@@ -11,10 +11,14 @@ import org.springframework.web.servlet.mvc.method.RequestMappingInfo;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 @Component
 public class ApiEndpointSecurity {
+
+    private static final Set<String> SAFE_METHODS = Set.of("GET", "HEAD", "OPTIONS", "TRACE");
 
     private final List<HandlerMapping> handlerMappings;
 
@@ -36,6 +40,28 @@ public class ApiEndpointSecurity {
             case NOT_FOUND -> false;
             case FAILED -> !isPublicApiPath(request);
         };
+    }
+
+    public boolean usesPublicWidgetBearer(HttpServletRequest request) {
+        return normalizedPath(request).startsWith("/api/public/sites/");
+    }
+
+    public boolean requiresCsrf(HttpServletRequest request) {
+        if (SAFE_METHODS.contains(request.getMethod().toUpperCase(Locale.ROOT))) {
+            return false;
+        }
+
+        String path = normalizedPath(request);
+        if (path.startsWith("/api/public/sites/") || path.equals("/api/realtime/ws")) {
+            return false;
+        }
+        if (path.equals("/api/account/deletion-confirmations")) {
+            return false;
+        }
+        if (path.startsWith("/api/auth/")) {
+            return !path.equals("/api/auth/csrf");
+        }
+        return requiresAuthentication(request);
     }
 
     private boolean isApiRequest(HttpServletRequest request) {

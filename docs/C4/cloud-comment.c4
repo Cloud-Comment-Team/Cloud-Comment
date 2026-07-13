@@ -332,7 +332,7 @@ model {
 
   cloudComment.widgetRuntime.publicApiClient -[http]-> cloudComment.backendApi.publicWidgetController 'Выполняет public API запросы'
 
-  cloudComment.backendApi.adminApiController -[internal]-> cloudComment.backendApi.authModule 'Проверяет сессию по bearer-токену'
+  cloudComment.backendApi.adminApiController -[internal]-> cloudComment.backendApi.authModule 'Проверяет HttpOnly cookie-сессию audience ADMIN и CSRF для изменений'
 
   cloudComment.backendApi.adminApiController -[internal]-> cloudComment.backendApi.accountPrivacyModule 'Обслуживает account privacy API'
 
@@ -368,9 +368,9 @@ model {
 
   cloudComment.backendApi.moderationModule -[internal]-> cloudComment.backendApi.realtimeGateway 'Публикует события comment.moderation_action_applied после действий модерации'
 
-  cloudComment.backendApi.realtimeGateway -[internal]-> cloudComment.backendApi.authModule 'Выдаёт по bearer-аутентификации короткоживущий ticket и атомарно поглощает его при WebSocket handshake'
+  cloudComment.backendApi.realtimeGateway -[internal]-> cloudComment.backendApi.authModule 'Выдаёт по cookie-сессии и CSRF короткоживущий ticket и атомарно поглощает его при WebSocket handshake'
 
-  cloudComment.backendApi.publicWidgetController -[internal]-> cloudComment.backendApi.accountPrivacyModule 'Обслуживает самообслуживание аккаунта в виджете: профиль, logout, экспорт данных и запрос удаления'
+  cloudComment.backendApi.publicWidgetController -[internal]-> cloudComment.backendApi.accountPrivacyModule 'Проверяет bearer audience WIDGET и обслуживает самообслуживание аккаунта'
 
   cloudComment.backendApi.publicWidgetController -[internal]-> cloudComment.backendApi.automodPolicyModule 'Вычисляет решение активной политики без внешней передачи текста'
 
@@ -530,7 +530,7 @@ views {
 
     cloudComment.adminWebApp.adminApiClient -> cloudComment.backendApi.adminApiController 'POST /api/sites'
 
-    cloudComment.backendApi.adminApiController -> cloudComment.backendApi.authModule 'Проверяет сессию по bearer-токену'
+    cloudComment.backendApi.adminApiController -> cloudComment.backendApi.authModule 'Проверяет HttpOnly cookie-сессию и CSRF'
 
     cloudComment.backendApi.adminApiController -> cloudComment.backendApi.siteModule 'Создает сайт'
 
@@ -548,7 +548,7 @@ views {
 
     cloudComment.adminWebApp.adminApiClient -> cloudComment.backendApi.adminApiController 'GET /api/sites/{siteId}/embed-code'
 
-    cloudComment.backendApi.adminApiController -> cloudComment.backendApi.authModule 'Проверяет сессию по bearer-токену'
+    cloudComment.backendApi.adminApiController -> cloudComment.backendApi.authModule 'Проверяет HttpOnly cookie-сессию'
 
     cloudComment.backendApi.adminApiController -> cloudComment.backendApi.accessPolicyModule 'Проверяет владение сайтом'
 
@@ -610,7 +610,7 @@ views {
 
     cloudComment.adminWebApp.adminApiClient -> cloudComment.backendApi.adminApiController 'GET /api/moderation/comments'
 
-    cloudComment.backendApi.adminApiController -> cloudComment.backendApi.authModule 'Проверяет сессию по bearer-токену'
+    cloudComment.backendApi.adminApiController -> cloudComment.backendApi.authModule 'Проверяет HttpOnly cookie-сессию'
 
     cloudComment.backendApi.adminApiController -> cloudComment.backendApi.accessPolicyModule 'Ограничивает выборку ресурсами владельца'
 
@@ -670,7 +670,7 @@ views {
 
     cloudComment.adminWebApp.adminApiClient -> cloudComment.backendApi.adminApiController 'PATCH /api/sites/{siteId}/automoderation/policies/{policyId}'
 
-    cloudComment.backendApi.adminApiController -> cloudComment.backendApi.authModule 'Проверяет bearer-сессию'
+    cloudComment.backendApi.adminApiController -> cloudComment.backendApi.authModule 'Проверяет HttpOnly cookie-сессию и CSRF'
 
     cloudComment.backendApi.adminApiController -> cloudComment.backendApi.accessPolicyModule 'Проверяет владение сайтом'
 

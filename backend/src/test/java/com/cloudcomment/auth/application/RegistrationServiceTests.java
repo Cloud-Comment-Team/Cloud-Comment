@@ -1,5 +1,7 @@
 package com.cloudcomment.auth.application;
 
+import com.cloudcomment.auth.domain.SessionAudience;
+
 import com.cloudcomment.privacy.application.ConsentService;
 import com.cloudcomment.privacy.application.ConsentTestSupport;
 import com.cloudcomment.privacy.application.NoopPrivacyAuditService;
@@ -158,7 +160,11 @@ class RegistrationServiceTests {
         }
 
         @Override
-        public Optional<AuthenticatedUser> findUserByActiveSessionTokenHash(String tokenHash, Instant now) {
+        public Optional<AuthenticatedUser> findUserByActiveSessionTokenHash(
+            String tokenHash,
+            SessionAudience audience,
+            Instant now
+        ) {
             return Optional.empty();
         }
 
@@ -175,12 +181,16 @@ class RegistrationServiceTests {
         }
 
         @Override
-        public void createSession(UUID userId, String tokenHash, Instant expiresAt) {
+        public void createSession(UUID userId, String tokenHash, SessionAudience audience, Instant expiresAt) {
             throw new UnsupportedOperationException("registration tests do not create sessions");
         }
 
         @Override
-        public com.cloudcomment.auth.persistence.SessionRevocationResult revokeSession(String tokenHash, Instant revokedAt) {
+        public com.cloudcomment.auth.persistence.SessionRevocationResult revokeSession(
+            String tokenHash,
+            SessionAudience audience,
+            Instant revokedAt
+        ) {
             throw new UnsupportedOperationException("registration tests do not revoke sessions");
         }
 

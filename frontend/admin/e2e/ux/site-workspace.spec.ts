@@ -7,6 +7,9 @@ const OTHER_OWNER_ID = '00000000-0000-0000-0000-000000000002'
 const OWNER_DRAFT_KEY = `cloud-comment:site-create-draft:v2:${OWNER_ID}`
 
 async function authenticate(page: Page) {
+  await page.route('**/api/auth/csrf', (route) => route.fulfill({
+    json: { headerName: 'X-CSRF-TOKEN', token: 'offline-csrf-token' },
+  }))
   await page.route('**/api/auth/me', (route) => route.fulfill({
     json: { id: OWNER_ID, email: 'owner@example.test', roles: ['OWNER'], createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
   }))
@@ -15,8 +18,7 @@ async function authenticate(page: Page) {
   await page.route('**/api/notifications?*', (route) => route.fulfill({
     json: { items: [], page: 1, pageSize: 20, totalItems: 0, totalPages: 0 },
   }))
-  await page.goto('/login')
-  await page.evaluate(() => localStorage.setItem('cloud-comment.admin.authToken', 'test-token'))
+  await page.goto('/')
 }
 
 async function expectNoSeriousAccessibilityViolations(page: Page) {

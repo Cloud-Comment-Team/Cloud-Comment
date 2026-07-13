@@ -2,6 +2,7 @@ package com.cloudcomment.comment.api;
 
 import com.cloudcomment.auth.application.AuthenticatedUser;
 import com.cloudcomment.auth.application.CurrentUserService;
+import com.cloudcomment.auth.domain.SessionAudience;
 import com.cloudcomment.comment.api.validation.ValidPageUrl;
 import com.cloudcomment.comment.application.CommentPage;
 import com.cloudcomment.comment.application.PublicCommentService;
@@ -188,7 +189,10 @@ class PublicCommentController {
             return Optional.empty();
         }
         try {
-            return Optional.of(currentUserService.getCurrentUser(bearerTokenResolver.resolve(request)).id());
+            return Optional.of(currentUserService.getCurrentUser(
+                bearerTokenResolver.resolve(request),
+                SessionAudience.WIDGET
+            ).id());
         } catch (ApplicationException exception) {
             return Optional.empty();
         }

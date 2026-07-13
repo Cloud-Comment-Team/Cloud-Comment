@@ -6,9 +6,11 @@ import com.cloudcomment.account.application.AccountDeletionRequestView;
 import com.cloudcomment.account.application.PersonalDataExportService;
 import com.cloudcomment.account.application.PersonalDataSnapshot;
 import com.cloudcomment.auth.application.AuthenticatedUser;
+import com.cloudcomment.shared.web.security.AdminSessionCookieService;
 import com.cloudcomment.shared.web.security.CurrentUser;
 import com.cloudcomment.shared.web.security.PublicApi;
 import jakarta.validation.Valid;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -24,15 +26,18 @@ class AccountController {
     private final AccountDeletionRequestService deletionRequestService;
     private final AccountDeletionConfirmationService deletionConfirmationService;
     private final PersonalDataExportService personalDataExportService;
+    private final AdminSessionCookieService adminSessionCookieService;
 
     AccountController(
         AccountDeletionRequestService deletionRequestService,
         AccountDeletionConfirmationService deletionConfirmationService,
-        PersonalDataExportService personalDataExportService
+        PersonalDataExportService personalDataExportService,
+        AdminSessionCookieService adminSessionCookieService
     ) {
         this.deletionRequestService = deletionRequestService;
         this.deletionConfirmationService = deletionConfirmationService;
         this.personalDataExportService = personalDataExportService;
+        this.adminSessionCookieService = adminSessionCookieService;
     }
 
     @PostMapping("/deletion-requests")
@@ -56,8 +61,12 @@ class AccountController {
 
     @PublicApi
     @PostMapping("/deletion-confirmations")
-    ResponseEntity<Void> confirmDeletion(@Valid @RequestBody ConfirmAccountDeletionRequest request) {
+    ResponseEntity<Void> confirmDeletion(
+        @Valid @RequestBody ConfirmAccountDeletionRequest request,
+        HttpServletResponse response
+    ) {
         deletionConfirmationService.confirm(request.token());
+        adminSessionCookieService.clear(response);
         return ResponseEntity.noContent().build();
     }
 }

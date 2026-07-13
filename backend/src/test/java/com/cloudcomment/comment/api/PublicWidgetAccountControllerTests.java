@@ -78,7 +78,7 @@ class PublicWidgetAccountControllerTests {
         when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
         when(domainPolicyService.validate(siteId, ORIGIN))
             .thenReturn(new WidgetSiteAccess(siteId, ModerationMode.PRE_MODERATION, ORIGIN));
-        when(currentUserService.getCurrentUser("plain-session-token")).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser("plain-session-token", com.cloudcomment.auth.domain.SessionAudience.WIDGET)).thenReturn(currentUser);
         when(personalDataExportService.export(currentUser)).thenReturn(snapshot);
 
         mockMvc.perform(get("/api/public/sites/{siteId}/account/personal-data", siteId)
@@ -108,7 +108,7 @@ class PublicWidgetAccountControllerTests {
         when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
         when(domainPolicyService.validate(siteId, ORIGIN))
             .thenReturn(new WidgetSiteAccess(siteId, ModerationMode.PRE_MODERATION, ORIGIN));
-        when(currentUserService.getCurrentUser("plain-session-token")).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser("plain-session-token", com.cloudcomment.auth.domain.SessionAudience.WIDGET)).thenReturn(currentUser);
         when(deletionRequestService.createOrRefresh(currentUser)).thenReturn(view);
 
         mockMvc.perform(post("/api/public/sites/{siteId}/account/deletion-requests", siteId)

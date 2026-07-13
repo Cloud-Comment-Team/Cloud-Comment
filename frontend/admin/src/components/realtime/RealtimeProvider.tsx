@@ -60,8 +60,8 @@ function isRealtimeEvent(value: unknown): value is RealtimeEvent {
 }
 
 export function RealtimeProvider({ children }: { children: ReactNode }) {
-  const token = useAuthStore((state) => state.token)
   const authStatus = useAuthStore((state) => state.status)
+  const userId = useAuthStore((state) => state.user?.id)
   const [connectionStatus, setConnectionStatus] = useState<RealtimeConnectionStatus>('disconnected')
   const listenersRef = useRef(new Set<RealtimeListener>())
   const reconnectTimerRef = useRef<number | null>(null)
@@ -74,7 +74,7 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
-    if (authStatus !== 'authenticated' || !token) {
+    if (authStatus !== 'authenticated' || !userId) {
       return
     }
 
@@ -155,7 +155,7 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
       clearReconnectTimer()
       websocket?.close()
     }
-  }, [authStatus, token])
+  }, [authStatus, userId])
 
   const value = useMemo(
     () => ({

@@ -108,6 +108,7 @@ class PublicWidgetAuthControllerTests {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(ConsentTestSupport.registerRequestJson(EMAIL, PASSWORD)))
             .andExpect(status().isCreated())
+            .andExpect(header().doesNotExist(HttpHeaders.SET_COOKIE))
             .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, ORIGIN))
             .andExpect(jsonPath("$.id", is(user.id().toString())))
             .andExpect(jsonPath("$.email", is(EMAIL)))
@@ -134,7 +135,7 @@ class PublicWidgetAuthControllerTests {
             TIMESTAMP
         );
         when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
-        when(loginService.login(EMAIL, PASSWORD))
+        when(loginService.login(EMAIL, PASSWORD, com.cloudcomment.auth.domain.SessionAudience.WIDGET))
             .thenReturn(new LoginResult("plain-session-token", "Bearer", TIMESTAMP.plusSeconds(3600), user));
 
         mockMvc.perform(post("/api/public/sites/{siteId}/auth/login", siteId)
@@ -147,13 +148,14 @@ class PublicWidgetAuthControllerTests {
                     }
                     """.formatted(EMAIL, PASSWORD)))
             .andExpect(status().isOk())
+            .andExpect(header().doesNotExist(HttpHeaders.SET_COOKIE))
             .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, ORIGIN))
             .andExpect(jsonPath("$.token", is("plain-session-token")))
             .andExpect(jsonPath("$.tokenType", is("Bearer")))
             .andExpect(jsonPath("$.user.email", is(EMAIL)));
 
         verify(domainPolicyService).validate(siteId, ORIGIN);
-        verify(loginService).login(EMAIL, PASSWORD);
+        verify(loginService).login(EMAIL, PASSWORD, com.cloudcomment.auth.domain.SessionAudience.WIDGET);
         verifyNoInteractions(currentUserService, registrationService);
     }
 
@@ -164,12 +166,13 @@ class PublicWidgetAuthControllerTests {
         when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
         when(domainPolicyService.validate(siteId, ORIGIN))
             .thenReturn(new WidgetSiteAccess(siteId, ModerationMode.PRE_MODERATION, ORIGIN));
-        when(currentUserService.getCurrentUser("plain-session-token")).thenReturn(user);
+        when(currentUserService.getCurrentUser("plain-session-token", com.cloudcomment.auth.domain.SessionAudience.WIDGET)).thenReturn(user);
 
         mockMvc.perform(get("/api/public/sites/{siteId}/auth/me", siteId)
                 .header(HttpHeaders.ORIGIN, ORIGIN)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
             .andExpect(status().isOk())
+            .andExpect(header().doesNotExist(HttpHeaders.SET_COOKIE))
             .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, ORIGIN))
             .andExpect(jsonPath("$.id", is(user.id().toString())))
             .andExpect(jsonPath("$.email", is(user.email())));
@@ -184,7 +187,10 @@ class PublicWidgetAuthControllerTests {
         when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
         when(domainPolicyService.validate(siteId, ORIGIN))
             .thenReturn(new WidgetSiteAccess(siteId, ModerationMode.PRE_MODERATION, ORIGIN));
-        doNothing().when(logoutService).logout("plain-session-token");
+        doNothing().when(logoutService).logout(
+            "plain-session-token",
+            com.cloudcomment.auth.domain.SessionAudience.WIDGET
+        );
 
         mockMvc.perform(post("/api/public/sites/{siteId}/auth/logout", siteId)
                 .header(HttpHeaders.ORIGIN, ORIGIN)
@@ -192,7 +198,10 @@ class PublicWidgetAuthControllerTests {
             .andExpect(status().isNoContent())
             .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, ORIGIN));
 
-        verify(logoutService).logout("plain-session-token");
+        verify(logoutService).logout(
+            "plain-session-token",
+            com.cloudcomment.auth.domain.SessionAudience.WIDGET
+        );
         verifyNoInteractions(currentUserService, registrationService, loginService);
     }
 

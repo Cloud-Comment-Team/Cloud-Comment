@@ -3,6 +3,7 @@ package com.cloudcomment.auth.application;
 import com.cloudcomment.shared.error.ApiErrorCode;
 import com.cloudcomment.shared.error.ApplicationException;
 import com.cloudcomment.auth.persistence.UserAccountRepository;
+import com.cloudcomment.auth.domain.SessionAudience;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,9 +27,13 @@ public class CurrentUserService {
     }
 
     @Transactional(readOnly = true)
-    public AuthenticatedUser getCurrentUser(String token) {
+    public AuthenticatedUser getCurrentUser(String token, SessionAudience audience) {
+        if (audience == SessionAudience.LEGACY) {
+            throw invalidSession();
+        }
         return userAccountRepository.findUserByActiveSessionTokenHash(
                 sessionTokenHasher.hash(token),
+                audience,
                 clock.instant()
             )
             .orElseThrow(this::invalidSession);

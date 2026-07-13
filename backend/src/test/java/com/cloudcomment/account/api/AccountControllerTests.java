@@ -30,6 +30,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static com.cloudcomment.support.AdminSecurityTestSupport.adminRequest;
+import static com.cloudcomment.support.AdminSecurityTestSupport.csrf;
 
 @SpringBootTest(properties = "spring.flyway.enabled=false")
 @AutoConfigureMockMvc
@@ -53,8 +55,8 @@ class AccountControllerTests {
     private PersonalDataExportService personalDataExportService;
 
     @Test
-    void createDeletionRequestRequiresBearerAuthentication() throws Exception {
-        mockMvc.perform(post("/api/account/deletion-requests"))
+    void createDeletionRequestRequiresCookieAuthentication() throws Exception {
+        mockMvc.perform(post("/api/account/deletion-requests").with(csrf()))
             .andExpect(status().isUnauthorized())
             .andExpect(jsonPath("$.error.code", is("INVALID_SESSION")));
 
@@ -65,13 +67,13 @@ class AccountControllerTests {
     void createDeletionRequestReturnsPendingRequest() throws Exception {
         AuthenticatedUser currentUser = currentUser();
         UUID requestId = UUID.randomUUID();
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
         when(deletionRequestService.createOrRefresh(currentUser)).thenReturn(
             new AccountDeletionRequestView(requestId, currentUser.id(), "PENDING", TIMESTAMP, TIMESTAMP.plusSeconds(3600))
         );
 
         mockMvc.perform(post("/api/account/deletion-requests")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
+                .with(adminRequest("plain-session-token")))
             .andExpect(status().isCreated())
             .andExpect(jsonPath("$.id", is(requestId.toString())))
             .andExpect(jsonPath("$.userId", is(currentUser.id().toString())))
@@ -82,13 +84,13 @@ class AccountControllerTests {
     void getCurrentDeletionRequestReturnsActiveRequest() throws Exception {
         AuthenticatedUser currentUser = currentUser();
         UUID requestId = UUID.randomUUID();
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
         when(deletionRequestService.getCurrent(currentUser)).thenReturn(
             new AccountDeletionRequestView(requestId, currentUser.id(), "PENDING", TIMESTAMP, TIMESTAMP.plusSeconds(3600))
         );
 
         mockMvc.perform(get("/api/account/deletion-requests/current")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
+                .with(adminRequest("plain-session-token")))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.status", is("PENDING")));
     }
@@ -96,7 +98,7 @@ class AccountControllerTests {
     @Test
     void exportPersonalDataReturnsCurrentUserSnapshot() throws Exception {
         AuthenticatedUser currentUser = currentUser();
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
         when(personalDataExportService.export(currentUser)).thenReturn(new PersonalDataSnapshot(
             new PersonalDataSnapshot.AccountProfile(
                 currentUser.id(),
@@ -116,7 +118,7 @@ class AccountControllerTests {
         ));
 
         mockMvc.perform(get("/api/account/personal-data")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
+                .with(adminRequest("plain-session-token")))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.account.id", is(currentUser.id().toString())))
             .andExpect(jsonPath("$.account.email", is(currentUser.email())))
@@ -124,7 +126,7 @@ class AccountControllerTests {
     }
 
     @Test
-    void exportPersonalDataRequiresBearerAuthentication() throws Exception {
+    void exportPersonalDataRequiresCookieAuthentication() throws Exception {
         mockMvc.perform(get("/api/account/personal-data"))
             .andExpect(status().isUnauthorized())
             .andExpect(jsonPath("$.error.code", is("INVALID_SESSION")));

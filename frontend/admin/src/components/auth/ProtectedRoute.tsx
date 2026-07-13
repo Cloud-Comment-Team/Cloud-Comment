@@ -1,18 +1,10 @@
-import { useEffect } from 'react'
 import { Navigate, Outlet, useLocation } from 'react-router-dom'
 
 import { useAuthStore } from '../../store'
 
 const ProtectedRoute = () => {
   const status = useAuthStore((state) => state.status)
-  const checkAuth = useAuthStore((state) => state.checkAuth)
   const location = useLocation()
-
-  useEffect(() => {
-    if (status === 'checking') {
-      void checkAuth()
-    }
-  }, [checkAuth, status])
 
   if (status === 'checking') {
     return (

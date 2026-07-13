@@ -42,6 +42,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static com.cloudcomment.support.AdminSecurityTestSupport.adminRequest;
 
 @SpringBootTest(properties = "spring.flyway.enabled=false")
 @AutoConfigureMockMvc
@@ -72,7 +73,7 @@ class ModerationControllerTests {
     void listCommentsReturnsPaginatedCommentsForCurrentUser() throws Exception {
         AuthenticatedUser currentUser = currentUser();
         Comment comment = comment(currentUser.id());
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
         when(moderationService.listComments(
             eq(currentUser),
             eq(new ModerationCommentFilters(
@@ -92,7 +93,7 @@ class ModerationControllerTests {
         )).thenReturn(new ModerationCommentPage(List.of(comment), 1, 20, 1));
 
         mockMvc.perform(get("/api/moderation/comments")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
+                .with(adminRequest("plain-session-token")))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.items[0].id", is(comment.id().toString())))
             .andExpect(jsonPath("$.items[0].siteId", is(comment.siteId().toString())))
@@ -116,7 +117,7 @@ class ModerationControllerTests {
     void listCommentsReturnsParentSummaryForReply() throws Exception {
         AuthenticatedUser currentUser = currentUser();
         Comment comment = replyComment(currentUser.id());
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
         when(moderationService.listComments(
             eq(currentUser),
             eq(new ModerationCommentFilters(
@@ -136,7 +137,7 @@ class ModerationControllerTests {
         )).thenReturn(new ModerationCommentPage(List.of(comment), 1, 20, 1));
 
         mockMvc.perform(get("/api/moderation/comments")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
+                .with(adminRequest("plain-session-token")))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.items[0].parentId", is(comment.parentId().toString())))
             .andExpect(jsonPath("$.items[0].parent.id", is(comment.parent().id().toString())))
@@ -149,7 +150,7 @@ class ModerationControllerTests {
     void listCommentsPassesFiltersToService() throws Exception {
         AuthenticatedUser currentUser = currentUser();
         UUID siteId = UUID.randomUUID();
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
         when(moderationService.listComments(
             eq(currentUser),
             eq(new ModerationCommentFilters(
@@ -169,7 +170,7 @@ class ModerationControllerTests {
         )).thenReturn(new ModerationCommentPage(List.of(), 2, 10, 0));
 
         mockMvc.perform(get("/api/moderation/comments")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .with(adminRequest("plain-session-token"))
                 .param("siteId", siteId.toString())
                 .param("pageUrl", "https://example.com/page")
                 .param("status", "PENDING")
@@ -202,11 +203,11 @@ class ModerationControllerTests {
     @Test
     void listCommentsRejectsInvalidPagination() throws Exception {
         AuthenticatedUser currentUser = currentUser();
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
 
         mockMvc.perform(get("/api/moderation/comments")
                 .param("pageSize", "101")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
+                .with(adminRequest("plain-session-token")))
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error.code", is("VALIDATION_FAILED")))
             .andExpect(jsonPath("$.error.path", is("/api/moderation/comments")));
@@ -217,7 +218,7 @@ class ModerationControllerTests {
     @Test
     void listCommentsAcceptsRepeatedStatusesAndRejectsLegacyFilterConflict() throws Exception {
         AuthenticatedUser currentUser = currentUser();
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
         ModerationCommentFilters filters = new ModerationCommentFilters(
             null, null, null, null, List.of(CommentStatus.PENDING, CommentStatus.SPAM),
             null, null, null, null, CommentSortField.SMART, SortOrder.DESC
@@ -226,12 +227,12 @@ class ModerationControllerTests {
             .thenReturn(new ModerationCommentPage(List.of(), 1, 20, 0));
 
         mockMvc.perform(get("/api/moderation/comments")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .with(adminRequest("plain-session-token"))
                 .param("statuses", "PENDING", "SPAM"))
             .andExpect(status().isOk());
 
         mockMvc.perform(get("/api/moderation/comments")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .with(adminRequest("plain-session-token"))
                 .param("status", "PENDING")
                 .param("statuses", "SPAM"))
             .andExpect(status().isBadRequest())
@@ -241,7 +242,7 @@ class ModerationControllerTests {
     @Test
     void countsReturnsAllStatusesAndDecisionWorkload() throws Exception {
         AuthenticatedUser currentUser = currentUser();
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
         when(moderationService.counts(currentUser)).thenReturn(java.util.Map.of(
             CommentStatus.PENDING, 3L,
             CommentStatus.SPAM, 2L,
@@ -249,7 +250,7 @@ class ModerationControllerTests {
         ));
 
         mockMvc.perform(get("/api/moderation/counts")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
+                .with(adminRequest("plain-session-token")))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.statuses.PENDING", is(3)))
             .andExpect(jsonPath("$.statuses.SPAM", is(2)))
@@ -267,7 +268,7 @@ class ModerationControllerTests {
             CommentStatus.PENDING, CommentStatus.APPROVED, null, currentUser.id(), currentUser.email(),
             operationId, null, TIMESTAMP
         );
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
         when(moderationService.applyBulk(
             currentUser, operationId, List.of(firstCommentId, secondCommentId), ModerationActionType.APPROVE, null
         )).thenReturn(List.of(
@@ -276,7 +277,7 @@ class ModerationControllerTests {
         ));
 
         mockMvc.perform(post("/api/moderation/comments/bulk-actions")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .with(adminRequest("plain-session-token"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {"operationId":"%s","commentIds":["%s","%s"],"action":"APPROVE"}
@@ -297,11 +298,11 @@ class ModerationControllerTests {
             CommentStatus.APPROVED, CommentStatus.PENDING, "Отмена действия",
             currentUser.id(), currentUser.email(), UUID.randomUUID(), originalActionId, TIMESTAMP
         );
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
         when(moderationService.undo(currentUser, originalActionId)).thenReturn(undo);
 
         mockMvc.perform(post("/api/moderation/actions/{actionId}/undo", originalActionId)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
+                .with(adminRequest("plain-session-token")))
             .andExpect(status().isCreated())
             .andExpect(jsonPath("$.action", is("UNDO")))
             .andExpect(jsonPath("$.revertsActionId", is(originalActionId.toString())));
@@ -311,12 +312,12 @@ class ModerationControllerTests {
     void getCommentReturnsNotFoundForForeignOrMissingComment() throws Exception {
         AuthenticatedUser currentUser = currentUser();
         UUID commentId = UUID.randomUUID();
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
         when(moderationService.getComment(currentUser, commentId))
             .thenThrow(new ApplicationException(ApiErrorCode.NOT_FOUND, "Resource not found"));
 
         mockMvc.perform(get("/api/moderation/comments/{commentId}", commentId)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
+                .with(adminRequest("plain-session-token")))
             .andExpect(status().isNotFound())
             .andExpect(jsonPath("$.error.code", is("NOT_FOUND")))
             .andExpect(jsonPath("$.error.message", is("Resource not found")))
@@ -328,11 +329,11 @@ class ModerationControllerTests {
     void getCommentReturnsCommentDetails() throws Exception {
         AuthenticatedUser currentUser = currentUser();
         Comment comment = comment(currentUser.id());
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
         when(moderationService.getComment(currentUser, comment.id())).thenReturn(comment);
 
         mockMvc.perform(get("/api/moderation/comments/{commentId}", comment.id())
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
+                .with(adminRequest("plain-session-token")))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.id", is(comment.id().toString())))
             .andExpect(jsonPath("$.pageUrl", is("https://example.com/page")))
@@ -347,11 +348,11 @@ class ModerationControllerTests {
     void getCommentReturnsParentSummaryForReply() throws Exception {
         AuthenticatedUser currentUser = currentUser();
         Comment comment = replyComment(currentUser.id());
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
         when(moderationService.getComment(currentUser, comment.id())).thenReturn(comment);
 
         mockMvc.perform(get("/api/moderation/comments/{commentId}", comment.id())
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token"))
+                .with(adminRequest("plain-session-token")))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.parentId", is(comment.parentId().toString())))
             .andExpect(jsonPath("$.parent.id", is(comment.parent().id().toString())))
@@ -369,11 +370,11 @@ class ModerationControllerTests {
             original.author(), original.body(), CommentStatus.APPROVED, original.moderationReason(), true, true,
             original.priority(), original.priorityScore(), original.priorityReasons(), original.createdAt(), original.updatedAt()
         );
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
         when(moderationService.updateFlags(currentUser, original.id(), true, true)).thenReturn(updated);
 
         mockMvc.perform(patch("/api/moderation/comments/{commentId}/flags", original.id())
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .with(adminRequest("plain-session-token"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {"pinned": true, "favorite": true}
@@ -398,12 +399,12 @@ class ModerationControllerTests {
             currentUser.email(),
             TIMESTAMP
         );
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
         when(moderationService.applyAction(currentUser, commentId, ModerationActionType.APPROVE, "Looks good"))
             .thenReturn(action);
 
         mockMvc.perform(post("/api/moderation/comments/{commentId}/actions", commentId)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .with(adminRequest("plain-session-token"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -426,10 +427,10 @@ class ModerationControllerTests {
     void applyActionRejectsInvalidRequest() throws Exception {
         AuthenticatedUser currentUser = currentUser();
         UUID commentId = UUID.randomUUID();
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.ADMIN))).thenReturn(currentUser);
 
         mockMvc.perform(post("/api/moderation/comments/{commentId}/actions", commentId)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer plain-session-token")
+                .with(adminRequest("plain-session-token"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{}"))
             .andExpect(status().isBadRequest())

@@ -46,6 +46,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static com.cloudcomment.support.AdminSecurityTestSupport.adminSession;
 
 @SpringBootTest(properties = "spring.flyway.enabled=false")
 @AutoConfigureMockMvc
@@ -170,7 +171,10 @@ class PublicCommentControllerTests {
     void listCommentsIgnoresInvalidOptionalBearerViewer() throws Exception {
         UUID siteId = UUID.randomUUID();
         when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
-        when(currentUserService.getCurrentUser(eq("expired-session-token")))
+        when(currentUserService.getCurrentUser(
+            eq("expired-session-token"),
+            eq(com.cloudcomment.auth.domain.SessionAudience.WIDGET)
+        ))
             .thenThrow(new ApplicationException(ApiErrorCode.INVALID_SESSION, "Invalid or expired session"));
         when(publicCommentService.listComments(siteId, ORIGIN, PAGE_URL, 1, 20, PublicCommentSort.PINNED_FIRST, Optional.empty(), null))
             .thenReturn(new CommentPage(List.of(), 1, 20, 0));
@@ -256,13 +260,35 @@ class PublicCommentControllerTests {
     }
 
     @Test
+    void adminCookieAloneCannotAuthorizePublicWidgetWrite() throws Exception {
+        UUID siteId = UUID.randomUUID();
+        when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
+
+        mockMvc.perform(post("/api/public/sites/{siteId}/pages/comments", siteId)
+                .with(adminSession("admin-session-token"))
+                .header(HttpHeaders.ORIGIN, ORIGIN)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "pageUrl": "%s",
+                      "content": "Must stay unauthorized"
+                    }
+                    """.formatted(PAGE_URL)))
+            .andExpect(status().isUnauthorized())
+            .andExpect(header().doesNotExist(HttpHeaders.SET_COOKIE))
+            .andExpect(jsonPath("$.error.code", is("INVALID_SESSION")));
+
+        verifyNoInteractions(publicCommentService, currentUserService);
+    }
+
+    @Test
     void createCommentReturnsCreatedCommentForAuthenticatedUser() throws Exception {
         UUID siteId = UUID.randomUUID();
         UUID pageId = UUID.randomUUID();
         AuthenticatedUser currentUser = currentUser();
         CommentView created = comment(siteId, pageId, null, CommentStatus.PENDING);
         when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.WIDGET))).thenReturn(currentUser);
         when(publicCommentService.createComment(currentUser, siteId, ORIGIN, PAGE_URL, null, "Hello world"))
             .thenReturn(created);
 
@@ -290,7 +316,7 @@ class PublicCommentControllerTests {
         AuthenticatedUser currentUser = currentUser();
         CommentView created = comment(siteId, pageId, parentId, CommentStatus.PENDING);
         when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.WIDGET))).thenReturn(currentUser);
         when(publicCommentService.createComment(currentUser, siteId, ORIGIN, PAGE_URL, parentId, "Reply body"))
             .thenReturn(created);
 
@@ -337,7 +363,7 @@ class PublicCommentControllerTests {
         UUID commentId = UUID.randomUUID();
         AuthenticatedUser currentUser = currentUser();
         when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.WIDGET))).thenReturn(currentUser);
         when(publicCommentService.setReaction(currentUser, siteId, ORIGIN, commentId, CommentReactionType.LOVE))
             .thenReturn(List.of(
                 new CommentReactionSummary(CommentReactionType.LIKE, 2, false),
@@ -368,7 +394,7 @@ class PublicCommentControllerTests {
         UUID commentId = UUID.randomUUID();
         AuthenticatedUser currentUser = currentUser();
         when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.WIDGET))).thenReturn(currentUser);
         when(publicCommentService.setReaction(currentUser, siteId, ORIGIN, commentId, null))
             .thenReturn(List.of());
 
@@ -413,7 +439,7 @@ class PublicCommentControllerTests {
         AuthenticatedUser currentUser = currentUser();
         CommentView updated = comment(siteId, pageId, null, CommentStatus.PENDING, commentId, "Updated body");
         when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.WIDGET))).thenReturn(currentUser);
         when(publicCommentService.updateOwnComment(currentUser, siteId, ORIGIN, commentId, "Updated body"))
             .thenReturn(updated);
 
@@ -438,7 +464,7 @@ class PublicCommentControllerTests {
         UUID commentId = UUID.randomUUID();
         AuthenticatedUser currentUser = currentUser();
         when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.WIDGET))).thenReturn(currentUser);
 
         mockMvc.perform(patch("/api/public/sites/{siteId}/comments/{commentId}", siteId, commentId)
                 .header(HttpHeaders.ORIGIN, ORIGIN)
@@ -477,7 +503,7 @@ class PublicCommentControllerTests {
         UUID commentId = UUID.randomUUID();
         AuthenticatedUser currentUser = currentUser();
         when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
-        when(currentUserService.getCurrentUser(eq("plain-session-token"))).thenReturn(currentUser);
+        when(currentUserService.getCurrentUser(eq("plain-session-token"), eq(com.cloudcomment.auth.domain.SessionAudience.WIDGET))).thenReturn(currentUser);
 
         mockMvc.perform(delete("/api/public/sites/{siteId}/comments/{commentId}", siteId, commentId)
                 .header(HttpHeaders.ORIGIN, ORIGIN)

@@ -10,6 +10,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.mock.web.MockCookie;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -21,10 +22,15 @@ import java.util.regex.Pattern;
 import static com.cloudcomment.privacy.application.ConsentTestSupport.registerRequestJson;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static com.cloudcomment.support.AdminSecurityTestSupport.adminRequest;
+import static com.cloudcomment.support.AdminSecurityTestSupport.adminSession;
+import static com.cloudcomment.support.AdminSecurityTestSupport.csrf;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -52,39 +58,29 @@ class AccountDeletionIntegrationTests {
         String password = "strong-password";
 
         mockMvc.perform(post("/api/auth/register")
+                .with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(registerRequestJson(email, password)))
             .andExpect(status().isCreated());
 
-        String loginResponse = mockMvc.perform(post("/api/auth/login")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("""
-                    {
-                      "email": "%s",
-                      "password": "%s"
-                    }
-                    """.formatted(email, password)))
-            .andExpect(status().isOk())
-            .andReturn()
-            .getResponse()
-            .getContentAsString();
-        String sessionToken = extractJsonField(loginResponse, "token");
-        String userId = extractJsonField(loginResponse, "user", "id");
+        LoginSession loginSession = login(email, password);
+        String sessionToken = loginSession.token();
+        String userId = extractJsonField(loginSession.body(), "user", "id");
 
         mockMvc.perform(post("/api/account/deletion-requests")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + sessionToken))
+                .with(adminRequest(sessionToken)))
             .andExpect(status().isCreated())
             .andExpect(jsonPath("$.status", is("PENDING")));
 
         mockMvc.perform(get("/api/account/deletion-requests/current")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + sessionToken))
+                .with(adminRequest(sessionToken)))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.status", is("PENDING")));
 
         String confirmationToken = extractConfirmationToken(loggingMailSender.lastSentMessage().textBody());
 
         mockMvc.perform(post("/api/account/deletion-requests")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + sessionToken))
+                .with(adminRequest(sessionToken)))
             .andExpect(status().isCreated());
 
         String rotatedToken = extractConfirmationToken(loggingMailSender.lastSentMessage().textBody());
@@ -100,11 +96,12 @@ class AccountDeletionIntegrationTests {
             .andExpect(status().isNoContent());
 
         mockMvc.perform(get("/api/auth/me")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + sessionToken))
+                .with(adminSession(sessionToken)))
             .andExpect(status().isUnauthorized())
             .andExpect(jsonPath("$.error.code", is("INVALID_SESSION")));
 
         mockMvc.perform(post("/api/auth/login")
+                .with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -141,13 +138,14 @@ class AccountDeletionIntegrationTests {
         String password = "strong-password";
 
         mockMvc.perform(post("/api/auth/register")
+                .with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(registerRequestJson(email, password)))
             .andExpect(status().isCreated());
 
-        String loginResponse = login(email, password);
-        String sessionToken = extractJsonField(loginResponse, "token");
-        UUID userId = UUID.fromString(extractJsonField(loginResponse, "user", "id"));
+        LoginSession loginSession = login(email, password);
+        String sessionToken = loginSession.token();
+        UUID userId = UUID.fromString(extractJsonField(loginSession.body(), "user", "id"));
 
         UUID siteId = insertSite(userId, "export-" + UUID.randomUUID() + ".example.com");
         UUID pageId = insertPage(siteId, "https://export.example.com/page");
@@ -155,7 +153,7 @@ class AccountDeletionIntegrationTests {
         insertReaction(commentId, userId, "LOVE");
 
         String response = mockMvc.perform(get("/api/account/personal-data")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + sessionToken))
+                .with(adminRequest(sessionToken)))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.account.id", is(userId.toString())))
             .andExpect(jsonPath("$.account.email", is(email)))
@@ -181,18 +179,20 @@ class AccountDeletionIntegrationTests {
         String password = "strong-password";
 
         mockMvc.perform(post("/api/auth/register")
+                .with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(registerRequestJson(ownerEmail, password)))
             .andExpect(status().isCreated());
         mockMvc.perform(post("/api/auth/register")
+                .with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(registerRequestJson(deletedEmail, password)))
             .andExpect(status().isCreated());
 
-        UUID ownerId = UUID.fromString(extractJsonField(login(ownerEmail, password), "user", "id"));
-        String deletedLoginResponse = login(deletedEmail, password);
-        String deletedSessionToken = extractJsonField(deletedLoginResponse, "token");
-        UUID deletedUserId = UUID.fromString(extractJsonField(deletedLoginResponse, "user", "id"));
+        UUID ownerId = UUID.fromString(extractJsonField(login(ownerEmail, password).body(), "user", "id"));
+        LoginSession deletedLogin = login(deletedEmail, password);
+        String deletedSessionToken = deletedLogin.token();
+        UUID deletedUserId = UUID.fromString(extractJsonField(deletedLogin.body(), "user", "id"));
 
         UUID ownedSiteId = insertSite(deletedUserId, "owned-" + UUID.randomUUID() + ".example.com");
         UUID ownerSiteId = insertSite(ownerId, "foreign-" + UUID.randomUUID() + ".example.com");
@@ -202,7 +202,7 @@ class AccountDeletionIntegrationTests {
         UUID moderationActionId = insertModerationAction(foreignCommentId, deletedUserId);
 
         mockMvc.perform(post("/api/account/deletion-requests")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + deletedSessionToken))
+                .with(adminRequest(deletedSessionToken)))
             .andExpect(status().isCreated());
         String confirmationToken = extractConfirmationToken(loggingMailSender.lastSentMessage().textBody());
 
@@ -213,7 +213,8 @@ class AccountDeletionIntegrationTests {
                       "token": "%s"
                     }
                     """.formatted(confirmationToken)))
-            .andExpect(status().isNoContent());
+            .andExpect(status().isNoContent())
+            .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("Max-Age=0")));
 
         assertThat(countRows("select count(*) from sites where id = ?", ownedSiteId)).isZero();
         assertThat(countRows("select count(*) from sites where id = ?", ownerSiteId)).isOne();
@@ -252,27 +253,17 @@ class AccountDeletionIntegrationTests {
     void createDeletionRequestCancelsExpiredPendingRequestBeforeCreatingNewOne() throws Exception {
         String email = "refresh-expired-" + UUID.randomUUID() + "@example.com";
         mockMvc.perform(post("/api/auth/register")
+                .with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(registerRequestJson(email, "strong-password")))
             .andExpect(status().isCreated());
 
-        String loginResponse = mockMvc.perform(post("/api/auth/login")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("""
-                    {
-                      "email": "%s",
-                      "password": "strong-password"
-                    }
-                    """.formatted(email)))
-            .andExpect(status().isOk())
-            .andReturn()
-            .getResponse()
-            .getContentAsString();
-        String sessionToken = extractJsonField(loginResponse, "token");
-        UUID userId = UUID.fromString(extractJsonField(loginResponse, "user", "id"));
+        LoginSession loginSession = login(email, "strong-password");
+        String sessionToken = loginSession.token();
+        UUID userId = UUID.fromString(extractJsonField(loginSession.body(), "user", "id"));
 
         mockMvc.perform(post("/api/account/deletion-requests")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + sessionToken))
+                .with(adminRequest(sessionToken)))
             .andExpect(status().isCreated());
         String expiredToken = extractConfirmationToken(loggingMailSender.lastSentMessage().textBody());
 
@@ -286,7 +277,7 @@ class AccountDeletionIntegrationTests {
         );
 
         mockMvc.perform(post("/api/account/deletion-requests")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + sessionToken))
+                .with(adminRequest(sessionToken)))
             .andExpect(status().isCreated())
             .andExpect(jsonPath("$.status", is("PENDING")));
 
@@ -324,26 +315,15 @@ class AccountDeletionIntegrationTests {
     void confirmRejectsExpiredAndReusedTokens() throws Exception {
         String email = "expired-" + UUID.randomUUID() + "@example.com";
         mockMvc.perform(post("/api/auth/register")
+                .with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(registerRequestJson(email, "strong-password")))
             .andExpect(status().isCreated());
 
-        String loginResponse = mockMvc.perform(post("/api/auth/login")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("""
-                    {
-                      "email": "%s",
-                      "password": "strong-password"
-                    }
-                    """.formatted(email)))
-            .andExpect(status().isOk())
-            .andReturn()
-            .getResponse()
-            .getContentAsString();
-        String sessionToken = extractJsonField(loginResponse, "token");
+        String sessionToken = login(email, "strong-password").token();
 
         mockMvc.perform(post("/api/account/deletion-requests")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + sessionToken))
+                .with(adminRequest(sessionToken)))
             .andExpect(status().isCreated());
 
         String token = extractConfirmationToken(loggingMailSender.lastSentMessage().textBody());
@@ -410,8 +390,9 @@ class AccountDeletionIntegrationTests {
         return matcher.group(1);
     }
 
-    private String login(String email, String password) throws Exception {
-        return mockMvc.perform(post("/api/auth/login")
+    private LoginSession login(String email, String password) throws Exception {
+        var response = mockMvc.perform(post("/api/auth/login")
+                .with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -421,8 +402,13 @@ class AccountDeletionIntegrationTests {
                     """.formatted(email, password)))
             .andExpect(status().isOk())
             .andReturn()
-            .getResponse()
-            .getContentAsString();
+            .getResponse();
+        String setCookie = response.getHeader(HttpHeaders.SET_COOKIE);
+        assertThat(setCookie).isNotNull();
+        return new LoginSession(response.getContentAsString(), MockCookie.parse(setCookie).getValue());
+    }
+
+    private record LoginSession(String body, String token) {
     }
 
     private UUID insertSite(UUID ownerId, String domain) {

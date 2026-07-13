@@ -1,5 +1,6 @@
 package com.cloudcomment.auth.persistence;
 
+import com.cloudcomment.auth.domain.SessionAudience;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.Test;
@@ -83,7 +84,7 @@ class PostgresFlywayIntegrationTests {
             """, Integer.class);
 
         assertThat(databaseVersion).contains("PostgreSQL");
-        assertThat(schemaHistoryRows).isEqualTo(16);
+        assertThat(schemaHistoryRows).isEqualTo(17);
         assertThat(smokeTableRows).isZero();
         assertThat(coreTableRows).isEqualTo(18);
         assertThat(roleRows).isEqualTo(3);
@@ -318,6 +319,73 @@ class PostgresFlywayIntegrationTests {
     }
 
     @Test
+    void v16BackfillsLegacyAudienceRevokesExistingSessionsAndKeepsRollbackDefault() {
+        String schema = "v16_upgrade_" + UUID.randomUUID().toString().replace("-", "");
+        try {
+            Flyway.configure()
+                .dataSource(dataSource)
+                .schemas(schema)
+                .defaultSchema(schema)
+                .target(MigrationVersion.fromVersion("15"))
+                .load()
+                .migrate();
+
+            UUID userId = jdbcTemplate.queryForObject(
+                "insert into " + schema + ".app_users (email, password_hash) values (?, 'hash') returning id",
+                UUID.class,
+                "v16-" + UUID.randomUUID() + "@example.com"
+            );
+            jdbcTemplate.update(
+                "insert into " + schema + ".auth_sessions (user_id, token_hash, expires_at) values (?, ?, now() + interval '1 day')",
+                userId,
+                "f".repeat(64)
+            );
+            jdbcTemplate.update(
+                "insert into " + schema + ".auth_sessions (user_id, token_hash, created_at, expires_at) values (?, ?, now() - interval '2 days', now() - interval '1 day')",
+                userId,
+                "e".repeat(64)
+            );
+
+            Flyway.configure()
+                .dataSource(dataSource)
+                .schemas(schema)
+                .defaultSchema(schema)
+                .target(MigrationVersion.fromVersion("16"))
+                .load()
+                .migrate();
+
+            assertThat(jdbcTemplate.queryForObject(
+                "select audience from " + schema + ".auth_sessions where token_hash = ?",
+                String.class,
+                "f".repeat(64)
+            )).isEqualTo("LEGACY");
+            assertThat(jdbcTemplate.queryForObject(
+                "select revoked_at is not null from " + schema + ".auth_sessions where token_hash = ?",
+                Boolean.class,
+                "f".repeat(64)
+            )).isTrue();
+            assertThat(jdbcTemplate.queryForObject(
+                "select audience = 'LEGACY' and revoked_at is null from " + schema + ".auth_sessions where token_hash = ?",
+                Boolean.class,
+                "e".repeat(64)
+            )).isTrue();
+
+            jdbcTemplate.update(
+                "insert into " + schema + ".auth_sessions (user_id, token_hash, expires_at) values (?, ?, now() + interval '1 day')",
+                userId,
+                "0".repeat(64)
+            );
+            assertThat(jdbcTemplate.queryForObject(
+                "select audience from " + schema + ".auth_sessions where token_hash = ?",
+                String.class,
+                "0".repeat(64)
+            )).isEqualTo("LEGACY");
+        } finally {
+            jdbcTemplate.execute("drop schema if exists " + schema + " cascade");
+        }
+    }
+
+    @Test
     void repositoryCreatesUsersReadsCredentialsAndStoresSessions() {
         String email = "repo-" + UUID.randomUUID() + "@example.com";
         Instant referenceTime = Instant.now();
@@ -348,7 +416,7 @@ class PostgresFlywayIntegrationTests {
         assertThat(credentials.createdAt()).isEqualTo(user.createdAt());
         assertThat(credentials.updatedAt()).isEqualTo(user.updatedAt());
 
-        userAccountRepository.createSession(user.id(), "a".repeat(64), expiresAt);
+        userAccountRepository.createSession(user.id(), "a".repeat(64), SessionAudience.ADMIN, expiresAt);
 
         Integer sessions = jdbcTemplate.queryForObject(
             "select count(*) from auth_sessions where user_id = ? and token_hash = ?",
@@ -360,6 +428,7 @@ class PostgresFlywayIntegrationTests {
 
         var currentUser = userAccountRepository.findUserByActiveSessionTokenHash(
             "a".repeat(64),
+            SessionAudience.ADMIN,
             activeAt
         ).orElseThrow();
         assertThat(currentUser.id()).isEqualTo(user.id());
@@ -368,8 +437,21 @@ class PostgresFlywayIntegrationTests {
         assertThat(currentUser.createdAt()).isEqualTo(user.createdAt());
         assertThat(currentUser.updatedAt()).isEqualTo(user.updatedAt());
 
+        SessionRevocationResult wrongAudienceRevoke = userAccountRepository.revokeSession(
+            "a".repeat(64),
+            SessionAudience.WIDGET,
+            activeAt
+        );
+        assertThat(wrongAudienceRevoke).isEqualTo(SessionRevocationResult.NOT_FOUND_OR_EXPIRED);
+        assertThat(userAccountRepository.findUserByActiveSessionTokenHash(
+            "a".repeat(64),
+            SessionAudience.ADMIN,
+            activeAt
+        )).isPresent();
+
         SessionRevocationResult revoked = userAccountRepository.revokeSession(
             "a".repeat(64),
+            SessionAudience.ADMIN,
             activeAt
         );
         assertThat(revoked).isEqualTo(SessionRevocationResult.REVOKED);
@@ -383,28 +465,38 @@ class PostgresFlywayIntegrationTests {
         assertThat(revokedSessions).isOne();
         assertThat(userAccountRepository.findUserByActiveSessionTokenHash(
             "a".repeat(64),
+            SessionAudience.ADMIN,
             alreadyRevokedAt
         )).isEmpty();
 
         SessionRevocationResult alreadyRevoked = userAccountRepository.revokeSession(
             "a".repeat(64),
+            SessionAudience.ADMIN,
             alreadyRevokedAt
         );
         assertThat(alreadyRevoked).isEqualTo(SessionRevocationResult.ALREADY_REVOKED);
 
         SessionRevocationResult missing = userAccountRepository.revokeSession(
             "b".repeat(64),
+            SessionAudience.ADMIN,
             activeAt
         );
         assertThat(missing).isEqualTo(SessionRevocationResult.NOT_FOUND_OR_EXPIRED);
         assertThat(userAccountRepository.findUserByActiveSessionTokenHash(
             "b".repeat(64),
+            SessionAudience.ADMIN,
             activeAt
         )).isEmpty();
 
-        userAccountRepository.createSession(user.id(), "c".repeat(64), expiresAt);
+        userAccountRepository.createSession(user.id(), "c".repeat(64), SessionAudience.WIDGET, expiresAt);
+        assertThat(userAccountRepository.revokeSession(
+            "c".repeat(64),
+            SessionAudience.ADMIN,
+            activeAt
+        )).isEqualTo(SessionRevocationResult.NOT_FOUND_OR_EXPIRED);
         SessionRevocationResult skewSafeRevoked = userAccountRepository.revokeSession(
             "c".repeat(64),
+            SessionAudience.WIDGET,
             skewedPastAt
         );
         assertThat(skewSafeRevoked).isEqualTo(SessionRevocationResult.REVOKED);
@@ -424,23 +516,26 @@ class PostgresFlywayIntegrationTests {
         );
         assertThat(skewSafeSessions).isOne();
 
-        userAccountRepository.createSession(user.id(), "d".repeat(64), expiresAt);
+        userAccountRepository.createSession(user.id(), "d".repeat(64), SessionAudience.ADMIN, expiresAt);
         SessionRevocationResult expired = userAccountRepository.revokeSession(
             "d".repeat(64),
+            SessionAudience.ADMIN,
             expiredAt
         );
         assertThat(expired).isEqualTo(SessionRevocationResult.NOT_FOUND_OR_EXPIRED);
         assertThat(userAccountRepository.findUserByActiveSessionTokenHash(
             "d".repeat(64),
+            SessionAudience.ADMIN,
             expiredAt
         )).isEmpty();
 
         String disabledEmail = "disabled-" + UUID.randomUUID() + "@example.com";
         var disabledUser = userAccountRepository.create(disabledEmail, "hashed-password", Set.of("COMMENTER"));
-        userAccountRepository.createSession(disabledUser.id(), "e".repeat(64), expiresAt);
+        userAccountRepository.createSession(disabledUser.id(), "e".repeat(64), SessionAudience.ADMIN, expiresAt);
         jdbcTemplate.update("update app_users set is_enabled = false where id = ?", disabledUser.id());
         assertThat(userAccountRepository.findUserByActiveSessionTokenHash(
             "e".repeat(64),
+            SessionAudience.ADMIN,
             activeAt
         )).isEmpty();
     }

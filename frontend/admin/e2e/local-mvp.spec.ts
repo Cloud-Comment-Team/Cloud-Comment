@@ -1,11 +1,19 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type APIRequestContext } from '@playwright/test'
 
 const ADMIN_ORIGIN = (process.env.E2E_BASE_URL ?? 'http://localhost').replace(/\/+$/, '')
 const API_BASE_URL = `${ADMIN_ORIGIN}/api`
 const PASSWORD = 'Password123!'
 const WIDGET_ACCENT_COLOR = '#7c3aed'
 
+async function issueAdminCsrf(adminRequest: APIRequestContext): Promise<Record<string, string>> {
+  const response = await adminRequest.get(`${API_BASE_URL}/auth/csrf`)
+  await expect(response).toBeOK()
+  const csrf = await response.json() as { headerName: string; token: string }
+  return { [csrf.headerName]: csrf.token }
+}
+
 test('local MVP flow: auth, site admin, public comments API and widget script', async ({ page, request, context }) => {
+  const adminRequest = context.request
   const suffix = Date.now().toString(36)
   const email = `e2e-${suffix}@example.com`
   const siteName = `E2E Site ${suffix}`
@@ -33,6 +41,20 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   await page.getByLabel('Пароль', { exact: true }).fill(PASSWORD)
   await page.getByRole('button', { name: 'Войти' }).click()
 
+  await expect(page.getByRole('heading', { name: 'Панель владельца сайта' })).toBeVisible()
+  expect(await page.evaluate(() => window.localStorage.getItem('cloud-comment.admin.authToken'))).toBeNull()
+  expect(await page.evaluate(() => document.cookie)).not.toContain('cloud_comment_admin_session')
+  expect(await page.evaluate(() => document.cookie)).not.toContain('cloud_comment_admin_csrf')
+  const adminCookies = await context.cookies(ADMIN_ORIGIN)
+  expect(adminCookies.find((cookie) => cookie.name === 'cloud_comment_admin_session')).toMatchObject({
+    httpOnly: true,
+    sameSite: 'Strict',
+  })
+  expect(adminCookies.find((cookie) => cookie.name === 'cloud_comment_admin_csrf')).toMatchObject({
+    httpOnly: true,
+    sameSite: 'Strict',
+  })
+  await page.reload()
   await expect(page.getByRole('heading', { name: 'Панель владельца сайта' })).toBeVisible()
   await page.getByRole('link', { name: 'Сайты' }).click()
   await expect(page.getByRole('heading', { name: 'Сайты' })).toBeVisible()
@@ -75,8 +97,37 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   await page.getByRole('button', { name: 'Установка' }).click()
   await expect(page.getByText(`data-site-id="${siteId}"`)).toBeVisible()
 
-  const token = await page.evaluate(() => window.localStorage.getItem('cloud-comment.admin.authToken'))
-  expect(token, 'login should store bearer token').toBeTruthy()
+  const adminCsrfHeaders = await issueAdminCsrf(adminRequest)
+  const [csrfHeaderName] = Object.keys(adminCsrfHeaders)
+
+  const missingCsrfResponse = await adminRequest.post(`${API_BASE_URL}/realtime/tickets`)
+  expect(missingCsrfResponse.status()).toBe(403)
+  expect(await missingCsrfResponse.json()).toMatchObject({ error: { code: 'INVALID_CSRF_TOKEN' } })
+  const wrongCsrfResponse = await adminRequest.post(`${API_BASE_URL}/realtime/tickets`, {
+    headers: { [csrfHeaderName]: 'wrong-csrf-token' },
+  })
+  expect(wrongCsrfResponse.status()).toBe(403)
+  expect(await wrongCsrfResponse.json()).toMatchObject({ error: { code: 'INVALID_CSRF_TOKEN' } })
+  await expect(await adminRequest.post(`${API_BASE_URL}/realtime/tickets`, { headers: adminCsrfHeaders })).toBeOK()
+
+  const widgetLoginResponse = await request.post(`${API_BASE_URL}/public/sites/${siteId}/auth/login`, {
+    headers: { Origin: ADMIN_ORIGIN },
+    data: { email, password: PASSWORD },
+  })
+  await expect(widgetLoginResponse).toBeOK()
+  const widgetToken = (await widgetLoginResponse.json()).token as string
+  expect(widgetToken).toEqual(expect.any(String))
+  await page.evaluate((token) => window.localStorage.setItem('cloud-comment.widget.authToken', token), widgetToken)
+
+  const adminCookieOnPublicWrite = await adminRequest.post(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
+    headers: { Origin: ADMIN_ORIGIN },
+    data: { pageUrl, parentId: null, content: 'Cookie не должна авторизовать публичную запись' },
+  })
+  expect(adminCookieOnPublicWrite.status()).toBe(401)
+  const widgetBearerOnAdminApi = await request.get(`${API_BASE_URL}/sites`, {
+    headers: { Authorization: `Bearer ${widgetToken}` },
+  })
+  expect(widgetBearerOnAdminApi.status()).toBe(401)
 
   const initialRejectedOriginResponse = await request.get(`${API_BASE_URL}/public/sites/${siteId}/config`, {
     headers: {
@@ -84,9 +135,7 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
     },
   })
   expect(initialRejectedOriginResponse.status()).toBe(404)
-  const initiallyRejectedInstallationResponse = await request.get(`${API_BASE_URL}/sites/${siteId}/installation-status`, {
-    headers: { Authorization: `Bearer ${token}` },
-  })
+  const initiallyRejectedInstallationResponse = await adminRequest.get(`${API_BASE_URL}/sites/${siteId}/installation-status`)
   await expect(initiallyRejectedInstallationResponse).toBeOK()
   expect(await initiallyRejectedInstallationResponse.json()).toMatchObject({
     status: 'REJECTED',
@@ -110,9 +159,7 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
     },
   })
 
-  const healthyInstallationResponse = await request.get(`${API_BASE_URL}/sites/${siteId}/installation-status`, {
-    headers: { Authorization: `Bearer ${token}` },
-  })
+  const healthyInstallationResponse = await adminRequest.get(`${API_BASE_URL}/sites/${siteId}/installation-status`)
   await expect(healthyInstallationResponse).toBeOK()
   expect(await healthyInstallationResponse.json()).toMatchObject({
     status: 'HEALTHY',
@@ -123,7 +170,7 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
 
   const createCommentResponse = await request.post(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
     headers: {
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${widgetToken}`,
       Origin: ADMIN_ORIGIN,
     },
     data: {
@@ -145,7 +192,7 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
 
   const createReplyResponse = await request.post(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
     headers: {
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${widgetToken}`,
       Origin: ADMIN_ORIGIN,
     },
     data: {
@@ -193,9 +240,7 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   })
   expect(commentsPage.items[0].replies[0].author).not.toHaveProperty('email')
 
-  const moderationDetailResponse = await request.get(`${API_BASE_URL}/moderation/comments/${createdComment.id}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  })
+  const moderationDetailResponse = await adminRequest.get(`${API_BASE_URL}/moderation/comments/${createdComment.id}`)
   await expect(moderationDetailResponse).toBeOK()
   expect(await moderationDetailResponse.json()).toMatchObject({
     id: createdComment.id,
@@ -204,7 +249,7 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
 
   for (const index of [2, 3, 4]) {
     const response = await request.post(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
-      headers: { Authorization: `Bearer ${token}`, Origin: ADMIN_ORIGIN },
+      headers: { Authorization: `Bearer ${widgetToken}`, Origin: ADMIN_ORIGIN },
       data: { pageUrl, parentId: createdComment.id, content: `${apiReplyText} ${index}` },
     })
     await expect(response).toBeOK()
@@ -230,7 +275,7 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
 
   const reactionResponse = await request.put(`${API_BASE_URL}/public/sites/${siteId}/comments/${createdComment.id}/reaction`, {
     headers: {
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${widgetToken}`,
       Origin: ADMIN_ORIGIN,
     },
     data: {
@@ -249,7 +294,7 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
 
   const viewerCommentsResponse = await request.get(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
     headers: {
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${widgetToken}`,
       Origin: ADMIN_ORIGIN,
     },
     params: {
@@ -265,9 +310,7 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
     },
   })
   expect(rejectedOriginResponse.status()).toBe(404)
-  const rejectedInstallationResponse = await request.get(`${API_BASE_URL}/sites/${siteId}/installation-status`, {
-    headers: { Authorization: `Bearer ${token}` },
-  })
+  const rejectedInstallationResponse = await adminRequest.get(`${API_BASE_URL}/sites/${siteId}/installation-status`)
   await expect(rejectedInstallationResponse).toBeOK()
   expect(await rejectedInstallationResponse.json()).toMatchObject({
     status: 'HEALTHY',
@@ -291,7 +334,7 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
 
   const editCommentResponse = await request.patch(`${API_BASE_URL}/public/sites/${siteId}/comments/${createdComment.id}`, {
     headers: {
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${widgetToken}`,
       Origin: ADMIN_ORIGIN,
     },
     data: {
@@ -308,10 +351,8 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   })
   expect(editedComment.editedAt).toEqual(expect.any(String))
 
-  const updateFlagsResponse = await request.patch(`${API_BASE_URL}/moderation/comments/${createdComment.id}/flags`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
+  const updateFlagsResponse = await adminRequest.patch(`${API_BASE_URL}/moderation/comments/${createdComment.id}/flags`, {
+    headers: await issueAdminCsrf(adminRequest),
     data: {
       pinned: true,
       favorite: true,
@@ -320,10 +361,7 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   await expect(updateFlagsResponse).toBeOK()
   expect(await updateFlagsResponse.json()).toMatchObject({ pinned: true, favorite: true })
 
-  const favoriteQueueResponse = await request.get(`${API_BASE_URL}/moderation/comments`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
+  const favoriteQueueResponse = await adminRequest.get(`${API_BASE_URL}/moderation/comments`, {
     params: {
       favorite: 'true',
       page: '1',
@@ -353,7 +391,7 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
 
   const commentsAfterEditResponse = await request.get(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
     headers: {
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${widgetToken}`,
       Origin: ADMIN_ORIGIN,
     },
     params: {
@@ -372,7 +410,7 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
 
   const createDeletedCommentResponse = await request.post(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
     headers: {
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${widgetToken}`,
       Origin: ADMIN_ORIGIN,
     },
     data: {
@@ -386,7 +424,7 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
 
   const deleteCommentResponse = await request.delete(`${API_BASE_URL}/public/sites/${siteId}/comments/${deletedCommentCandidate.id}`, {
     headers: {
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${widgetToken}`,
       Origin: ADMIN_ORIGIN,
     },
   })
@@ -405,10 +443,8 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   await expect(commentsAfterDeleteResponse).toBeOK()
   expect(JSON.stringify(await commentsAfterDeleteResponse.json())).not.toContain(deleteCommentText)
 
-  const enableAutomodResponse = await request.patch(`${API_BASE_URL}/sites/${siteId}`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
+  const enableAutomodResponse = await adminRequest.patch(`${API_BASE_URL}/sites/${siteId}`, {
+    headers: await issueAdminCsrf(adminRequest),
     data: {
       autoModeration: {
         enabled: true,
@@ -424,7 +460,7 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
 
   const createSpamCommentResponse = await request.post(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
     headers: {
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${widgetToken}`,
       Origin: ADMIN_ORIGIN,
     },
     data: {
@@ -453,9 +489,7 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   await expect(commentsAfterAutomodResponse).toBeOK()
   expect(JSON.stringify(await commentsAfterAutomodResponse.json())).not.toContain(spamCommentText)
 
-  const policiesAfterLegacyResponse = await request.get(`${API_BASE_URL}/sites/${siteId}/automoderation/policies`, {
-    headers: { Authorization: `Bearer ${token}` },
-  })
+  const policiesAfterLegacyResponse = await adminRequest.get(`${API_BASE_URL}/sites/${siteId}/automoderation/policies`)
   await expect(policiesAfterLegacyResponse).toBeOK()
   const policiesAfterLegacy = await policiesAfterLegacyResponse.json()
   expect(policiesAfterLegacy.activePolicy).toMatchObject({
@@ -465,17 +499,17 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
     active: true,
   })
 
-  const createShadowDraftResponse = await request.post(`${API_BASE_URL}/sites/${siteId}/automoderation/policies`, {
-    headers: { Authorization: `Bearer ${token}` },
+  const createShadowDraftResponse = await adminRequest.post(`${API_BASE_URL}/sites/${siteId}/automoderation/policies`, {
+    headers: await issueAdminCsrf(adminRequest),
     data: { preset: 'CUSTOM', enabled: true, executionMode: 'SHADOW' },
   })
   expect(createShadowDraftResponse.status()).toBe(201)
   const createdShadowDraft = await createShadowDraftResponse.json()
   const shadowBlockedWord = `shadow-${suffix}`
-  const updateShadowDraftResponse = await request.patch(
+  const updateShadowDraftResponse = await adminRequest.patch(
     `${API_BASE_URL}/sites/${siteId}/automoderation/policies/${createdShadowDraft.id}`,
     {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: await issueAdminCsrf(adminRequest),
       data: {
         expectedRevision: createdShadowDraft.revision,
         enabled: true,
@@ -493,10 +527,10 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   await expect(updateShadowDraftResponse).toBeOK()
   const shadowDraft = await updateShadowDraftResponse.json()
 
-  const simulateShadowResponse = await request.post(
+  const simulateShadowResponse = await adminRequest.post(
     `${API_BASE_URL}/sites/${siteId}/automoderation/policies/${shadowDraft.id}/simulate`,
     {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: await issueAdminCsrf(adminRequest),
       data: { content: `Проверка ${shadowBlockedWord}` },
     },
   )
@@ -508,10 +542,10 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
     applied: false,
   })
 
-  const publishShadowResponse = await request.post(
+  const publishShadowResponse = await adminRequest.post(
     `${API_BASE_URL}/sites/${siteId}/automoderation/policies/${shadowDraft.id}/publish`,
     {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: await issueAdminCsrf(adminRequest),
       data: {
         expectedRevision: shadowDraft.revision,
         expectedActiveVersionId: policiesAfterLegacy.activePolicy.id,
@@ -524,7 +558,7 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
 
   const shadowCommentText = `E2E shadow ${shadowBlockedWord}`
   const createShadowCommentResponse = await request.post(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
-    headers: { Authorization: `Bearer ${token}`, Origin: ADMIN_ORIGIN },
+    headers: { Authorization: `Bearer ${widgetToken}`, Origin: ADMIN_ORIGIN },
     data: { pageUrl, parentId: null, content: shadowCommentText },
   })
   expect(createShadowCommentResponse.status()).toBe(201)
@@ -532,9 +566,7 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   expect(shadowComment).toMatchObject({ content: shadowCommentText, status: 'APPROVED' })
   expect(shadowComment).not.toHaveProperty('autoModeration')
 
-  const shadowModerationResponse = await request.get(`${API_BASE_URL}/moderation/comments/${shadowComment.id}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  })
+  const shadowModerationResponse = await adminRequest.get(`${API_BASE_URL}/moderation/comments/${shadowComment.id}`)
   await expect(shadowModerationResponse).toBeOK()
   expect(await shadowModerationResponse.json()).toMatchObject({
     id: shadowComment.id,
@@ -548,26 +580,26 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
     },
   })
 
-  const feedbackResponse = await request.put(
+  const feedbackResponse = await adminRequest.put(
     `${API_BASE_URL}/moderation/comments/${shadowComment.id}/automoderation-feedback`,
     {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: await issueAdminCsrf(adminRequest),
       data: { type: 'FALSE_POSITIVE' },
     },
   )
   await expect(feedbackResponse).toBeOK()
   expect(await feedbackResponse.json()).toMatchObject({ type: 'FALSE_POSITIVE' })
 
-  const createLiveDraftResponse = await request.post(`${API_BASE_URL}/sites/${siteId}/automoderation/policies`, {
-    headers: { Authorization: `Bearer ${token}` },
+  const createLiveDraftResponse = await adminRequest.post(`${API_BASE_URL}/sites/${siteId}/automoderation/policies`, {
+    headers: await issueAdminCsrf(adminRequest),
     data: { preset: 'CUSTOM', enabled: true, executionMode: 'LIVE' },
   })
   expect(createLiveDraftResponse.status()).toBe(201)
   const liveDraft = await createLiveDraftResponse.json()
-  const publishLiveResponse = await request.post(
+  const publishLiveResponse = await adminRequest.post(
     `${API_BASE_URL}/sites/${siteId}/automoderation/policies/${liveDraft.id}/publish`,
     {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: await issueAdminCsrf(adminRequest),
       data: {
         expectedRevision: liveDraft.revision,
         expectedActiveVersionId: shadowPolicy.id,
@@ -580,16 +612,16 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
 
   const liveCommentText = `E2E live ${shadowBlockedWord}`
   const createLiveCommentResponse = await request.post(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
-    headers: { Authorization: `Bearer ${token}`, Origin: ADMIN_ORIGIN },
+    headers: { Authorization: `Bearer ${widgetToken}`, Origin: ADMIN_ORIGIN },
     data: { pageUrl, parentId: null, content: liveCommentText },
   })
   expect(createLiveCommentResponse.status()).toBe(201)
   expect(await createLiveCommentResponse.json()).toMatchObject({ content: liveCommentText, status: 'SPAM' })
 
-  const rollbackShadowResponse = await request.post(
+  const rollbackShadowResponse = await adminRequest.post(
     `${API_BASE_URL}/sites/${siteId}/automoderation/versions/${shadowPolicy.id}/rollback`,
     {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: await issueAdminCsrf(adminRequest),
       data: { expectedActiveVersionId: livePolicy.id },
     },
   )
@@ -600,10 +632,8 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
     basedOnVersionId: shadowPolicy.id,
   })
 
-  const enablePreModerationResponse = await request.patch(`${API_BASE_URL}/sites/${siteId}`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
+  const enablePreModerationResponse = await adminRequest.patch(`${API_BASE_URL}/sites/${siteId}`, {
+    headers: await issueAdminCsrf(adminRequest),
     data: {
       moderationMode: 'PRE_MODERATION',
     },
@@ -619,7 +649,7 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   const realtimeCommentText = `E2E realtime comment ${suffix}`
   const realtimeCommentResponse = await request.post(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
     headers: {
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${widgetToken}`,
       Origin: ADMIN_ORIGIN,
     },
     data: {
@@ -632,9 +662,7 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   const realtimeComment = await realtimeCommentResponse.json()
   await expect(moderationPage.getByText(realtimeCommentText)).toBeVisible({ timeout: 15_000 })
 
-  const storedNotificationsResponse = await request.get(`${API_BASE_URL}/notifications`, {
-    headers: { Authorization: `Bearer ${token}` },
-  })
+  const storedNotificationsResponse = await adminRequest.get(`${API_BASE_URL}/notifications`)
   await expect(storedNotificationsResponse).toBeOK()
   const storedNotifications = await storedNotificationsResponse.json()
   const realtimeNotification = storedNotifications.items.find(
@@ -647,9 +675,7 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
     readAt: null,
   })
 
-  const unreadBeforeReloadResponse = await request.get(`${API_BASE_URL}/notifications/unread-count`, {
-    headers: { Authorization: `Bearer ${token}` },
-  })
+  const unreadBeforeReloadResponse = await adminRequest.get(`${API_BASE_URL}/notifications/unread-count`)
   await expect(unreadBeforeReloadResponse).toBeOK()
   const unreadBeforeReload = (await unreadBeforeReloadResponse.json()).unreadCount
   expect(unreadBeforeReload).toBeGreaterThan(0)
@@ -665,24 +691,19 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   await realtimeNotificationButton.click()
   await expect(moderationPage).toHaveURL(new RegExp(`/moderation\\?comment=${realtimeComment.id}&view=pending$`))
 
-  const unreadAfterOpenResponse = await request.get(`${API_BASE_URL}/notifications/unread-count`, {
-    headers: { Authorization: `Bearer ${token}` },
-  })
+  const unreadAfterOpenResponse = await adminRequest.get(`${API_BASE_URL}/notifications/unread-count`)
   await expect(unreadAfterOpenResponse).toBeOK()
   expect((await unreadAfterOpenResponse.json()).unreadCount).toBeLessThan(unreadBeforeReload)
 
-  const moderationCountsResponse = await request.get(`${API_BASE_URL}/moderation/counts`, {
-    headers: { Authorization: `Bearer ${token}` },
-  })
+  const moderationCountsResponse = await adminRequest.get(`${API_BASE_URL}/moderation/counts`)
   await expect(moderationCountsResponse).toBeOK()
   const moderationCounts = await moderationCountsResponse.json()
   expect(moderationCounts.statuses.SPAM).toBeGreaterThanOrEqual(1)
   expect(moderationCounts.statuses.PENDING).toBeGreaterThanOrEqual(1)
   expect(moderationCounts.requiringDecision).toBeGreaterThanOrEqual(2)
 
-  const repeatedStatusesResponse = await request.get(
+  const repeatedStatusesResponse = await adminRequest.get(
     `${API_BASE_URL}/moderation/comments?statuses=PENDING&statuses=SPAM&page=1&pageSize=30`,
-    { headers: { Authorization: `Bearer ${token}` } },
   )
   await expect(repeatedStatusesResponse).toBeOK()
   const repeatedStatuses = await repeatedStatusesResponse.json()
@@ -690,15 +711,14 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
     expect.arrayContaining([spamComment.id, realtimeComment.id]),
   )
 
-  const conflictingStatusesResponse = await request.get(
+  const conflictingStatusesResponse = await adminRequest.get(
     `${API_BASE_URL}/moderation/comments?status=PENDING&statuses=SPAM`,
-    { headers: { Authorization: `Bearer ${token}` } },
   )
   expect(conflictingStatusesResponse.status()).toBe(400)
 
   const operationId = crypto.randomUUID()
-  const bulkModerationResponse = await request.post(`${API_BASE_URL}/moderation/comments/bulk-actions`, {
-    headers: { Authorization: `Bearer ${token}` },
+  const bulkModerationResponse = await adminRequest.post(`${API_BASE_URL}/moderation/comments/bulk-actions`, {
+    headers: await issueAdminCsrf(adminRequest),
     data: {
       operationId,
       commentIds: [spamComment.id, realtimeComment.id],
@@ -715,9 +735,9 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   const realtimeModerationAction = bulkModeration.items.find(
     (item: { commentId: string }) => item.commentId === realtimeComment.id,
   ).action
-  const undoModerationResponse = await request.post(
+  const undoModerationResponse = await adminRequest.post(
     `${API_BASE_URL}/moderation/actions/${realtimeModerationAction.id}/undo`,
-    { headers: { Authorization: `Bearer ${token}` } },
+    { headers: await issueAdminCsrf(adminRequest) },
   )
   expect(undoModerationResponse.status()).toBe(201)
   expect(await undoModerationResponse.json()).toMatchObject({
@@ -725,16 +745,11 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
     revertsActionId: realtimeModerationAction.id,
   })
 
-  const restoredCommentResponse = await request.get(`${API_BASE_URL}/moderation/comments/${realtimeComment.id}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  })
+  const restoredCommentResponse = await adminRequest.get(`${API_BASE_URL}/moderation/comments/${realtimeComment.id}`)
   await expect(restoredCommentResponse).toBeOK()
   expect(await restoredCommentResponse.json()).toMatchObject({ status: 'PENDING' })
 
-  const analyticsResponse = await request.get(`${API_BASE_URL}/analytics/owner`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
+  const analyticsResponse = await adminRequest.get(`${API_BASE_URL}/analytics/owner`, {
     params: { range: '7d', timeZone: 'Europe/Moscow' },
   })
   await expect(analyticsResponse).toBeOK()
@@ -753,8 +768,7 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   expect(analytics.moderationDistribution).toEqual(analytics.moderationFunnel)
 
   for (const [range, bucketGranularity] of [['30d', 'DAY'], ['90d', 'WEEK']] as const) {
-    const rangedAnalyticsResponse = await request.get(`${API_BASE_URL}/analytics/owner`, {
-      headers: { Authorization: `Bearer ${token}` },
+    const rangedAnalyticsResponse = await adminRequest.get(`${API_BASE_URL}/analytics/owner`, {
       params: { range, timeZone: 'America/New_York' },
     })
     await expect(rangedAnalyticsResponse).toBeOK()
@@ -768,8 +782,7 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
     })
   }
 
-  const allTimeAnalyticsResponse = await request.get(`${API_BASE_URL}/analytics/owner`, {
-    headers: { Authorization: `Bearer ${token}` },
+  const allTimeAnalyticsResponse = await adminRequest.get(`${API_BASE_URL}/analytics/owner`, {
     params: { range: 'all', timeZone: 'UTC' },
   })
   await expect(allTimeAnalyticsResponse).toBeOK()
@@ -780,8 +793,7 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
     comparison: null,
   })
 
-  const invalidTimeZoneResponse = await request.get(`${API_BASE_URL}/analytics/owner`, {
-    headers: { Authorization: `Bearer ${token}` },
+  const invalidTimeZoneResponse = await adminRequest.get(`${API_BASE_URL}/analytics/owner`, {
     params: { range: '7d', timeZone: 'Mars/Olympus' },
   })
   expect(invalidTimeZoneResponse.status()).toBe(400)
@@ -871,6 +883,16 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
     `${ADMIN_ORIGIN}/legal/terms.html`,
   )
 
+  const widgetLogoutResponse = await request.post(`${API_BASE_URL}/public/sites/${siteId}/auth/logout`, {
+    headers: { Authorization: `Bearer ${widgetToken}`, Origin: ADMIN_ORIGIN },
+  })
+  expect(widgetLogoutResponse.status()).toBe(204)
+  await expect(await adminRequest.get(`${API_BASE_URL}/auth/me`)).toBeOK()
+
   await moderationPage.getByRole('button', { name: 'Выйти' }).click()
   await expect(moderationPage).toHaveURL(/\/login$/)
+  expect((await adminRequest.get(`${API_BASE_URL}/auth/me`)).status()).toBe(401)
+  expect((await adminRequest.post(`${API_BASE_URL}/auth/logout`, {
+    headers: await issueAdminCsrf(adminRequest),
+  })).status()).toBe(204)
 })
