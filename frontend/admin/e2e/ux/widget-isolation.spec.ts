@@ -17,12 +17,14 @@ type MockComment = ReturnType<typeof createComment>
 type WidgetServerOptions = {
   comments?: MockComment[]
   failCommentPost?: boolean
+  paginateComments?: boolean
 }
 
 type WidgetServerState = {
   bootstrapPageUrls: string[]
   bootstrapOrigins: Array<string | null>
   requestedPageUrls: string[]
+  requestedCommentPages: Array<{ sort: string; page: number }>
   postedPageUrl: string | null
   contextlessRequests: string[]
   accountRequests: string[]
@@ -45,6 +47,7 @@ async function setupWidgetServer(page: Page, options: WidgetServerOptions = {}):
     bootstrapPageUrls: [],
     bootstrapOrigins: [],
     requestedPageUrls: [],
+    requestedCommentPages: [],
     postedPageUrl: null,
     contextlessRequests: [],
     accountRequests: [],
@@ -135,7 +138,13 @@ async function setupWidgetServer(page: Page, options: WidgetServerOptions = {}):
       await fulfillJson(route, {
         siteId: SITE_ID,
         moderationMode: 'POST_MODERATION',
-        style: { theme: 'LIGHT', accentColor: '#0f766e', cornerRadius: 'MEDIUM' },
+        style: {
+          theme: 'LIGHT',
+          accentColor: '#0f766e',
+          cornerRadius: 'MEDIUM',
+          showSort: options.paginateComments ?? false,
+          defaultSort: 'PINNED_FIRST',
+        },
       })
       return
     }
@@ -166,6 +175,26 @@ async function setupWidgetServer(page: Page, options: WidgetServerOptions = {}):
         return
       }
       state.requestedPageUrls.push(pageUrlHeader)
+      if (options.paginateComments) {
+        const sort = url.searchParams.get('sort') ?? 'PINNED_FIRST'
+        const requestedPage = Number(url.searchParams.get('page') ?? '1')
+        state.requestedCommentPages.push({ sort, page: requestedPage })
+        const sorted = sort === 'NEWEST' ? [...comments].reverse() : comments
+        let items = sorted.slice((requestedPage - 1) * 20, requestedPage * 20)
+        if (sort === 'PINNED_FIRST' && requestedPage === 2) {
+          items = [comments[19], ...comments.slice(20, 39)]
+        } else if (sort === 'PINNED_FIRST' && requestedPage === 3) {
+          items = comments.slice(39)
+        }
+        await fulfillJson(route, {
+          items,
+          page: requestedPage,
+          pageSize: 20,
+          totalItems: comments.length,
+          totalPages: Math.ceil(comments.length / 20),
+        })
+        return
+      }
       await fulfillJson(route, { items: comments, page: 1, pageSize: 20, totalItems: comments.length, totalPages: 1 })
       return
     }
@@ -445,6 +474,36 @@ test('frame runtime стабильно отображает сто коммен�
   await expect(frame.locator('body')).not.toContainText('author@example.com')
   expect(Date.now() - startedAt).toBeLessThan(3000)
   expect(await frame.locator('.cloud-comment').evaluate((shell) => shell.scrollWidth <= shell.clientWidth)).toBe(true)
+})
+
+test('iframe догружает корни без дублей и сбрасывает страницу при сортировке', async ({ page }, testInfo) => {
+  test.skip(!isPrimaryBrowser(testInfo), 'Функциональный сценарий достаточно проверить в основном Chromium-профиле')
+  const comments = Array.from({ length: 45 }, (_, index) => createComment(index + 1))
+  const state = await setupWidgetServer(page, { comments, paginateComments: true })
+  await page.goto('/login')
+  await page.evaluate(() => { document.body.innerHTML = '<div id="comments"></div>' })
+  const frame = await mountWidget(page, `${new URL(page.url()).origin}/article`)
+
+  await expect(frame.locator('.cloud-comment__comment')).toHaveCount(20)
+  await frame.getByRole('button', { name: 'Показать ещё комментарии (25)' }).click()
+  await expect(frame.locator('.cloud-comment__comment')).toHaveCount(39)
+  await frame.getByRole('button', { name: 'Показать ещё комментарии (6)' }).click()
+  await expect(frame.locator('.cloud-comment__comment')).toHaveCount(45)
+  await expect(frame.locator("[data-load-comments='true']")).toHaveCount(0)
+  await expect(frame.locator('body')).toContainText('Комментарий 45')
+
+  await frame.locator("[data-comment-sort='true']").selectOption('NEWEST')
+
+  await expect(frame.locator('.cloud-comment__comment')).toHaveCount(20)
+  await expect(frame.locator('.cloud-comment__comment').first()).toContainText('Комментарий 45')
+  await expect(frame.getByRole('button', { name: 'Показать ещё комментарии (25)' })).toBeVisible()
+  expect(state.requestedCommentPages).toEqual([
+    { sort: 'PINNED_FIRST', page: 1 },
+    { sort: 'PINNED_FIRST', page: 2 },
+    { sort: 'PINNED_FIRST', page: 3 },
+    { sort: 'NEWEST', page: 1 },
+  ])
+  expect(state.contextlessRequests).toEqual([])
 })
 
 test('frame bundle сохраняет draft, focus и selection при перерисовках и POST 500', async ({ page }, testInfo) => {
