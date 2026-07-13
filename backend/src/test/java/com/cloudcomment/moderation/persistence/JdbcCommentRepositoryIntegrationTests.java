@@ -336,6 +336,45 @@ class JdbcCommentRepositoryIntegrationTests {
     }
 
     @Test
+    void findModerationActionsByOperationScopesResultsToOwner() {
+        UUID ownerId = insertUser("operation-owner");
+        UUID otherOwnerId = insertUser("operation-other-owner");
+        UUID ownerSiteId = insertSite(ownerId, "operation-owner-site");
+        UUID otherSiteId = insertSite(otherOwnerId, "operation-other-site");
+        UUID ownerPageId = insertPage(ownerSiteId, "https://owner.example.com/page", "Owner page");
+        UUID otherPageId = insertPage(otherSiteId, "https://other.example.com/page", "Other page");
+        UUID firstOwnerCommentId = insertComment(
+            ownerPageId, "First owner comment", "PENDING", Instant.parse("2026-07-13T10:00:00Z")
+        );
+        UUID secondOwnerCommentId = insertComment(
+            ownerPageId, "Second owner comment", "PENDING", Instant.parse("2026-07-13T10:01:00Z")
+        );
+        UUID otherCommentId = insertComment(
+            otherPageId, "Other owner comment", "PENDING", Instant.parse("2026-07-13T10:02:00Z")
+        );
+        UUID operationId = UUID.randomUUID();
+        var firstOwnerAction = moderationActionRepository.create(
+            firstOwnerCommentId, ownerId, ModerationActionType.APPROVE,
+            CommentStatus.PENDING, CommentStatus.APPROVED, null, operationId, null
+        );
+        var secondOwnerAction = moderationActionRepository.create(
+            secondOwnerCommentId, ownerId, ModerationActionType.APPROVE,
+            CommentStatus.PENDING, CommentStatus.APPROVED, null, operationId, null
+        );
+        var otherAction = moderationActionRepository.create(
+            otherCommentId, otherOwnerId, ModerationActionType.APPROVE,
+            CommentStatus.PENDING, CommentStatus.APPROVED, null, operationId, null
+        );
+
+        assertThat(moderationActionRepository.findByOperationIdAndOwnerId(operationId, ownerId))
+            .extracting(action -> action.id())
+            .containsExactlyInAnyOrder(firstOwnerAction.id(), secondOwnerAction.id())
+            .doesNotContain(otherAction.id());
+        assertThat(moderationActionRepository.findByOperationIdAndOwnerId(operationId, UUID.randomUUID()))
+            .isEmpty();
+    }
+
+    @Test
     void findByIdReturnsParentSummaryForReplyComment() {
         UUID ownerId = insertUser("owner");
         UUID siteId = insertSite(ownerId, "site");

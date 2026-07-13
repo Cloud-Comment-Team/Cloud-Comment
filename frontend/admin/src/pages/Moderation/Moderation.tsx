@@ -22,6 +22,7 @@ import {
   getComment,
   getModerationCounts,
   listComments,
+  undoBulkModerationOperation,
   undoModerationAction,
   updateCommentFlags,
   setAutoModerationFeedback,
@@ -37,7 +38,6 @@ import type {
   AutoModerationFeedback,
   AutoModerationFeedbackType,
   CommentStatus,
-  ModerationAction,
   ModerationCommand,
   ModerationCounts,
   Site,
@@ -53,6 +53,15 @@ interface SavedFilters {
   pageUrl: string
   search: string
   favorite: boolean
+}
+
+type UndoTarget =
+  | { kind: 'action'; id: string; affected: 1 }
+  | { kind: 'operation'; id: string; affected: number }
+
+interface UndoSummary {
+  restored: number
+  conflicts: Array<{ commentId: string; message: string }>
 }
 
 const FILTERS_KEY = 'cloud-comment:moderation-filters:v2'
@@ -168,7 +177,8 @@ const Moderation = () => {
   const [busy, setBusy] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-  const [lastAction, setLastAction] = useState<ModerationAction | null>(null)
+  const [undoTarget, setUndoTarget] = useState<UndoTarget | null>(null)
+  const [undoSummary, setUndoSummary] = useState<UndoSummary | null>(null)
   const [reason, setReason] = useState('')
   const [filters, setFilters] = useState(initialFilters)
   const [appliedFilters, setAppliedFilters] = useState(initialFilters)
@@ -256,21 +266,25 @@ const Moderation = () => {
   async function runAction(commentIds: string[], action: ModerationCommand) {
     if (commentIds.length === 0) return
     setBusy(true)
+    setUndoSummary(null)
     try {
       if (commentIds.length === 1) {
         const result = await applyModerationAction(commentIds[0], { action, reason: reason.trim() || null })
-        setLastAction(result)
+        setUndoTarget({ kind: 'action', id: result.id, affected: 1 })
         toast.success('Действие выполнено')
       } else {
+        const operationId = crypto.randomUUID()
         const result = await applyBulkModerationAction({
-          operationId: crypto.randomUUID(),
+          operationId,
           commentIds,
           action,
           reason: reason.trim() || null,
         })
         const successful = result.items.filter((item) => item.success)
         const failed = result.items.length - successful.length
-        setLastAction(successful.at(-1)?.action ?? null)
+        setUndoTarget(successful.length > 0
+          ? { kind: 'operation', id: operationId, affected: successful.length }
+          : null)
         toast.success(`Обработано: ${successful.length}${failed ? `, не удалось: ${failed}` : ''}`)
       }
       setReason('')
@@ -284,12 +298,30 @@ const Moderation = () => {
   }
 
   async function undoLastAction() {
-    if (!lastAction) return
+    if (!undoTarget) return
     setBusy(true)
     try {
-      await undoModerationAction(lastAction.id)
-      setLastAction(null)
-      toast.success('Последнее действие отменено')
+      if (undoTarget.kind === 'action') {
+        await undoModerationAction(undoTarget.id)
+        setUndoSummary({ restored: 1, conflicts: [] })
+        toast.success('Последнее действие отменено')
+      } else {
+        const result = await undoBulkModerationOperation(undoTarget.id)
+        const restored = result.items.filter((item) => item.success).length
+        const conflicts = result.items
+          .filter((item) => !item.success)
+          .map((item) => ({
+            commentId: item.commentId,
+            message: item.message || 'Комментарий был изменён позднее или срок отмены истёк',
+          }))
+        setUndoSummary({ restored, conflicts })
+        if (conflicts.length > 0) {
+          toast(`Отменено: ${restored}, конфликтов: ${conflicts.length}`)
+        } else {
+          toast.success(`Массовое действие отменено для ${restored} комментариев`)
+        }
+      }
+      setUndoTarget(null)
       setReloadKey((current) => current + 1)
     } catch (undoError) {
       toast.error(getApiErrorMessage(undoError, 'Не удалось отменить действие. Возможно, прошло больше 15 минут.'))
@@ -353,7 +385,7 @@ const Moderation = () => {
         event.preventDefault()
         void runAction(targets, shortcut[event.key.toLowerCase()])
       }
-      if (event.key.toLowerCase() === 'u' && lastAction) {
+      if (event.key.toLowerCase() === 'u' && undoTarget) {
         event.preventDefault()
         void undoLastAction()
       }
@@ -484,7 +516,7 @@ const Moderation = () => {
         <button className="cc-button-secondary" type="button" onClick={resetFilters}>Сбросить</button>
       </form>
 
-      {(selectedIds.size > 0 || lastAction) && (
+      {(selectedIds.size > 0 || undoTarget || undoSummary) && (
         <ActionBar label="Массовые действия">
           <div className="flex flex-wrap items-center gap-2">
             {selectedIds.size > 0 && <strong className="text-sm">Выбрано: {selectedIds.size}</strong>}
@@ -497,10 +529,37 @@ const Moderation = () => {
               )
             })}
           </div>
-          {lastAction && (
+          {undoTarget && (
             <button type="button" className="cc-button-secondary" disabled={busy} onClick={() => void undoLastAction()}>
-              <RotateCcw className="h-4 w-4" aria-hidden="true" /> Отменить последнее действие
+              <RotateCcw className="h-4 w-4" aria-hidden="true" />
+              {undoTarget.kind === 'operation'
+                ? `Отменить массовое действие (${undoTarget.affected})`
+                : 'Отменить последнее действие'}
             </button>
+          )}
+          {undoSummary && (
+            <div className="min-w-64 text-sm" role="status">
+              <strong>Результат отмены: восстановлено {undoSummary.restored}</strong>
+              {undoSummary.conflicts.length > 0 && (
+                <>
+                  <p className="mt-1">Конфликты ({undoSummary.conflicts.length}):</p>
+                  <ul className="mt-1 list-disc pl-5">
+                    {undoSummary.conflicts.map((conflict) => (
+                      <li key={conflict.commentId}>
+                        Комментарий …{conflict.commentId.slice(-8)}: {conflict.message}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              <button
+                type="button"
+                className="cc-button-ghost mt-2"
+                onClick={() => setUndoSummary(null)}
+              >
+                Скрыть результат
+              </button>
+            </div>
           )}
         </ActionBar>
       )}

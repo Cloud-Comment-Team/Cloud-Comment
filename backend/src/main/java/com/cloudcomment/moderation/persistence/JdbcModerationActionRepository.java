@@ -12,6 +12,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -97,6 +98,26 @@ class JdbcModerationActionRepository implements ModerationActionRepository {
               and not exists (select 1 from moderation_actions undo where undo.reverts_action_id = ma.id)
             order by ma.created_at desc, ma.id desc limit 1
             """, commentId);
+    }
+
+    @Override
+    public List<ModerationAction> findByOperationIdAndOwnerId(UUID operationId, UUID ownerId) {
+        return jdbcTemplate.query("""
+            select ma.id, ma.comment_id, ma.action, ma.from_status, ma.to_status, ma.reason,
+                   ma.moderator_id, ma.operation_id, ma.reverts_action_id, ma.created_at, u.email
+            from moderation_actions ma
+            join comments c on c.id = ma.comment_id
+            join pages p on p.id = c.page_id
+            join sites s on s.id = p.site_id
+            left join app_users u on u.id = ma.moderator_id
+            where ma.operation_id = ?
+              and s.owner_id = ?
+              and ma.action <> 'UNDO'
+            order by ma.created_at asc, ma.id asc
+            """, (resultSet, rowNumber) -> toModerationAction(
+                mapActionRow(resultSet, rowNumber),
+                resultSet.getString("email")
+            ), operationId, ownerId);
     }
 
     private java.util.Optional<ModerationAction> findOne(String clause, Object... params) {

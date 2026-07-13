@@ -738,19 +738,33 @@ test('local MVP flow: auth, site admin, public comments API and widget script', 
   const realtimeModerationAction = bulkModeration.items.find(
     (item: { commentId: string }) => item.commentId === realtimeComment.id,
   ).action
+  const laterSpamActionResponse = await adminRequest.post(
+    `${API_BASE_URL}/moderation/comments/${spamComment.id}/actions`,
+    {
+      headers: await issueAdminCsrf(adminRequest),
+      data: { action: 'MARK_SPAM', reason: 'Позднее решение для проверки partial undo' },
+    },
+  )
+  expect(laterSpamActionResponse.status()).toBe(201)
+
   const undoModerationResponse = await adminRequest.post(
-    `${API_BASE_URL}/moderation/actions/${realtimeModerationAction.id}/undo`,
+    `${API_BASE_URL}/moderation/operations/${operationId}/undo`,
     { headers: await issueAdminCsrf(adminRequest) },
   )
-  expect(undoModerationResponse.status()).toBe(201)
-  expect(await undoModerationResponse.json()).toMatchObject({
-    action: 'UNDO',
-    revertsActionId: realtimeModerationAction.id,
-  })
+  await expect(undoModerationResponse).toBeOK()
+  const undoModeration = await undoModerationResponse.json()
+  expect(undoModeration.items).toHaveLength(2)
+  expect(undoModeration.items.find((item: { commentId: string }) => item.commentId === realtimeComment.id))
+    .toMatchObject({ success: true, action: { action: 'UNDO', revertsActionId: realtimeModerationAction.id } })
+  expect(undoModeration.items.find((item: { commentId: string }) => item.commentId === spamComment.id))
+    .toMatchObject({ success: false, errorCode: 'UNDO_CONFLICT' })
 
   const restoredCommentResponse = await adminRequest.get(`${API_BASE_URL}/moderation/comments/${realtimeComment.id}`)
   await expect(restoredCommentResponse).toBeOK()
   expect(await restoredCommentResponse.json()).toMatchObject({ status: 'PENDING' })
+  const conflictedCommentResponse = await adminRequest.get(`${API_BASE_URL}/moderation/comments/${spamComment.id}`)
+  await expect(conflictedCommentResponse).toBeOK()
+  expect(await conflictedCommentResponse.json()).toMatchObject({ status: 'SPAM' })
 
   const analyticsResponse = await adminRequest.get(`${API_BASE_URL}/analytics/owner`, {
     params: { range: '7d', timeZone: 'Europe/Moscow' },

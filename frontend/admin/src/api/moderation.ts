@@ -37,6 +37,11 @@ export async function undoModerationAction(actionId: string): Promise<Moderation
   return response.data
 }
 
+export async function undoBulkModerationOperation(operationId: string): Promise<BulkModerationResponse> {
+  const response = await apiClient.post<BulkModerationResponse>(`/moderation/operations/${operationId}/undo`)
+  return response.data
+}
+
 export async function getComment(commentId: string): Promise<Comment> {
   const response = await apiClient.get<Comment>(`/moderation/comments/${commentId}`)
   return response.data
