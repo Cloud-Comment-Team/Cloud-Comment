@@ -4,11 +4,12 @@ import { ArrowLeft, Check, CircleCheck, CircleDashed, Copy, Globe, Palette, Powe
 import toast from 'react-hot-toast'
 
 import { getApiErrorMessage } from '../../api/auth'
-import { deleteSite, getEmbedCode, getInstallationStatus, getSite, replaceAllowedOrigins, updateSite } from '../../api/sites'
+import { deleteSite, getEmbedCode, getSite, replaceAllowedOrigins, updateSite } from '../../api/sites'
 import { OwnerAnalyticsPanel } from '../../components/analytics/OwnerAnalyticsPanel'
 import { AsyncState } from '../../components/common/AsyncState'
 import { Badge } from '../../components/common/Badge'
 import { Dialog } from '../../components/common/Workspace'
+import { useInstallationStatus } from '../../hooks/useInstallationStatus'
 import type {
   EmbedCode,
   ModerationMode,
@@ -81,12 +82,8 @@ const SiteDetail = () => {
   const { siteId = '' } = useParams()
   const [site, setSite] = useState<Site | null>(null)
   const [embedCode, setEmbedCode] = useState<EmbedCode | null>(null)
-  const [installationStatus, setInstallationStatus] = useState<SiteInstallationStatus | null>(null)
-  const [installationStatusError, setInstallationStatusError] = useState<string | null>(null)
-  const [installationStatusLoading, setInstallationStatusLoading] = useState(true)
   const [activeSection, setActiveSection] = useState<SiteWorkspaceSection>('overview')
   const [embedCopied, setEmbedCopied] = useState(false)
-  const [refreshingStatus, setRefreshingStatus] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -97,7 +94,16 @@ const SiteDetail = () => {
   const [moderationMode, setModerationMode] = useState<ModerationMode>('PRE_MODERATION')
   const [widgetStyle, setWidgetStyle] = useState<WidgetStyle>(DEFAULT_WIDGET_STYLE)
   const previewRef = useRef<HTMLIFrameElement>(null)
-  const installationRequestIdRef = useRef(0)
+  const {
+    status: installationStatus,
+    error: installationStatusError,
+    loading: installationStatusLoading,
+    refreshing: refreshingStatus,
+    polling: installationPolling,
+    pollingPaused: installationPollingPaused,
+    pollingTimedOut: installationPollingTimedOut,
+    refresh: refreshInstallationStatus,
+  } = useInstallationStatus(siteId, activeSection === 'installation')
   const [originsInput, setOriginsInput] = useState('')
   const [deleteConfirmation, setDeleteConfirmation] = useState('')
   const allowNavigationRef = useRef(false)
@@ -159,33 +165,10 @@ const SiteDetail = () => {
       }
     }
 
-    async function loadInstallationStatus() {
-      const requestId = ++installationRequestIdRef.current
-      setInstallationStatus(null)
-      setInstallationStatusError(null)
-      setInstallationStatusLoading(true)
-      try {
-        const loadedInstallationStatus = await getInstallationStatus(siteId)
-        if (!cancelled && requestId === installationRequestIdRef.current) {
-          setInstallationStatus(loadedInstallationStatus)
-        }
-      } catch (loadError) {
-        if (!cancelled && requestId === installationRequestIdRef.current) {
-          setInstallationStatusError(getApiErrorMessage(loadError, 'Не удалось загрузить диагностику установки.'))
-        }
-      } finally {
-        if (!cancelled && requestId === installationRequestIdRef.current) {
-          setInstallationStatusLoading(false)
-        }
-      }
-    }
-
     void loadSite()
-    void loadInstallationStatus()
 
     return () => {
       cancelled = true
-      installationRequestIdRef.current += 1
     }
   }, [siteId])
 
@@ -244,7 +227,7 @@ const SiteDetail = () => {
       }
       setSite(updatedSite)
       toast.success('Раздел сохранён')
-      void refreshInstallationStatus(false)
+      void refreshInstallationStatus(true, true)
     } catch (saveError) {
       toast.error(getApiErrorMessage(saveError, 'Не удалось сохранить раздел.'))
     } finally {
@@ -269,7 +252,7 @@ const SiteDetail = () => {
       setWidgetStyle(updatedSite.widgetStyle)
       setOriginsInput(formatOriginsInput(updatedSite.allowedOrigins))
       toast.success(updatedSite.isActive ? 'Сайт активирован' : 'Сайт деактивирован')
-      void refreshInstallationStatus(false)
+      void refreshInstallationStatus(true, true)
     } catch (toggleError) {
       toast.error(getApiErrorMessage(toggleError, 'Не удалось изменить статус сайта.'))
     } finally {
@@ -315,32 +298,11 @@ const SiteDetail = () => {
     }
   }
 
-  async function refreshInstallationStatus(notifyOnError: boolean) {
-    const requestId = ++installationRequestIdRef.current
-    setRefreshingStatus(true)
-    setInstallationStatusError(null)
-    try {
-      const refreshedStatus = await getInstallationStatus(siteId)
-      if (requestId !== installationRequestIdRef.current) return
-      setInstallationStatus(refreshedStatus)
-    } catch (refreshError) {
-      if (requestId !== installationRequestIdRef.current) return
-      const message = getApiErrorMessage(refreshError, 'Не удалось обновить диагностику.')
-      setInstallationStatus(null)
-      setInstallationStatusError(message)
-      if (notifyOnError) {
-        toast.error(message)
-      }
-    } finally {
-      if (requestId === installationRequestIdRef.current) {
-        setRefreshingStatus(false)
-        setInstallationStatusLoading(false)
-      }
-    }
-  }
-
   async function handleRefreshInstallationStatus() {
-    await refreshInstallationStatus(true)
+    const result = await refreshInstallationStatus(false, true)
+    if (!result.ok) {
+      toast.error(result.error)
+    }
   }
 
   function handleStayOnPage() {
@@ -470,6 +432,22 @@ const SiteDetail = () => {
                   <InstallationChecklistItem done={installationStatus.widgetSeen} label="Виджет увиден" />
                   <InstallationChecklistItem done={installationStatus.firstCommentReceived} label="Первый комментарий" />
                 </div>
+
+                {activeSection === 'installation' && installationPolling && (
+                  <p className="mt-4 text-sm" role="status" aria-live="polite" style={{ color: 'var(--text)' }}>
+                    Ждём реальный запрос виджета и проверяем установку автоматически…
+                  </p>
+                )}
+                {activeSection === 'installation' && installationPollingPaused && (
+                  <p className="mt-4 text-sm" role="status" aria-live="polite" style={{ color: 'var(--warning)' }}>
+                    Автопроверка приостановлена, пока вкладка неактивна.
+                  </p>
+                )}
+                {activeSection === 'installation' && installationPollingTimedOut && (
+                  <p className="mt-4 text-sm" role="status" aria-live="polite" style={{ color: 'var(--warning)' }}>
+                    За минуту запрос виджета не появился. Откройте страницу сайта и запустите проверку снова.
+                  </p>
+                )}
 
                 {installationStatus.lastSuccessfulAt && (
                   <p className="mt-4 text-sm" style={{ color: 'var(--text)' }}>
@@ -800,7 +778,8 @@ const SiteDetail = () => {
                   <li>сравните site ID в коде с идентификатором этого сайта;</li>
                   <li>проверьте, что origin страницы целиком добавлен в разделе Origins;</li>
                   <li>убедитесь, что сайт активен и URL API доступен из браузера;</li>
-                  <li>после исправления откройте страницу и нажмите «Обновить» в диагностике.</li>
+                  <li>после исправления откройте страницу: диагностика обновится автоматически в течение минуты;</li>
+                  <li>если время ожидания закончилось, нажмите «Обновить», чтобы проверить ещё раз.</li>
                 </ul>
                 <p className="mt-3 text-xs" style={{ color: 'var(--text)' }}>
                   CloudComment не загружает вашу страницу с сервера: проверка основана только на реальных запросах виджета.
