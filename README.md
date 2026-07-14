@@ -84,7 +84,9 @@ docker compose down -v
 | `POSTGRES_DB` | Docker Compose / PostgreSQL | `cloud_comment` |
 | `POSTGRES_USER` | Docker Compose / PostgreSQL | `cloud_comment` |
 | `POSTGRES_PASSWORD` | Docker Compose / PostgreSQL | `cloud_comment` |
+| `POSTGRES_PORT` | Docker Compose / PostgreSQL host port | `5432` |
 | `VITE_CLOUD_COMMENT_API_BASE_URL` | widget и admin frontend | `http://localhost/api` |
+| `CLOUD_COMMENT_PUBLIC_BASE_URL` | Docker Compose / backend / сборка widget | `http://localhost` |
 | `CLOUD_COMMENT_WIDGET_BASE_URL` | Docker Compose / backend / сборка loader | `http://widget.localhost` |
 | `VITE_CLOUD_COMMENT_WIDGET_BASE_URL` | прямой Vite build loader | обязательный отдельный origin, не совпадающий с origin API |
 
@@ -116,10 +118,11 @@ npm --prefix widget-frontend run check
 npm --prefix widget-frontend run build
 ```
 
-Сборка создаёт тонкий loader и отдельный iframe-runtime:
+Сборка создаёт тонкий loader, статическую frame-страницу и отдельный iframe-runtime:
 
 ```text
 widget-frontend/dist/widget/cloud-comment-widget.js
+widget-frontend/dist/widget/frame.html
 widget-frontend/dist/widget/cloud-comment-widget-frame.js
 widget-frontend/dist/widget/cloud-comment-widget.css
 ```
@@ -130,9 +133,9 @@ widget-frontend/dist/widget/cloud-comment-widget.css
 http://localhost/widget/cloud-comment-widget.js
 ```
 
-Loader не рендерит форму и не хранит bearer на странице клиента. Он создаёт sandboxed iframe, получает одноразовый bootstrap-ticket по browser-observed `Origin` и передаёт его внутрь через закрытый `MessageChannel`. Отдельный `widget`-origin обязателен; локальный Compose использует `http://widget.localhost`. Если origin iframe совпадает с origin API, loader не создаёт iframe и показывает безопасную ошибку конфигурации.
+Loader не рендерит форму и не хранит bearer на странице клиента. Он создаёт sandboxed iframe, получает одноразовый bootstrap-ticket по browser-observed `Origin` и передаёт его внутрь через закрытый `MessageChannel`. Отдельный `widget`-origin обязателен: локальный Compose использует `http://widget.localhost`, а production CD публикует только `frame.html`, frame-JS и CSS на `https://cloud-comment-team.github.io/Cloud-Comment/`. API и admin SPA остаются на основном сервере. Если origin iframe совпадает с origin API, loader не создаёт iframe и показывает безопасную ошибку конфигурации.
 
-В production `CLOUD_COMMENT_CADDY_TRUSTED_PROXIES` обязан содержать точный, разделённый пробелами список CIDR внешних edge-прокси. Широкий `private_ranges` допустим только в локальном Docker Compose. Backend остаётся за локальным Caddy и доверяет только loopback через `CLOUD_COMMENT_TRUSTED_PROXIES=127.0.0.1/32,::1/128`; адрес контейнера или частной сети нельзя переносить в production как гарантированное значение.
+В production CD через SSH разрешает имя `traefik` внутри application-контейнера и передаёт Caddy только текущий адрес edge-прокси с маской `/32`. Широкий `private_ranges` допустим только в локальном Docker Compose. Backend остаётся за локальным Caddy и доверяет только loopback через `CLOUD_COMMENT_TRUSTED_PROXIES=127.0.0.1/32,::1/128`.
 
 Пример автоматического подключения:
 

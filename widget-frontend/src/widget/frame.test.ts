@@ -23,12 +23,18 @@ class TestResizeObserver {
 }
 
 beforeEach(() => {
+  window.history.replaceState({}, "", `/frame.html#site=${siteId}`);
+  const apiOrigin = document.createElement("meta");
+  apiOrigin.name = "cloud-comment-api-origin";
+  apiOrigin.content = "https://api.example";
+  document.head.append(apiOrigin);
   document.body.replaceChildren();
   window.sessionStorage.clear();
   vi.resetModules();
 });
 
 afterEach(() => {
+  document.querySelector('meta[name="cloud-comment-api-origin"]')?.remove();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });

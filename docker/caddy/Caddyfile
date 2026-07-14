@@ -41,6 +41,13 @@ http://widget.localhost {
 		X-Content-Type-Options "nosniff"
 	}
 
+	@widget_frame_assets path /frame.html /cloud-comment-widget-frame.js /cloud-comment-widget.css
+	handle @widget_frame_assets {
+		header Cache-Control "no-cache"
+		root * /srv/widget
+		file_server
+	}
+
 	handle /api/health {
 		reverse_proxy backend:8080 {
 			header_up X-Forwarded-For {client_ip}

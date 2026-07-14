@@ -16,8 +16,17 @@ export function getFrameBaseUrl(
   envValue = import.meta.env.VITE_CLOUD_COMMENT_WIDGET_BASE_URL
 ): string {
   const candidate = explicitValue?.trim() || envValue?.trim();
-  const resolved = new URL(candidate || apiBaseUrl, window.location.href);
-  return `${resolved.protocol}//${resolved.host}`;
+  const apiOrigin = new URL(apiBaseUrl, window.location.href).origin;
+  const resolved = new URL(candidate || apiOrigin, window.location.href);
+  if (resolved.protocol !== "https:" && resolved.protocol !== "http:") {
+    throw new Error("CloudComment frame URL must use HTTP(S)");
+  }
+  if (resolved.username || resolved.password) {
+    throw new Error("CloudComment frame URL must not contain credentials");
+  }
+  resolved.search = "";
+  resolved.hash = "";
+  return resolved.toString().replace(/\/+$/u, "");
 }
 
 export function getWidgetAuthStorageKey(siteId: string, parentOrigin: string): string {

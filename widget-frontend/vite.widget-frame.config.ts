@@ -1,4 +1,4 @@
-import { defineConfig, type Plugin } from "vite";
+import { defineConfig, loadEnv, type Plugin } from "vite";
 import { transform as transformCss } from "lightningcss";
 import { readFileSync } from "node:fs";
 
@@ -77,7 +77,7 @@ function optimizeWidgetRuntime(): Plugin {
       return {
         code: [
           'export const widgetStyles = "";',
-          'export const widgetStylesUrl = "/widget/cloud-comment-widget.css";'
+          'export const widgetStylesUrl = "./cloud-comment-widget.css";'
         ].join("\n"),
         map: null
       };
@@ -85,18 +85,52 @@ function optimizeWidgetRuntime(): Plugin {
   };
 }
 
-export default defineConfig({
-  envDir: "..",
-  publicDir: false,
-  plugins: [optimizeWidgetRuntime()],
-  build: {
-    emptyOutDir: false,
-    outDir: "dist/widget",
-    lib: {
-      entry: "src/widget/frame.ts",
-      name: "CloudCommentWidgetFrame",
-      formats: ["iife"],
-      fileName: () => "cloud-comment-widget-frame.js"
+function emitFramePage(apiOrigin: string): Plugin {
+  return {
+    name: "emit-widget-frame-page",
+    generateBundle() {
+      this.emitFile({
+        type: "asset",
+        fileName: "frame.html",
+        source: `<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; connect-src ${apiOrigin}; style-src 'self' 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; object-src 'none'">
+  <meta name="cloud-comment-api-origin" content="${apiOrigin}">
+  <title>CloudComment</title>
+  <style>html,body{margin:0;padding:0;background:transparent}</style>
+</head>
+<body>
+  <div id="cloud-comment-widget-frame"></div>
+  <script src="./cloud-comment-widget-frame.js" defer></script>
+</body>
+</html>
+`
+      });
     }
-  }
+  };
+}
+
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, "..", "");
+  const apiBaseUrl = env.VITE_CLOUD_COMMENT_API_BASE_URL?.trim() || "http://localhost/api";
+  const apiOrigin = new URL(apiBaseUrl).origin;
+  return {
+    envDir: "..",
+    publicDir: false,
+    plugins: [optimizeWidgetRuntime(), emitFramePage(apiOrigin)],
+    build: {
+      emptyOutDir: false,
+      outDir: "dist/widget",
+      lib: {
+        entry: "src/widget/frame.ts",
+        name: "CloudCommentWidgetFrame",
+        formats: ["iife"],
+        fileName: () => "cloud-comment-widget-frame.js"
+      }
+    }
+  };
 });

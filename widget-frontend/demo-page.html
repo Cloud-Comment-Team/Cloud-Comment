@@ -250,7 +250,6 @@
         window.history.replaceState(null, "", `${window.location.pathname}?siteId=${encodeURIComponent(siteId)}`);
         window.CloudCommentWidget.init({
           siteId,
-          apiBaseUrl: `${window.location.origin}/api`,
           pageUrl: `${window.location.origin}${window.location.pathname}`,
           target: "#comments",
           theme: "auto"

@@ -12,23 +12,23 @@
 
 ### Выделенный widget origin
 
-Предпочтительный режим использует `CLOUD_COMMENT_WIDGET_BASE_URL`, например `https://widget.team13.st.ifbest.org`.
+Production использует `CLOUD_COMMENT_WIDGET_BASE_URL=https://cloud-comment-team.github.io/Cloud-Comment`. GitHub Pages управляется workflow того же репозитория и не требует доступа к внешнему DNS или Traefik.
 
-- widget origin публикует только frame shell, widget assets, ограниченный Public Widget API, consent/legal endpoints и health check;
-- admin SPA и глобальные admin API на нём возвращают `404`;
+- widget origin публикует только статические `frame.html`, frame-JS и CSS;
+- API, юридические документы и admin SPA остаются на `team13.st.ifbest.org`; API принимает frame CORS только с точного Pages-origin;
 - host-only admin-cookie домена административного приложения не отправляется на widget origin;
 - iframe использует `sandbox="allow-scripts allow-same-origin allow-popups"`, а его storage относится только к widget origin; загрузки файлов, формы, top-navigation, storage-access и `allow-popups-to-escape-sandbox` не разрешаются;
-- `allow-popups` нужен только для прямого открытия юридических документов по пользовательскому клику: frame допускает `_blank` лишь для своего HTTP(S) origin и пути `/legal/`, всегда с `noopener noreferrer`; асинхронного relay через `parent.window.open` нет;
+- `allow-popups` нужен только для прямого открытия юридических документов по пользовательскому клику: frame допускает `_blank` лишь для доверенного API-origin и пути `/legal/`, всегда с `noopener noreferrer`; асинхронного relay через `parent.window.open` нет;
 - frame context и WIDGET bearer передаются с `credentials: "omit"` и никогда не зависят от ambient cookie.
 
-Внешний router и сертификат для production widget origin отслеживаются в #196. Репозиторий содержит внутренний Caddy route и CD-smoke, но не имеет доступа к внешнему Traefik.
+CD сначала публикует frame artifact через GitHub Pages, затем по SSH разворачивает backend, admin и loader. Адрес внешнего Traefik определяется из container DNS непосредственно перед запуском Caddy и передаётся как точный `/32`; ручная переменная с частной сетью не используется.
 
-Выделенный widget origin обязателен. Loader сравнивает origin iframe с origin API до создания iframe; при совпадении показывает безопасную ошибку конфигурации и не выполняет bootstrap. Frame повторно сверяет переданный `apiOrigin` со своим физическим origin и отклоняет совпадение. Opaque sandbox и `Origin: null` не поддерживаются.
+Выделенный widget origin обязателен. Loader сравнивает origin iframe с origin API до создания iframe; при совпадении показывает безопасную ошибку конфигурации и не выполняет bootstrap. Frame принимает `apiOrigin` только при точном совпадении с `cloud-comment-api-origin`, встроенным в контролируемый Pages artifact при сборке, и дополнительно отклоняет совпадение с физическим frame-origin. Opaque sandbox и `Origin: null` не поддерживаются.
 
 ## Протокол bootstrap и exchange
 
-1. Loader получает `siteId`, вычисляет канонический `pageUrl` без fragment и создаёт iframe по адресу `/api/public/sites/{siteId}/widget-frame`. В URL нет `pageUrl`, ticket, proof, context или bearer.
-2. Backend возвращает динамический HTML shell с `Cache-Control: no-store`, `Referrer-Policy: no-referrer` и CSP `frame-ancestors`, построенным из актуального allowlist сайта. Shell загружает `/widget/cloud-comment-widget-frame.js`, а runtime — только same-origin `/widget/cloud-comment-widget.css`.
+1. Loader получает `siteId`, вычисляет канонический `pageUrl` без fragment и создаёт iframe по адресу `{widgetBaseUrl}/frame.html#site={siteId}`. Fragment не отправляется Pages; в URL нет `pageUrl`, ticket, proof, context или bearer.
+2. GitHub Pages возвращает статический shell с CSP, разрешающим script/style только с Pages и `connect-src` только к production API. Shell загружает относительные `cloud-comment-widget-frame.js` и `cloud-comment-widget.css`. Shell можно встроить на произвольную страницу, но backend не выдаёт ей context, пока browser-observed parent origin не входит в allowlist выбранного сайта.
 3. Frame принимает единственное начальное сообщение от `parent`, проверяет `event.source`, browser-provided `event.origin`, версию протокола, `apiOrigin`, размер полей и одноразовый `instanceId`, затем оставляет только переданный `MessagePort`. В connect дополнительно передаётся только ограниченный `fontFamily` (до 256 символов, без управляющих символов), который применяется через DOM style property; произвольные CSS и HTML не передаются.
 4. Frame создаёт неизвлекаемую пару ECDSA P-256 через WebCrypto. Host получает только DER SPKI открытого ключа в base64url.
 5. Loader отправляет `POST /api/public/sites/{siteId}/widget-context/bootstrap` с `{ publicKey, pageUrl }`. Браузер сам выставляет origin host page; backend нормализует origin, проверяет allowlist/активность сайта, канонизирует страницу и ограничивает частоту запросов.
@@ -44,7 +44,7 @@ CLOUDCOMMENT_WIDGET_BOOTSTRAP_V1
 {ticket}
 ```
 
-8. Proof не передаётся parent. Frame напрямую вызывает same-origin `POST /api/public/sites/{siteId}/widget-context/exchange` с `{ ticket, proof }`.
+8. Proof не передаётся parent. Frame напрямую вызывает cross-origin production API `POST /api/public/sites/{siteId}/widget-context/exchange` с `{ ticket, proof }`; CORS разрешает этот transport только точному Pages-origin.
 9. Backend сначала выполняет дешёвые проверки размера, срока и binding, затем проверяет подпись и только после успеха атомарно помечает ticket использованным. Неверная подпись не погашает ticket; два конкурентных корректных exchange дают ровно один успех.
 10. Raw frame context возвращается только iframe, хранится в памяти или изолированном `sessionStorage` выделенного origin и передаётся в `X-CloudComment-Widget-Context`. Ключ context envelope является SHA-256 scope сайта, parent origin и канонической страницы; независимый ключ commenter bearer ограничен сайтом и parent origin. Raw page URL, context и bearer не входят в имена ключей.
 
@@ -89,6 +89,6 @@ Bootstrap, exchange, widget login и register имеют bounded rate limit по
 - malformed/oversized SPKI, другая curve, подпись неверного размера и лишние DER-данные отклоняются до создания context;
 - host перехватывает все свои сообщения и storage, но не видит password, proof, context или bearer;
 - два page context одного site/origin могут разделить bearer только внутри одной browser session, но не context; другой site/origin и отдельная вкладка не получают этот секрет;
-- frame CSP разрешает только текущие origins сайта, а widget origin не отдаёт admin routes;
+- frame CSP разрешает соединения только с production API, Pages artifact не содержит admin routes, а site allowlist повторно проверяется backend при bootstrap и каждом context-запросе;
 - URL, history, Caddy/backend logs и GitHub artifacts не содержат ticket, proof, context или bearer;
 - выделенная Playwright-конфигурация в Chromium, Firefox и WebKit проверяет dedicated isolation/login/legal, fail-closed при совпадении origins и перенос bearer A→B только в одном site+origin; публикация комментария проверяется полным Chromium-сценарием, а logout, `401`, expiry, reload и опережающее обновление при clock skew — модульными тестами frame/render.

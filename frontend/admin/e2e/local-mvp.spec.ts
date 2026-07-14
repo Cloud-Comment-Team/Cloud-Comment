@@ -3,14 +3,17 @@ import { expect, test, type APIRequestContext, type FrameLocator } from '@playwr
 const ADMIN_ORIGIN = (process.env.E2E_BASE_URL ?? 'http://localhost').replace(/\/+$/, '')
 const API_BASE_URL = `${ADMIN_ORIGIN}/api`
 const WIDGET_ORIGIN = (process.env.E2E_WIDGET_BASE_URL ?? 'http://widget.localhost').replace(/\/+$/, '')
-const WIDGET_CONNECT_ORIGIN = (process.env.E2E_WIDGET_CONNECT_BASE_URL
-  ?? (process.platform === 'win32' && WIDGET_ORIGIN === 'http://widget.localhost'
-    ? 'http://127.0.0.1'
-    : WIDGET_ORIGIN)).replace(/\/+$/, '')
-const WIDGET_API_BASE_URL = `${WIDGET_CONNECT_ORIGIN}/api`
-const WIDGET_HOST_HEADER = WIDGET_CONNECT_ORIGIN === WIDGET_ORIGIN
-  ? {}
-  : { Host: new URL(WIDGET_ORIGIN).host }
+const WIDGET_API_BASE_URL = API_BASE_URL
+const EXTERNAL_ORIGIN = (() => {
+  const externalUrl = new URL(ADMIN_ORIGIN)
+  externalUrl.hostname = '127.0.0.1'
+  return externalUrl.origin
+})()
+const REJECTED_ORIGIN = (() => {
+  const rejectedUrl = new URL(ADMIN_ORIGIN)
+  rejectedUrl.hostname = `${rejectedUrl.hostname}.evil.example`
+  return rejectedUrl.origin
+})()
 const PASSWORD = 'Password123!'
 const WIDGET_ACCENT_COLOR = '#7c3aed'
 
@@ -63,7 +66,7 @@ async function createWidgetContext(
   const bootstrapResponse = await request.post(
     `${WIDGET_API_BASE_URL}/public/sites/${siteId}/widget-context/bootstrap`,
     {
-      headers: { ...WIDGET_HOST_HEADER, Origin: normalizedParentOrigin },
+      headers: { Origin: normalizedParentOrigin },
       data: { publicKey, pageUrl },
     },
   )
@@ -94,14 +97,13 @@ async function createWidgetContext(
   const exchangeResponse = await request.post(
     `${WIDGET_API_BASE_URL}/public/sites/${siteId}/widget-context/exchange`,
     {
-      headers: { ...WIDGET_HOST_HEADER, Origin: WIDGET_ORIGIN },
+      headers: { Origin: WIDGET_ORIGIN },
       data: { ticket: bootstrap.ticket, proof },
     },
   )
   await expect(exchangeResponse).toBeOK()
   const exchange = await exchangeResponse.json() as { contextToken: string }
   return {
-    ...WIDGET_HOST_HEADER,
     Origin: WIDGET_ORIGIN,
     'X-CloudComment-Widget-Context': exchange.contextToken,
     'X-CloudComment-Page-Url': bootstrap.canonicalPageUrl,
@@ -109,10 +111,12 @@ async function createWidgetContext(
 }
 
 async function submitWidgetComment(widget: FrameLocator, content: string): Promise<void> {
-  await widget.getByRole('textbox', { name: 'Написать комментарий' }).fill(content)
+  const textbox = widget.getByRole('textbox', { name: 'Написать комментарий' })
+  await textbox.fill(content)
   await widget.locator('form[data-cloud-comment-form="comment"]')
     .getByRole('button', { name: 'Отправить' })
     .click()
+  await expect(textbox).toHaveValue('')
   await expect(widget.getByText(content, { exact: true })).toBeVisible()
 }
 
@@ -145,6 +149,7 @@ test('local MVP flow: auth, site admin, public API and isolated iframe widget', 
   const suffix = Date.now().toString(36)
   const email = `e2e-${suffix}@example.com`
   const widgetEmail = `widget-${suffix}@example.com`
+  const widgetDisplayName = `E2E Visitor ${suffix}`
   const otherEmail = `e2e-other-${suffix}@example.com`
   const siteName = `E2E Site ${suffix}`
   const domain = `e2e-${suffix}.example.com`
@@ -200,7 +205,7 @@ test('local MVP flow: auth, site admin, public API and isolated iframe widget', 
   await page.getByRole('button', { name: 'Далее' }).click()
   await page.getByLabel('Режим модерации').selectOption('POST_MODERATION')
   await page.getByRole('textbox', { name: /Разрешённые origins/ }).fill(
-    `${ADMIN_ORIGIN}\nhttp://127.0.0.1\nhttp://127.0.0.1:5173`,
+    `${ADMIN_ORIGIN}\n${EXTERNAL_ORIGIN}`,
   )
   await page.getByRole('button', { name: 'Далее' }).click()
   await page.getByLabel('Тема виджета').selectOption('DARK')
@@ -275,7 +280,7 @@ test('local MVP flow: auth, site admin, public API and isolated iframe widget', 
 
   const initialRejectedOriginResponse = await request.get(`${API_BASE_URL}/public/sites/${siteId}/config`, {
     headers: {
-      Origin: `${ADMIN_ORIGIN}.evil.example`,
+      Origin: REJECTED_ORIGIN,
     },
   })
   expect(initialRejectedOriginResponse.status()).toBe(404)
@@ -284,7 +289,7 @@ test('local MVP flow: auth, site admin, public API and isolated iframe widget', 
   expect(await initiallyRejectedInstallationResponse.json()).toMatchObject({
     status: 'REJECTED',
     reason: 'ORIGIN_REJECTED',
-    lastRejectedOrigin: `${ADMIN_ORIGIN}.evil.example`,
+    lastRejectedOrigin: REJECTED_ORIGIN,
   })
 
   const configResponse = await request.get(`${API_BASE_URL}/public/sites/${siteId}/config`, {
@@ -328,6 +333,7 @@ test('local MVP flow: auth, site admin, public API and isolated iframe widget', 
   await expect(widget.getByRole('link', { name: 'условия', exact: true }))
     .toHaveAttribute('href', /\/legal\/terms\.html$/)
   const registrationForm = widget.locator('form[data-cloud-comment-form="auth"]')
+  await registrationForm.locator('input[name="displayName"]').fill(widgetDisplayName)
   await registrationForm.locator('input[name="email"]').fill(widgetEmail)
   await registrationForm.locator('input[name="password"]').fill(PASSWORD)
   await registrationForm.getByRole('checkbox').check()
@@ -380,7 +386,7 @@ test('local MVP flow: auth, site admin, public API and isolated iframe widget', 
   expect(commentsPage.items[0]).toMatchObject({
     content: commentText,
     status: 'APPROVED',
-    author: { displayName: 'Участник' },
+    author: { displayName: widgetDisplayName },
   })
   expect(commentsPage.items[0].author).not.toHaveProperty('email')
   expect(commentsPage.items[0].replies).toHaveLength(1)
@@ -388,7 +394,7 @@ test('local MVP flow: auth, site admin, public API and isolated iframe widget', 
     content: apiReplyText,
     parentId: createdComment.id,
     status: 'APPROVED',
-    author: { displayName: 'Участник' },
+    author: { displayName: widgetDisplayName },
   })
   expect(commentsPage.items[0].replies[0].author).not.toHaveProperty('email')
 
@@ -421,16 +427,20 @@ test('local MVP flow: auth, site admin, public API and isolated iframe widget', 
   expect(repliesPage.totalItems).toBe(4)
   expect(repliesPage.items).toHaveLength(2)
 
-  const initialLoveButton = widget.locator(
+  await widget.locator(`button[data-reaction-picker="${createdComment.id}"]`).click()
+  const lovePickerButton = widget.locator(
     `button[data-reaction-comment-id="${createdComment.id}"][data-reaction-type="LOVE"]`,
-  )
-  await initialLoveButton.click()
-  await expect(initialLoveButton).toHaveClass(/cloud-comment__reaction--active/)
-  await expect(initialLoveButton.locator('.cloud-comment__reaction-count')).toHaveText('1')
+  ).last()
+  await lovePickerButton.click()
+  const activeLoveButton = widget.locator(
+    `button[data-reaction-comment-id="${createdComment.id}"][data-reaction-type="LOVE"]`,
+  ).first()
+  await expect(activeLoveButton).toHaveClass(/cloud-comment__reaction--active/)
+  await expect(activeLoveButton.locator('.cloud-comment__reaction-count')).toHaveText('1')
 
   const rejectedOriginResponse = await request.get(`${API_BASE_URL}/public/sites/${siteId}/config`, {
     headers: {
-      Origin: `${ADMIN_ORIGIN}.evil.example`,
+      Origin: REJECTED_ORIGIN,
     },
   })
   expect(rejectedOriginResponse.status()).toBe(404)
@@ -439,7 +449,7 @@ test('local MVP flow: auth, site admin, public API and isolated iframe widget', 
   expect(await rejectedInstallationResponse.json()).toMatchObject({
     status: 'HEALTHY',
     reason: 'RECENT_SUCCESS',
-    lastRejectedOrigin: `${ADMIN_ORIGIN}.evil.example`,
+    lastRejectedOrigin: REJECTED_ORIGIN,
     lastSuccessfulOrigin: ADMIN_ORIGIN,
   })
   await widget.locator(
@@ -698,7 +708,7 @@ test('local MVP flow: auth, site admin, public API and isolated iframe widget', 
   const realtimeCommentText = `E2E realtime comment ${suffix}`
   await submitWidgetComment(widget, realtimeCommentText)
   const realtimeComment = await findModerationComment(adminRequest, siteId, realtimeCommentText)
-  await expect(moderationPage.getByText(realtimeCommentText)).toBeVisible({ timeout: 15_000 })
+  await expect(moderationPage.getByText(realtimeCommentText).first()).toBeVisible({ timeout: 15_000 })
 
   const storedNotificationsResponse = await adminRequest.get(`${API_BASE_URL}/notifications`)
   await expect(storedNotificationsResponse).toBeOK()
@@ -859,7 +869,7 @@ test('local MVP flow: auth, site admin, public API and isolated iframe widget', 
     .toEqual([])
   await expect(widget.locator('.cloud-comment__comment-content')).toContainText([editedCommentText, apiReplyText])
   const publicAuthorLabels = widget.locator('.cloud-comment__comment-header strong')
-  await expect(publicAuthorLabels.first()).toHaveText('Участник')
+  await expect(publicAuthorLabels.first()).toHaveText(widgetDisplayName)
   expect((await publicAuthorLabels.allTextContents()).join(' ')).not.toContain(widgetEmail)
   await expect(widget.getByRole('button', { name: 'Показать ещё ответы (1)' })).toBeVisible()
   await widget.getByRole('button', { name: 'Показать ещё ответы (1)' }).click()
@@ -879,14 +889,24 @@ test('local MVP flow: auth, site admin, public API and isolated iframe widget', 
     .poll(() => widgetShell.evaluate((element) => getComputedStyle(element).getPropertyValue('--cc-custom-accent').trim()))
     .toBe(WIDGET_ACCENT_COLOR)
 
-  const loveButton = widget.locator('button[data-reaction-type="LOVE"]').first()
-  const wowButton = widget.locator('button[data-reaction-type="WOW"]').first()
+  const loveButton = widget.locator(
+    `button[data-reaction-comment-id="${createdComment.id}"][data-reaction-type="LOVE"]`,
+  ).first()
   await expect(loveButton).toHaveClass(/cloud-comment__reaction--active/)
   await expect(loveButton.locator('.cloud-comment__reaction-count')).toHaveText('1')
-  await wowButton.click()
-  await expect(wowButton).toHaveClass(/cloud-comment__reaction--active/)
-  await expect(wowButton.locator('.cloud-comment__reaction-count')).toHaveText('1')
-  await expect(loveButton.locator('.cloud-comment__reaction-count')).toHaveText('0')
+  await widget.locator(`button[data-reaction-picker="${createdComment.id}"]`).click()
+  await widget.locator(
+    `button[data-reaction-comment-id="${createdComment.id}"][data-reaction-type="WOW"]`,
+  ).last().click()
+  const activeWowButton = widget.locator(
+    `button[data-reaction-comment-id="${createdComment.id}"][data-reaction-type="WOW"]`,
+  ).first()
+  await expect(activeWowButton).toHaveClass(/cloud-comment__reaction--active/)
+  await expect(activeWowButton.locator('.cloud-comment__reaction-count')).toHaveText('1')
+  await expect(widget.locator(
+    `button[data-reaction-comment-id="${createdComment.id}"][data-reaction-type="LOVE"]`,
+  ).last()
+    .locator('.cloud-comment__reaction-count')).toHaveText('')
 
   await widget.locator('.cloud-comment__reply-button').first().click()
   await expect(widget.locator('.cloud-comment__reply-context')).toBeVisible()
@@ -909,10 +929,17 @@ test('local MVP flow: auth, site admin, public API and isolated iframe widget', 
   const commentsAfterPendingReply = await publicCommentsAfterPendingReply.json()
   expect(JSON.stringify(commentsAfterPendingReply)).not.toContain(pendingWidgetReplyText)
 
+  const widgetToken = await widget.locator('body').evaluate(() => {
+    const key = Object.keys(window.sessionStorage)
+      .find((candidate) => candidate.startsWith('cloud-comment.widget.authToken.v4:'))
+    if (!key) return null
+    return window.sessionStorage.getItem(key)
+  })
+  expect(widgetToken).not.toBeNull()
   const ownerCommentsAfterPendingReply = await request.get(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
     headers: {
-      Authorization: `Bearer ${widgetToken}`,
-      Origin: ADMIN_ORIGIN,
+      ...widgetContextHeaders,
+      Authorization: `Bearer ${widgetToken!}`,
     },
     params: {
       pageUrl,
@@ -933,8 +960,9 @@ test('local MVP flow: auth, site admin, public API and isolated iframe widget', 
     termsVersion: string
   }
   const otherRegisterResponse = await request.post(`${API_BASE_URL}/public/sites/${siteId}/auth/register`, {
-    headers: { Origin: ADMIN_ORIGIN },
+    headers: widgetContextHeaders,
     data: {
+      displayName: `Other visitor ${suffix}`,
       email: otherEmail,
       password: PASSWORD,
       acceptedPrivacyPolicy: true,
@@ -945,15 +973,15 @@ test('local MVP flow: auth, site admin, public API and isolated iframe widget', 
   })
   await expect(otherRegisterResponse).toBeOK()
   const otherLoginResponse = await request.post(`${API_BASE_URL}/public/sites/${siteId}/auth/login`, {
-    headers: { Origin: ADMIN_ORIGIN },
+    headers: widgetContextHeaders,
     data: { email: otherEmail, password: PASSWORD },
   })
   await expect(otherLoginResponse).toBeOK()
   const otherWidgetToken = (await otherLoginResponse.json()).token as string
   const otherCommentsAfterPendingReply = await request.get(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
     headers: {
+      ...widgetContextHeaders,
       Authorization: `Bearer ${otherWidgetToken}`,
-      Origin: ADMIN_ORIGIN,
     },
     params: {
       pageUrl,
@@ -974,7 +1002,9 @@ test('local MVP flow: auth, site admin, public API and isolated iframe widget', 
 
   const ownerReplyPage = await context.newPage()
   await ownerReplyPage.goto(`/demo-page.html?siteId=${siteId}`)
-  const ownerReplyWidget = ownerReplyPage.locator('#comments')
+  const ownerReplyWidget = ownerReplyPage.frameLocator(
+    '#comments iframe[title="Комментарии CloudComment"]',
+  )
   await expect(ownerReplyWidget.locator('.cloud-comment__title')).toHaveText('Комментарии')
   await expect(ownerReplyWidget.getByText(ownerReplyText)).toHaveCount(0)
 
@@ -1016,7 +1046,7 @@ test('local MVP flow: auth, site admin, public API and isolated iframe widget', 
   })
 
   const publicThreadWithOwnerReply = await request.get(`${API_BASE_URL}/public/sites/${siteId}/pages/comments`, {
-    headers: { Origin: ADMIN_ORIGIN },
+    headers: widgetContextHeaders,
     params: { pageUrl, page: '1', pageSize: '20', replyLimit: '100' },
   })
   await expect(publicThreadWithOwnerReply).toBeOK()
@@ -1031,19 +1061,28 @@ test('local MVP flow: auth, site admin, public API and isolated iframe widget', 
   })
   expect(publicOwnerReplies[0].author).not.toHaveProperty('email')
 
-  await ownerReplyPage.evaluate(() => window.localStorage.removeItem('cloud-comment.widget.authToken'))
+  await ownerReplyWidget.locator('body').evaluate(() => {
+    for (const key of Object.keys(window.sessionStorage)) {
+      if (key.startsWith('cloud-comment.widget.authToken.')) window.sessionStorage.removeItem(key)
+    }
+  })
   await ownerReplyPage.reload()
-  const ownerReplyLoadMore = ownerReplyWidget.getByRole('button', { name: /Показать ещё ответы/ }).first()
-  if (await ownerReplyLoadMore.isVisible()) await ownerReplyLoadMore.click()
-  await expect(ownerReplyWidget.getByText(ownerReplyText)).toHaveCount(1)
-  await expect(ownerReplyWidget.getByText(ownerReplyText).locator('..').locator('header strong')).toHaveText('Автор сайта')
+  await expect(ownerReplyWidget.locator('.cloud-comment__title')).toHaveText('Комментарии')
+  const ownerReplyRoot = ownerReplyWidget.locator('.cloud-comment__comment').filter({
+    has: ownerReplyWidget.getByText(editedCommentText, { exact: true }),
+  }).first()
+  await expect(ownerReplyRoot).toBeVisible()
+  const ownerReplyLoadMore = ownerReplyRoot.getByRole('button', { name: /Показать ещё ответы/ }).first()
+  if (await ownerReplyLoadMore.count()) await ownerReplyLoadMore.click()
+  await expect(ownerReplyRoot.getByText(ownerReplyText)).toHaveCount(1)
+  await expect(ownerReplyRoot.getByText(ownerReplyText).locator('..').locator('header strong')).toHaveText('Автор сайта')
   const unreadAfterOwnerReply = await adminRequest.get(`${API_BASE_URL}/notifications/unread-count`)
   await expect(unreadAfterOwnerReply).toBeOK()
   expect((await unreadAfterOwnerReply.json()).unreadCount).toBe(unreadBefore)
   await ownerReplyPage.close()
 
   const externalPage = await context.newPage()
-  await externalPage.goto(`http://127.0.0.1/demo-page.html?siteId=${siteId}`)
+  await externalPage.goto(`${EXTERNAL_ORIGIN}/demo-page.html?siteId=${siteId}`)
   const externalWidget = externalPage.frameLocator('#comments iframe[title="Комментарии CloudComment"]')
   await expect(externalWidget.locator('.cloud-comment__title')).toHaveText('Комментарии')
   await expect(externalPage.locator('#comments .cloud-comment')).toHaveCount(0)

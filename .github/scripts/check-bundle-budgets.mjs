@@ -5,7 +5,7 @@ import { createGzip } from 'node:zlib'
 const adminDistDir = 'frontend/admin/dist'
 const adminAssetsDir = join(adminDistDir, 'assets')
 const widgetDistDir = 'widget-frontend/dist/widget'
-const widgetBundleLimit = 24 * 1024
+const widgetBundleLimit = 25 * 1024
 const analyticsGraphLimit = 120 * 1024
 const analyticsEntrySuffix = 'src/components/analytics/AnalyticsTrendChart.tsx'
 

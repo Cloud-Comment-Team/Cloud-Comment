@@ -73,7 +73,7 @@ describe("тонкий host loader", () => {
     const postMessage = vi.spyOn(iframe.contentWindow!, "postMessage");
     iframe.dispatchEvent(new Event("load"));
 
-    expect(iframe.src).toBe(`https://widget.example/api/public/sites/${siteId}/widget-frame`);
+    expect(iframe.src).toBe(`https://widget.example/frame.html#site=${siteId}`);
     expect(iframe.src).not.toContain("article");
     expect(iframe.src).not.toContain("token");
     expect(iframe.getAttribute("sandbox")).toBe("allow-scripts allow-same-origin allow-popups");
@@ -107,7 +107,7 @@ describe("тонкий host loader", () => {
 
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
     const request = fetchMock.mock.calls[0];
-    expect(request[0]).toBe(`https://widget.example/api/public/sites/${siteId}/widget-context/bootstrap`);
+    expect(request[0]).toBe(`https://admin.example/api/public/sites/${siteId}/widget-context/bootstrap`);
     expect(JSON.parse(String(request[1]?.body))).toEqual({
       publicKey: "A".repeat(122),
       pageUrl: "https://site.example/article?q=ok"
@@ -219,7 +219,7 @@ describe("тонкий host loader", () => {
     init({ siteId, frameBaseUrl: "https://widget.example", pageUrl: "https://site.example/b", target });
     const replacement = target.querySelector("iframe")!;
     expect(replacement).not.toBe(firstIframe);
-    expect(replacement.src).toBe(`https://widget.example/api/public/sites/${siteId}/widget-frame`);
+    expect(replacement.src).toBe(`https://widget.example/frame.html#site=${siteId}`);
 
     firstFramePort.postMessage({
       type: "cloud-comment:destroyed",

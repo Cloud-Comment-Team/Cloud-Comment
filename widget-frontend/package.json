@@ -6,6 +6,7 @@
   "scripts": {
     "build": "vite build --config vite.widget.config.ts && vite build --config vite.widget-frame.config.ts",
     "build:widget": "vite build --config vite.widget.config.ts && vite build --config vite.widget-frame.config.ts",
+    "build:frame": "vite build --config vite.widget-frame.config.ts",
     "check": "tsc --noEmit",
     "test": "vitest run"
   },

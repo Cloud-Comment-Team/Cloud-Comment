@@ -64,7 +64,7 @@ async function setupWidgetServer(page: Page, options: WidgetServerOptions = {}):
     meCount: 0,
   }
 
-  await page.context().route(`${WIDGET_ORIGIN}/**`, async (route) => {
+  const handleWidgetRequest = async (route: Route) => {
     const request = route.request()
     const url = new URL(request.url())
     const method = request.method()
@@ -72,7 +72,7 @@ async function setupWidgetServer(page: Page, options: WidgetServerOptions = {}):
       await route.fulfill({ status: 204, headers: corsHeaders() })
       return
     }
-    if (url.pathname === '/widget/cloud-comment-widget-frame.js') {
+    if (url.pathname === '/cloud-comment-widget-frame.js') {
       await route.fulfill({
         path: frameBundle,
         contentType: 'application/javascript; charset=utf-8',
@@ -80,7 +80,7 @@ async function setupWidgetServer(page: Page, options: WidgetServerOptions = {}):
       })
       return
     }
-    if (url.pathname === '/widget/cloud-comment-widget.css') {
+    if (url.pathname === '/cloud-comment-widget.css') {
       await route.fulfill({
         path: widgetStyles,
         contentType: 'text/css; charset=utf-8',
@@ -88,17 +88,16 @@ async function setupWidgetServer(page: Page, options: WidgetServerOptions = {}):
       })
       return
     }
-    if (url.pathname === `/api/public/sites/${SITE_ID}/widget-frame`) {
-      const parentOrigin = new URL(page.url()).origin
+    if (url.pathname === '/frame.html') {
       await route.fulfill({
         status: 200,
         contentType: 'text/html; charset=utf-8',
         headers: {
           'Cache-Control': 'no-store',
-          'Content-Security-Policy': `default-src 'none'; script-src ${WIDGET_ORIGIN}; style-src 'self' 'unsafe-inline'; connect-src ${WIDGET_ORIGIN}; frame-ancestors ${parentOrigin}`,
+          'Content-Security-Policy': `default-src 'none'; script-src ${WIDGET_ORIGIN}; style-src 'self' 'unsafe-inline'; connect-src ${API_ORIGIN}`,
           ...corsHeaders(),
         },
-        body: '<!doctype html><html lang="ru"><head><meta charset="UTF-8"><meta name="referrer" content="no-referrer"><style>html,body{margin:0;padding:0;background:transparent}</style></head><body><div id="cloud-comment-frame-root"></div><script src="/widget/cloud-comment-widget-frame.js"></script></body></html>',
+        body: `<!doctype html><html lang="ru"><head><meta charset="UTF-8"><meta name="referrer" content="no-referrer"><meta name="cloud-comment-api-origin" content="${API_ORIGIN}"><style>html,body{margin:0;padding:0;background:transparent}</style></head><body><div id="cloud-comment-frame-root"></div><script src="/cloud-comment-widget-frame.js"></script></body></html>`,
       })
       return
     }
@@ -276,7 +275,9 @@ async function setupWidgetServer(page: Page, options: WidgetServerOptions = {}):
       return
     }
     await fulfillJson(route, { error: { message: `Неожиданный mock URL: ${url.pathname}` } }, 404)
-  })
+  }
+  await page.context().route(`${WIDGET_ORIGIN}/**`, handleWidgetRequest)
+  await page.context().route(`${API_ORIGIN}/**`, handleWidgetRequest)
 
   return state
 }
@@ -337,7 +338,7 @@ test('autoInit канонизирует pageUrl, а host не получает U
   expect(await host.evaluate((element) => Boolean(element.shadowRoot))).toBe(false)
   await expect(host.locator('form')).toHaveCount(0)
   const frameSrc = await host.locator('iframe').getAttribute('src')
-  expect(frameSrc).toBe(`${WIDGET_ORIGIN}/api/public/sites/${SITE_ID}/widget-frame`)
+  expect(frameSrc).toBe(`${WIDGET_ORIGIN}/frame.html#site=${SITE_ID}`)
   expect(frameSrc).not.toMatch(/(?:token|article|pageUrl)/i)
   expect(await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }))).not.toMatch(/bearer|context|password/i)
   expect(state.contextlessRequests).toEqual([])
@@ -461,7 +462,7 @@ test('dedicated iframe изолирует стили, наследует тол�
   const popupPromise = page.waitForEvent('popup')
   await policyLink.click()
   const popup = await popupPromise
-  await expect(popup).toHaveURL(`${WIDGET_ORIGIN}/legal/privacy-policy.html`)
+  await expect(popup).toHaveURL(`${API_ORIGIN}/legal/privacy-policy.html`)
   await popup.close()
 
   await frame.getByRole('button', { name: 'Войти', exact: true }).first().click()
@@ -481,7 +482,7 @@ test('dedicated iframe изолирует стили, наследует тол�
   const accessibility = await new AxeBuilder({ page }).include('#comments').disableRules(['color-contrast']).analyze()
   expect(accessibility.violations.filter((violation) => ['critical', 'serious'].includes(violation.impact ?? ''))).toEqual([])
   expect(state.contextlessRequests).toEqual([])
-  expect(state.configOrigins).toEqual([null])
+  expect(state.configOrigins).toEqual([WIDGET_ORIGIN])
   expect(state.exchangeOrigins).toEqual([WIDGET_ORIGIN])
   expect(state.loginOrigins).toEqual([WIDGET_ORIGIN])
 })

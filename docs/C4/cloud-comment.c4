@@ -159,6 +159,8 @@ model {
 
   externalWebsite = externalSystem 'Сайт клиента' 'Любой внешний сайт, куда владелец вставляет embed-код CloudComment'
 
+  widgetPages = externalSystem 'GitHub Pages widget origin' 'Управляемый из CD отдельный HTTPS-origin, который публикует только статический frame shell, JS и CSS'
+
   cloudComment = system 'CloudComment' 'Облачная платформа комментариев для сайтов' {
     reverseProxy = edge 'Caddy reverse proxy' 'Единая локальная точка входа для API и будущих web-интерфейсов'
 
@@ -185,12 +187,12 @@ model {
       realtimeClient = component 'Notification and Realtime Client' 'Постоянный owner-scoped центр уведомлений и единое WebSocket-подключение для live-обновлений'
     }
 
-    widgetRuntime = widgetApp 'JS-виджет комментариев' 'Встраиваемый виджет, который запускается на внешнем сайте клиента' {
-      technology 'TypeScript, React, Vite bundle'
+    widgetRuntime = widgetApp 'JS-виджет комментариев' 'Loader запускается на внешнем сайте, а frame runtime — на изолированном GitHub Pages origin' {
+      technology 'TypeScript, Vite bundles, GitHub Pages frame origin'
 
       embedLoader = component 'Embed loader' 'Тонкий host-скрипт без UI и секретов: создаёт sandboxed iframe и передаёт одноразовый bootstrap-ticket через MessageChannel'
 
-      frameBridge = component 'Isolated iframe runtime' 'Создаёт неизвлекаемый P-256 ключ, обменивает подписанный ticket на page-bound context и владеет widget-сессией'
+      frameBridge = component 'Isolated iframe runtime' 'Загружается с GitHub Pages, сверяет встроенный API-origin, создаёт неизвлекаемый P-256 ключ и владеет widget-сессией'
 
       widgetShell = component 'Widget shell' 'Интерфейс внутри изолированного iframe: постепенная авторизация, профильное меню, страницы ответов и оптимистичные действия'
 
@@ -283,6 +285,10 @@ model {
   authorizedVisitor -[http]-> externalWebsite 'Открывает страницу сайта клиента'
 
   externalWebsite -[loads]-> cloudComment.widgetRuntime 'Подключает JS-виджет через embed-код'
+
+  externalWebsite -[loads]-> widgetPages 'Загружает статический frame shell и runtime'
+
+  widgetPages -[loads]-> cloudComment.widgetRuntime.frameBridge 'Отдаёт контролируемый frame artifact'
 
   authorizedVisitor -[http]-> cloudComment.widgetRuntime 'Авторизуется и оставляет комментарий'
 
@@ -483,6 +489,7 @@ views {
     include websiteOwner
     include authorizedVisitor
     include externalWebsite
+    include widgetPages
     include cloudComment.*
 
     autoLayout LeftRight 170 120
@@ -506,6 +513,7 @@ views {
     include externalWebsite
     include cloudComment.widgetRuntime
     include cloudComment.widgetRuntime.*
+    include widgetPages
     include cloudComment.backendApi.publicWidgetController
     include cloudComment.backendApi.widgetContextModule
 
