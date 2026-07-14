@@ -163,7 +163,7 @@ class AccountDeletionIntegrationTests {
             .andExpect(jsonPath("$.resources.ownedComments", is(1)))
             .andExpect(jsonPath("$.resources.authoredComments", is(1)))
             .andExpect(jsonPath("$.resources.commentReactions", is(1)))
-            .andExpect(jsonPath("$.consents[0].privacyPolicyVersion", is("2026-07-12")))
+            .andExpect(jsonPath("$.consents[0].privacyPolicyVersion", is("2026-07-14")))
             .andReturn()
             .getResponse()
             .getContentAsString();

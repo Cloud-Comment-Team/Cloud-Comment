@@ -73,8 +73,9 @@ function rootComments(count: number, label = "Комментарий"): PublicCo
 }
 
 type ApiOverrides = {
-  onList?: (url: URL) => Promise<Response> | Response;
-  onPost?: () => Promise<Response> | Response;
+  onList?: (url: URL, init?: RequestInit) => Promise<Response> | Response;
+  onRegister?: (body: Record<string, unknown>) => Promise<Response> | Response;
+  onPost?: (body: Record<string, unknown>, init?: RequestInit) => Promise<Response> | Response;
   onPatch?: () => Promise<Response> | Response;
   onDelete?: () => Promise<Response> | Response;
   onReaction?: () => Promise<Response> | Response;
@@ -145,10 +146,14 @@ function installApiMock(overrides: ApiOverrides = {}) {
         }
       });
     }
+    if (url.endsWith(`/public/sites/${siteId}/auth/register`) && method === "POST") {
+      const requestBody = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : {};
+      return overrides.onRegister?.(requestBody) ?? new Response(null, { status: 201 });
+    }
     if (url.includes(`/public/sites/${siteId}/pages/comments`) && method === "GET") {
       listCalls += 1;
       if (overrides.onList) {
-        return overrides.onList(new URL(url));
+        return overrides.onList(new URL(url), init);
       }
       if (postCompleted && overrides.failListAfterPost) {
         return jsonResponse({ error: { message: "Не удалось обновить список" } }, 500);
@@ -157,10 +162,10 @@ function installApiMock(overrides: ApiOverrides = {}) {
       return jsonResponse({ items: comments, page: 1, pageSize: 20, totalItems: comments.length, totalPages: 1 });
     }
     if (url.endsWith(`/public/sites/${siteId}/pages/comments`) && method === "POST") {
-      const requestBody = init?.body ? JSON.parse(String(init.body)) as { content?: string } : {};
-      const response = await (overrides.onPost?.() ?? jsonResponse(publicComment({
+      const requestBody = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : {};
+      const response = await (overrides.onPost?.(requestBody, init) ?? jsonResponse(publicComment({
         id: "created-comment",
-        content: requestBody.content ?? "Новый комментарий"
+        content: String(requestBody.content ?? "Новый комментарий")
       }), 201));
       if (response.ok) {
         postCompleted = true;
@@ -250,6 +255,10 @@ function composer(shadowRoot: ShadowRoot): HTMLTextAreaElement {
   return textarea;
 }
 
+function guestNameInput(shadowRoot: ShadowRoot): HTMLInputElement | null {
+  return shadowRoot.querySelector<HTMLInputElement>("input[name='guestName']");
+}
+
 async function login(shadowRoot: ShadowRoot, emailValue: string): Promise<void> {
   shadowRoot.querySelector<HTMLButtonElement>("[data-auth-action='expand']")?.click();
   const authForm = shadowRoot.querySelector<HTMLFormElement>("[data-cloud-comment-form='auth']");
@@ -261,7 +270,7 @@ async function login(shadowRoot: ShadowRoot, emailValue: string): Promise<void> 
   email.value = emailValue;
   password.value = "password-123";
   authForm.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-  await vi.waitFor(() => expect(composer(shadowRoot).readOnly).toBe(false));
+  await vi.waitFor(() => expect(guestNameInput(shadowRoot)).toBeNull());
 }
 
 beforeEach(() => {
@@ -291,8 +300,8 @@ describe("локализация интерфейса", () => {
 
     expect(shell?.lang).toBe("en");
     expect(shell?.getAttribute("aria-label")).toBe("CloudComment comments");
-    expect(shadowRoot.textContent).toContain("Discussion");
     expect(shadowRoot.textContent).toContain("Comments");
+    expect(shadowRoot.textContent).not.toContain("Discussion");
     expect(shadowRoot.textContent).toContain("Pinned first");
     expect(shadowRoot.textContent).toContain("Reply");
     expect(shadowRoot.textContent).toContain("Edit");
@@ -300,6 +309,148 @@ describe("локализация интерфейса", () => {
     expect(shadowRoot.querySelector("select")?.getAttribute("aria-label")).toBe("Sort comments");
     expect(shadowRoot.querySelector("time")?.textContent).toMatch(/13 Jul 2026/);
     expect(shadowRoot.querySelector(".cloud-comment__comment-content")?.textContent).toBe("Исходный комментарий");
+  });
+});
+
+describe("редакционный интерфейс и публичное чтение", () => {
+  it("показывает единую компактную шапку, различимых авторов и скрывает нулевые реакции", async () => {
+    window.sessionStorage.clear();
+    const comments = [
+      publicComment({
+        id: "author-one-comment",
+        author: { id: "author-one", displayName: null },
+        ownedByCurrentUser: false
+      }),
+      publicComment({
+        id: "author-two-comment",
+        author: { id: "author-two", displayName: "visitor@example.test" },
+        ownedByCurrentUser: false
+      })
+    ];
+    installApiMock({
+      onList: () => jsonResponse({ items: comments, page: 1, pageSize: 20, totalItems: 2, totalPages: 1 })
+    });
+
+    const { shadowRoot } = await renderReadyWidget(2);
+
+    expect(shadowRoot.querySelectorAll(".cloud-comment__title")).toHaveLength(1);
+    expect(shadowRoot.querySelector(".cloud-comment__eyebrow")).toBeNull();
+    expect(shadowRoot.querySelector(".cloud-comment__title")?.textContent).toBe("Комментарии");
+    expect(shadowRoot.querySelector(".cloud-comment__count")?.textContent).toBe("· 2");
+    expect(shadowRoot.querySelector(".cloud-comment__brand-mark")).not.toBeNull();
+    const authors = Array.from(shadowRoot.querySelectorAll(".cloud-comment__author"), (node) => node.textContent);
+    expect(authors[0]).toMatch(/^Участник [A-Z0-9]{3}$/);
+    expect(authors[1]).toMatch(/^Участник [A-Z0-9]{3}$/);
+    expect(authors[0]).not.toBe(authors[1]);
+    expect(shadowRoot.querySelector(".cloud-comment__reactions > .cloud-comment__reaction")).toBeNull();
+    expect(shadowRoot.querySelector(".cloud-comment__reaction-picker")?.hasAttribute("hidden")).toBe(true);
+    expect(shadowRoot.textContent).toContain("Без регистрации · имя увидят все");
+    expect(guestNameInput(shadowRoot)).not.toBeNull();
+    expect(composer(shadowRoot).readOnly).toBe(false);
+  });
+
+  it("при протухшем bearer повторяет загрузку анонимно и не закрывает комментарии", async () => {
+    const api = installApiMock({
+      onList: (_url, init) => new Headers(init?.headers).has("Authorization")
+        ? jsonResponse({ error: { message: "Сессия истекла" } }, 401)
+        : jsonResponse({ items: [publicComment({ ownedByCurrentUser: false })], page: 1, pageSize: 20, totalItems: 1, totalPages: 1 })
+    });
+
+    const { shadowRoot } = await renderReadyWidget();
+
+    expect(api.getListCalls()).toBe(2);
+    expect(shadowRoot.textContent).toContain("Исходный комментарий");
+    expect(shadowRoot.textContent).toContain("Сессия завершена. Комментарии доступны без входа.");
+    expect(guestNameInput(shadowRoot)).not.toBeNull();
+    expect(window.sessionStorage.getItem(authStorageKey)).toBeNull();
+  });
+
+  it("передаёт публичное имя при регистрации", async () => {
+    window.sessionStorage.clear();
+    const onRegister = vi.fn((_body: Record<string, unknown>) => new Response(null, { status: 201 }));
+    installApiMock({ onRegister });
+    const { shadowRoot } = await renderReadyWidget();
+
+    shadowRoot.querySelector<HTMLButtonElement>("[data-auth-action='expand']")?.click();
+    shadowRoot.querySelector<HTMLButtonElement>("[data-auth-mode='register']")?.click();
+    const form = shadowRoot.querySelector<HTMLFormElement>("[data-cloud-comment-form='auth']")!;
+    form.querySelector<HTMLInputElement>("[name='displayName']")!.value = "Анна Петрова";
+    form.querySelector<HTMLInputElement>("[name='email']")!.value = "anna@example.test";
+    form.querySelector<HTMLInputElement>("[name='password']")!.value = "password-123";
+    form.querySelector<HTMLInputElement>("[name='consent']")!.checked = true;
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() => expect(onRegister).toHaveBeenCalledOnce());
+    expect(onRegister.mock.calls[0][0]).toMatchObject({
+      displayName: "Анна Петрова",
+      email: "anna@example.test",
+      acceptedPrivacyPolicy: true,
+      acceptedTerms: true
+    });
+  });
+
+  it("публикует корневой комментарий гостя без bearer", async () => {
+    window.sessionStorage.clear();
+    const onPost = vi.fn((body: Record<string, unknown>, init?: RequestInit) => {
+      expect(new Headers(init?.headers).has("Authorization")).toBe(false);
+      return jsonResponse(publicComment({
+        id: "guest-comment",
+        author: { id: null, displayName: String(body.guestName) },
+        content: String(body.content),
+        ownedByCurrentUser: false
+      }), 201);
+    });
+    installApiMock({ onPost });
+    const { shadowRoot } = await renderReadyWidget();
+
+    const name = guestNameInput(shadowRoot)!;
+    name.value = "Мария";
+    name.dispatchEvent(new Event("input", { bubbles: true }));
+    const textarea = composer(shadowRoot);
+    textarea.value = "Комментарий без регистрации";
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    textarea.form?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() => expect(onPost).toHaveBeenCalledOnce());
+    expect(onPost.mock.calls[0][0]).toMatchObject({
+      guestName: "Мария",
+      content: "Комментарий без регистрации",
+      parentId: null
+    });
+    await vi.waitFor(() => expect(shadowRoot.textContent).toContain("Комментарий без регистрации"));
+    expect(shadowRoot.textContent).toContain("Мария");
+    expect(guestNameInput(shadowRoot)?.value).toBe("Мария");
+  });
+
+  it("публикует гостевой ответ без входа", async () => {
+    window.sessionStorage.clear();
+    const root = publicComment({ ownedByCurrentUser: false });
+    const onPost = vi.fn((body: Record<string, unknown>) => jsonResponse(publicComment({
+      id: "guest-reply",
+      parentId: root.id,
+      author: { id: null, displayName: String(body.guestName) },
+      content: String(body.content),
+      ownedByCurrentUser: false
+    }), 201));
+    installApiMock({
+      onPost,
+      onList: () => jsonResponse({ items: [root], page: 1, pageSize: 20, totalItems: 1, totalPages: 1 })
+    });
+    const { shadowRoot } = await renderReadyWidget();
+
+    shadowRoot.querySelector<HTMLButtonElement>(`[data-reply-to='${root.id}']`)?.click();
+    const name = guestNameInput(shadowRoot)!;
+    name.value = "Илья";
+    name.dispatchEvent(new Event("input", { bubbles: true }));
+    const textarea = composer(shadowRoot);
+    textarea.value = "Гостевой ответ";
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    textarea.form?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() => expect(onPost).toHaveBeenCalledOnce());
+    expect(onPost.mock.calls[0][0]).toMatchObject({ parentId: root.id, guestName: "Илья" });
+    await vi.waitFor(() => expect(shadowRoot.textContent).toContain("Гостевой ответ"));
+    expect(shadowRoot.textContent).toContain("Илья");
   });
 });
 
@@ -477,10 +628,10 @@ describe("устойчивый черновик и фокус виджета", (
     });
     const firstShadow = firstRoot.shadowRoot!;
     await vi.waitFor(() => expect(firstShadow.querySelectorAll(".cloud-comment__comment")).toHaveLength(1));
-    expect(composer(firstShadow).readOnly).toBe(true);
+    expect(guestNameInput(firstShadow)).not.toBeNull();
 
     await login(firstShadow, "memory-only@example.test");
-    expect(composer(firstShadow).readOnly).toBe(false);
+    expect(guestNameInput(firstShadow)).toBeNull();
     first.destroy();
 
     const reloadedRoot = document.createElement("div");
@@ -496,7 +647,7 @@ describe("устойчивый черновик и фокус виджета", (
     });
     const reloadedShadow = reloadedRoot.shadowRoot!;
     await vi.waitFor(() => expect(reloadedShadow.querySelectorAll(".cloud-comment__comment")).toHaveLength(1));
-    expect(composer(reloadedShadow).readOnly).toBe(true);
+    expect(guestNameInput(reloadedShadow)).not.toBeNull();
   });
 
   it("сохраняет точный черновик и фокус при реакции, открытии профиля и смене сортировки", async () => {
@@ -665,7 +816,7 @@ describe("устойчивый черновик и фокус виджета", (
     shadowRoot.querySelector<HTMLButtonElement>("[data-profile-action='toggle']")?.click();
     shadowRoot.querySelector<HTMLButtonElement>("[data-account-action='logout']")?.click();
 
-    await vi.waitFor(() => expect(composer(shadowRoot).readOnly).toBe(true));
+    await vi.waitFor(() => expect(guestNameInput(shadowRoot)).not.toBeNull());
     expect(composer(shadowRoot).value).toBe("");
     await login(shadowRoot, "new-user@example.test");
     expect(composer(shadowRoot).value).toBe("");
@@ -715,7 +866,7 @@ describe("устойчивый черновик и фокус виджета", (
     shadowRoot.querySelector<HTMLButtonElement>("[data-profile-action='toggle']")?.click();
     shadowRoot.querySelector<HTMLButtonElement>("[data-account-action='logout']")?.click();
     await vi.waitFor(() => expect(onLogout).toHaveBeenCalledOnce());
-    expect(composer(shadowRoot).readOnly).toBe(true);
+    expect(guestNameInput(shadowRoot)).not.toBeNull();
     expect(composer(shadowRoot).value).toBe("");
     expect(shadowRoot.querySelector(".cloud-comment__reply-context")).toBeNull();
 
@@ -727,7 +878,7 @@ describe("устойчивый черновик и фокус виджета", (
 
     logoutResponse.resolve(jsonResponse({ error: { message: "Поздний logout 401" } }, 401));
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(composer(shadowRoot).readOnly).toBe(false);
+    expect(guestNameInput(shadowRoot)).toBeNull();
     expect(composer(shadowRoot).value).toBe("");
     expect(window.sessionStorage.getItem(authStorageKey)).toBe("new-widget-token");
     expect(shadowRoot.textContent).toContain("Вы вошли как anna@example.test");
@@ -750,7 +901,7 @@ describe("устойчивый черновик и фокус виджета", (
     typeDraft(textarea, draft);
     textarea.form?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
 
-    await vi.waitFor(() => expect(composer(shadowRoot).readOnly).toBe(true));
+    await vi.waitFor(() => expect(guestNameInput(shadowRoot)).not.toBeNull());
     expect(shadowRoot.querySelector("[data-cloud-comment-form='edit-comment']")).toBeNull();
     await login(shadowRoot, "anna@example.test");
     const restored = shadowRoot.querySelector<HTMLTextAreaElement>("[data-cloud-comment-form='edit-comment'] textarea");
@@ -769,7 +920,7 @@ describe("устойчивый черновик и фокус виджета", (
     typeDraft(composer(shadowRoot), draft);
     composer(shadowRoot).form?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
 
-    await vi.waitFor(() => expect(composer(shadowRoot).readOnly).toBe(true));
+    await vi.waitFor(() => expect(guestNameInput(shadowRoot)).not.toBeNull());
     expect(composer(shadowRoot).value).toBe("");
     expect(shadowRoot.querySelector(".cloud-comment__reply-context")).toBeNull();
     await login(shadowRoot, "anna@example.test");
@@ -787,7 +938,7 @@ describe("устойчивый черновик и фокус виджета", (
     typeDraft(composer(shadowRoot), draft);
     composer(shadowRoot).form?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
 
-    await vi.waitFor(() => expect(composer(shadowRoot).readOnly).toBe(true));
+    await vi.waitFor(() => expect(guestNameInput(shadowRoot)).not.toBeNull());
     expect(composer(shadowRoot).value).toBe("");
     await login(shadowRoot, "ANNA@example.test");
     expect(composer(shadowRoot).value).toBe(draft);
@@ -806,7 +957,7 @@ describe("устойчивый черновик и фокус виджета", (
     typeDraft(composer(shadowRoot), draft);
     composer(shadowRoot).form?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
 
-    await vi.waitFor(() => expect(composer(shadowRoot).readOnly).toBe(true));
+    await vi.waitFor(() => expect(guestNameInput(shadowRoot)).not.toBeNull());
     await login(shadowRoot, "other-user@example.test");
     expect(composer(shadowRoot).value).toBe("");
     expect(shadowRoot.querySelector(".cloud-comment__reply-context")).toBeNull();
@@ -826,7 +977,7 @@ describe("устойчивый черновик и фокус виджета", (
     typeDraft(composer(shadowRoot), draft);
     composer(shadowRoot).form?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
 
-    await vi.waitFor(() => expect(composer(shadowRoot).readOnly).toBe(true));
+    await vi.waitFor(() => expect(guestNameInput(shadowRoot)).not.toBeNull());
     await login(shadowRoot, "anna@example.test");
     expect(composer(shadowRoot).value).toBe("");
     expect(shadowRoot.querySelector(".cloud-comment__reply-context")).toBeNull();
@@ -847,7 +998,7 @@ describe("устойчивый черновик и фокус виджета", (
     typeDraft(textarea, "Правка больше не владельца");
     textarea.form?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
 
-    await vi.waitFor(() => expect(composer(shadowRoot).readOnly).toBe(true));
+    await vi.waitFor(() => expect(guestNameInput(shadowRoot)).not.toBeNull());
     await login(shadowRoot, "anna@example.test");
     expect(shadowRoot.querySelector("[data-cloud-comment-form='edit-comment']")).toBeNull();
     expect(shadowRoot.querySelector("[data-comment-action='edit']")).toBeNull();
@@ -870,7 +1021,7 @@ describe("устойчивый черновик и фокус виджета", (
     });
 
     reactionResponse.resolve(jsonResponse({ error: { message: "Первая сессия истекла" } }, 401));
-    await vi.waitFor(() => expect(composer(shadowRoot).readOnly).toBe(true));
+    await vi.waitFor(() => expect(guestNameInput(shadowRoot)).not.toBeNull());
     postResponse.resolve(jsonResponse({ error: { message: "Вторая старая 401" } }, 401));
     await new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -896,13 +1047,13 @@ describe("устойчивый черновик и фокус виджета", (
     });
 
     reactionResponse.resolve(jsonResponse({ error: { message: "Старая сессия истекла" } }, 401));
-    await vi.waitFor(() => expect(composer(shadowRoot).readOnly).toBe(true));
+    await vi.waitFor(() => expect(guestNameInput(shadowRoot)).not.toBeNull());
     await login(shadowRoot, "anna@example.test");
     expect(composer(shadowRoot).value).toBe(draft);
 
     postResponse.resolve(jsonResponse({ error: { message: "Запоздалая старая 401" } }, 401));
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(composer(shadowRoot).readOnly).toBe(false);
+    expect(guestNameInput(shadowRoot)).toBeNull();
     expect(composer(shadowRoot).value).toBe(draft);
     expect(window.sessionStorage.getItem(authStorageKey)).toBe("new-widget-token");
     expect(shadowRoot.textContent).toContain("Вы вошли как anna@example.test");

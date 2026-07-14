@@ -18,6 +18,8 @@ import com.cloudcomment.shared.error.ApplicationException;
 import com.cloudcomment.site.domain.ModerationMode;
 import com.cloudcomment.widgetcontext.application.ResolvedWidgetContext;
 import com.cloudcomment.widgetcontext.application.WidgetContextService;
+import com.cloudcomment.widgetcontext.application.WidgetClientIpResolver;
+import com.cloudcomment.widgetcontext.application.WidgetSecurityRateLimiter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -84,6 +86,12 @@ class PublicCommentControllerTests {
     @MockitoBean
     private WidgetContextService widgetContextService;
 
+    @MockitoBean
+    private WidgetSecurityRateLimiter rateLimiter;
+
+    @MockitoBean
+    private WidgetClientIpResolver clientIpResolver;
+
     @BeforeEach
     void setUpWidgetContext() {
         when(widgetContextService.acceptsFrameOrigin(FRAME_ORIGIN)).thenReturn(true);
@@ -98,6 +106,7 @@ class PublicCommentControllerTests {
         );
         when(widgetContextService.matchesPage(any(ResolvedWidgetContext.class), eq(PAGE_URL))).thenReturn(true);
         when(widgetContextService.matchesPageHash("a".repeat(64), PAGE_URL)).thenReturn(true);
+        when(clientIpResolver.resolve(any())).thenReturn("203.0.113.10");
     }
 
     @Test
@@ -355,9 +364,14 @@ class PublicCommentControllerTests {
     }
 
     @Test
-    void createCommentRequiresBearerToken() throws Exception {
+    void createGuestCommentWithoutBearerToken() throws Exception {
         UUID siteId = UUID.randomUUID();
+        UUID pageId = UUID.randomUUID();
+        CommentView created = comment(siteId, pageId, null, CommentStatus.PENDING);
         when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
+        when(publicCommentService.createComment(
+            Optional.empty(), siteId, ORIGIN, PAGE_URL, null, "Мария", "Hello world"
+        )).thenReturn(created);
 
         mockMvc.perform(post("/api/public/sites/{siteId}/pages/comments", siteId)
                 .header(HttpHeaders.ORIGIN, FRAME_ORIGIN)
@@ -367,21 +381,27 @@ class PublicCommentControllerTests {
                 .content("""
                     {
                       "pageUrl": "%s",
+                      "guestName": "Мария",
                       "content": "Hello world"
                     }
                     """.formatted(PAGE_URL)))
-            .andExpect(status().isUnauthorized())
-            .andExpect(jsonPath("$.error.code", is("INVALID_SESSION")))
-            .andExpect(jsonPath("$.error.path", is("/api/public/sites/" + siteId + "/pages/comments")))
-            .andExpect(jsonPath("$.error.fields", empty()));
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.id", is(created.id().toString())))
+            .andExpect(jsonPath("$.status", is("PENDING")));
 
-        verifyNoInteractions(publicCommentService);
+        verify(rateLimiter).checkComment(siteId, ORIGIN, "203.0.113.10");
+        verifyNoInteractions(currentUserService);
     }
 
     @Test
-    void adminCookieAloneCannotAuthorizePublicWidgetWrite() throws Exception {
+    void adminCookieAloneCreatesGuestCommentWithoutAuthorizingWidgetIdentity() throws Exception {
         UUID siteId = UUID.randomUUID();
+        UUID pageId = UUID.randomUUID();
+        CommentView created = comment(siteId, pageId, null, CommentStatus.PENDING);
         when(domainPolicyService.isOriginAllowed(siteId, ORIGIN)).thenReturn(true);
+        when(publicCommentService.createComment(
+            Optional.empty(), siteId, ORIGIN, PAGE_URL, null, "Гость", "Must stay unauthorized"
+        )).thenReturn(created);
 
         mockMvc.perform(post("/api/public/sites/{siteId}/pages/comments", siteId)
                 .with(adminSession("admin-session-token"))
@@ -392,14 +412,15 @@ class PublicCommentControllerTests {
                 .content("""
                     {
                       "pageUrl": "%s",
+                      "guestName": "Гость",
                       "content": "Must stay unauthorized"
                     }
                     """.formatted(PAGE_URL)))
-            .andExpect(status().isUnauthorized())
+            .andExpect(status().isCreated())
             .andExpect(header().doesNotExist(HttpHeaders.SET_COOKIE))
-            .andExpect(jsonPath("$.error.code", is("INVALID_SESSION")));
+            .andExpect(jsonPath("$.id", is(created.id().toString())));
 
-        verifyNoInteractions(publicCommentService, currentUserService);
+        verifyNoInteractions(currentUserService);
     }
 
     @Test
@@ -412,7 +433,9 @@ class PublicCommentControllerTests {
         when(currentUserService.getWidgetCurrentUser(
             "plain-session-token", siteId, ORIGIN
         )).thenReturn(currentUser);
-        when(publicCommentService.createComment(currentUser, siteId, ORIGIN, PAGE_URL, null, "Hello world"))
+        when(publicCommentService.createComment(
+            Optional.of(currentUser), siteId, ORIGIN, PAGE_URL, null, null, "Hello world"
+        ))
             .thenReturn(created);
 
         mockMvc.perform(post("/api/public/sites/{siteId}/pages/comments", siteId)
@@ -444,7 +467,9 @@ class PublicCommentControllerTests {
         when(currentUserService.getWidgetCurrentUser(
             "plain-session-token", siteId, ORIGIN
         )).thenReturn(currentUser);
-        when(publicCommentService.createComment(currentUser, siteId, ORIGIN, PAGE_URL, parentId, "Reply body"))
+        when(publicCommentService.createComment(
+            Optional.of(currentUser), siteId, ORIGIN, PAGE_URL, parentId, null, "Reply body"
+        ))
             .thenReturn(created);
 
         mockMvc.perform(post("/api/public/sites/{siteId}/pages/comments", siteId)

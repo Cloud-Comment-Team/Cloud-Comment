@@ -321,7 +321,7 @@ test('local MVP flow: auth, site admin, public API and isolated iframe widget', 
   expect(await page.evaluate(() => Object.keys(window.localStorage).filter((key) => key.includes('widget.authToken'))))
     .toEqual([])
 
-  await widget.getByRole('button', { name: 'Войти, чтобы участвовать' }).click()
+  await widget.getByRole('button', { name: 'Войти в аккаунт' }).click()
   await widget.getByRole('button', { name: 'Регистрация', exact: true }).click()
   await expect(widget.getByRole('link', { name: 'политика', exact: true }))
     .toHaveAttribute('href', /\/legal\/privacy-policy\.html$/)
@@ -339,8 +339,8 @@ test('local MVP flow: auth, site admin, public API and isolated iframe widget', 
 
   await widget.getByRole('button', { name: 'Меню профиля' }).click()
   await widget.getByRole('button', { name: 'Выйти', exact: true }).click()
-  await expect(widget.getByRole('button', { name: 'Войти, чтобы участвовать' })).toBeVisible()
-  await widget.getByRole('button', { name: 'Войти, чтобы участвовать' }).click()
+  await expect(widget.getByRole('button', { name: 'Войти в аккаунт' })).toBeVisible()
+  await widget.getByRole('button', { name: 'Войти в аккаунт' }).click()
   const loginForm = widget.locator('form[data-cloud-comment-form="auth"]')
   await loginForm.locator('input[name="email"]').fill(widgetEmail)
   await loginForm.locator('input[name="password"]').fill(PASSWORD)
@@ -1047,7 +1047,7 @@ test('local MVP flow: auth, site admin, public API and isolated iframe widget', 
   const externalWidget = externalPage.frameLocator('#comments iframe[title="Комментарии CloudComment"]')
   await expect(externalWidget.locator('.cloud-comment__title')).toHaveText('Комментарии')
   await expect(externalPage.locator('#comments .cloud-comment')).toHaveCount(0)
-  await externalWidget.getByRole('button', { name: 'Войти, чтобы участвовать' }).click()
+  await externalWidget.getByRole('button', { name: 'Войти в аккаунт' }).click()
   await externalWidget.getByRole('button', { name: 'Регистрация', exact: true }).click()
   await expect(externalWidget.getByRole('link', { name: 'политика' })).toHaveAttribute(
     'href',
@@ -1060,7 +1060,7 @@ test('local MVP flow: auth, site admin, public API and isolated iframe widget', 
 
   await widget.getByRole('button', { name: 'Меню профиля' }).click()
   await widget.getByRole('button', { name: 'Выйти', exact: true }).click()
-  await expect(widget.getByRole('button', { name: 'Войти, чтобы участвовать' })).toBeVisible()
+  await expect(widget.getByRole('button', { name: 'Войти в аккаунт' })).toBeVisible()
   expect(await page.evaluate(() => Object.keys(window.localStorage).filter((key) => key.includes('widget.authToken'))))
     .toEqual([])
   await expect(await adminRequest.get(`${API_BASE_URL}/auth/me`)).toBeOK()

@@ -231,7 +231,7 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
                        c.parent_id,
                        c.author_user_id,
                        coalesce(c.author_email, u.email) as author_email,
-                       coalesce(c.author_name, nullif(u.display_name, ''), c.author_email, u.email) as author_name,
+                       coalesce(nullif(u.display_name, ''), c.author_name, c.author_email, u.email) as author_name,
                        c.author_kind,
                        c.body,
                        c.status,
@@ -318,7 +318,7 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
             """
                 select c.id, p.site_id, c.page_id, c.parent_id, c.author_user_id,
                        coalesce(c.author_email, u.email) as author_email,
-                       coalesce(c.author_name, nullif(u.display_name, ''), c.author_email, u.email) as author_name,
+                       coalesce(nullif(u.display_name, ''), c.author_name, c.author_email, u.email) as author_name,
                        c.author_kind,
                        c.body, c.status, c.is_pinned, c.created_at, c.updated_at, c.edited_at
                 from comments c
@@ -592,7 +592,13 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
                     automod_applied_status,
                     automod_evaluated_at
                 )
-                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?)
+                values (
+                    ?,
+                    ?,
+                    ?,
+                    coalesce((select nullif(display_name, '') from app_users where id = ?), ?),
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?
+                )
                 returning id,
                           ?::uuid as site_id,
                           page_id,
@@ -612,6 +618,7 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
             pageId,
             parentId,
             authorUserId,
+            authorUserId,
             authorName,
             authorEmail,
             content,
@@ -630,7 +637,7 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
         return toCommentView(
             Objects.requireNonNull(row, "created comment must not be null"),
             List.of(),
-            Optional.of(authorUserId)
+            Optional.ofNullable(authorUserId)
         );
     }
 
@@ -846,7 +853,7 @@ class JdbcPublicCommentRepository implements PublicCommentRepository {
                 from (
                     select c.id, p.site_id, c.page_id, c.parent_id, c.author_user_id,
                            coalesce(c.author_email, u.email) as author_email,
-                           coalesce(c.author_name, nullif(u.display_name, ''), c.author_email, u.email) as author_name,
+                           coalesce(nullif(u.display_name, ''), c.author_name, c.author_email, u.email) as author_name,
                            c.author_kind,
                            c.body, c.status, c.is_pinned, c.created_at, c.updated_at, c.edited_at,
                            row_number() over (partition by c.parent_id order by c.created_at asc, c.id asc) as reply_rank

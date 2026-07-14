@@ -5,7 +5,7 @@ const baseURL = process.env.E2E_BASE_URL ?? 'http://127.0.0.1:4173'
 export default defineConfig({
   testDir: './e2e/ux',
   testMatch: 'widget-isolation.spec.ts',
-  grep: /(?:dedicated iframe изолирует стили|одинаковый widget и API origin завершается fail closed|навигация A→B сохраняет site bearer)/u,
+  grep: /(?:dedicated iframe изолирует стили|одинаковый widget и API origin завершается fail closed|навигация A→B сохраняет site bearer|гость публикует комментарий без регистрации)/u,
   fullyParallel: false,
   retries: process.env.CI ? 1 : 0,
   workers: 1,

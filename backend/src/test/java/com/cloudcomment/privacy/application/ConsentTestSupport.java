@@ -2,8 +2,8 @@ package com.cloudcomment.privacy.application;
 
 public final class ConsentTestSupport {
 
-    public static final String PRIVACY_POLICY_VERSION = "2026-07-12";
-    public static final String TERMS_VERSION = "2026-07-01";
+    public static final String PRIVACY_POLICY_VERSION = "2026-07-14";
+    public static final String TERMS_VERSION = "2026-07-14";
 
     private ConsentTestSupport() {
     }
@@ -13,16 +13,21 @@ public final class ConsentTestSupport {
     }
 
     public static String registerRequestJson(String email, String password) {
+        return registerRequestJson(email, password, null);
+    }
+
+    public static String registerRequestJson(String email, String password, String displayName) {
+        String displayNameJson = displayName == null ? "" : "\"displayName\": \"%s\",%n  ".formatted(displayName);
         return """
             {
-              "email": "%s",
+              %s"email": "%s",
               "password": "%s",
               "acceptedPrivacyPolicy": true,
               "acceptedTerms": true,
               "privacyPolicyVersion": "%s",
               "termsVersion": "%s"
             }
-            """.formatted(email, password, PRIVACY_POLICY_VERSION, TERMS_VERSION);
+            """.formatted(displayNameJson, email, password, PRIVACY_POLICY_VERSION, TERMS_VERSION);
     }
 
     public static String registerRequestJsonWithoutConsent(String email, String password) {

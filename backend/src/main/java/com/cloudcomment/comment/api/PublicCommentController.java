@@ -16,6 +16,8 @@ import com.cloudcomment.shared.web.security.BearerTokenResolver;
 import com.cloudcomment.shared.web.security.PublicApi;
 import com.cloudcomment.shared.web.security.WidgetRequestContext;
 import com.cloudcomment.widgetcontext.application.WidgetContextService;
+import com.cloudcomment.widgetcontext.application.WidgetClientIpResolver;
+import com.cloudcomment.widgetcontext.application.WidgetSecurityRateLimiter;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
@@ -52,6 +54,8 @@ class PublicCommentController {
     private final BearerTokenResolver bearerTokenResolver;
     private final CurrentUserService currentUserService;
     private final WidgetContextService widgetContextService;
+    private final WidgetSecurityRateLimiter rateLimiter;
+    private final WidgetClientIpResolver clientIpResolver;
 
     @PublicApi
     @GetMapping("/config")
@@ -143,20 +147,24 @@ class PublicCommentController {
         ));
     }
 
+    @PublicApi
     @PostMapping("/pages/comments")
     ResponseEntity<CommentResponse> createComment(
-        @CurrentUser AuthenticatedUser currentUser,
         @PathVariable UUID siteId,
         HttpServletRequest request,
         @Valid @RequestBody CreateCommentRequest body
     ) {
         requireMatchingContextPage(request, body.pageUrl());
+        String origin = requestOriginResolver.resolve(request);
+        Optional<AuthenticatedUser> currentUser = resolveOptionalCurrentUser(request);
+        rateLimiter.checkComment(siteId, origin, clientIpResolver.resolve(request));
         CommentView comment = publicCommentService.createComment(
             currentUser,
             siteId,
-            requestOriginResolver.resolve(request),
+            origin,
             body.pageUrl(),
             body.parentId(),
+            body.guestName(),
             body.content()
         );
         return ResponseEntity.status(HttpStatus.CREATED).body(CommentResponse.from(comment));
@@ -216,6 +224,10 @@ class PublicCommentController {
     }
 
     private Optional<UUID> resolveOptionalViewer(HttpServletRequest request) {
+        return resolveOptionalCurrentUser(request).map(AuthenticatedUser::id);
+    }
+
+    private Optional<AuthenticatedUser> resolveOptionalCurrentUser(HttpServletRequest request) {
         if (request.getHeader(HttpHeaders.AUTHORIZATION) == null) {
             return Optional.empty();
         }
@@ -224,7 +236,7 @@ class PublicCommentController {
             bearerTokenResolver.resolve(request),
             context.siteId(),
             context.origin()
-        ).id());
+        ));
     }
 
     private void requireMatchingContextPage(HttpServletRequest request, String pageUrl) {

@@ -117,15 +117,21 @@ class JdbcUserAccountRepository implements UserAccountRepository {
 
     @Override
     public RegisteredUser create(String email, String passwordHash, Set<String> roles) {
+        return create(email, passwordHash, null, roles);
+    }
+
+    @Override
+    public RegisteredUser create(String email, String passwordHash, String displayName, Set<String> roles) {
         RegisteredUser user = jdbcTemplate.queryForObject(
             """
-                insert into app_users (email, password_hash)
-                values (?, ?)
+                insert into app_users (email, password_hash, display_name)
+                values (?, ?, ?)
                 returning id, email, created_at, updated_at
                 """,
             this::mapRegisteredUser,
             email,
-            passwordHash
+            passwordHash,
+            displayName
         );
 
         RegisteredUser createdUser = Objects.requireNonNull(user, "created user must not be null");

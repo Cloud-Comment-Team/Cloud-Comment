@@ -18,6 +18,20 @@
         let instance = null;
         let scenario = 'thread';
         const unsupported = async () => { throw new Error('Недоступно в предварительном просмотре.'); };
+        if (parent === window) {
+          const dark = new URLSearchParams(location.search).get('theme') === 'DARK';
+          scenario = new URLSearchParams(location.search).get('scenario') ?? 'thread';
+          style = {
+            version: 2, theme: dark ? 'DARK' : 'LIGHT', accentColor: '#0f766e', cornerRadius: 'MEDIUM',
+            density: 'COMPACT', contentWidth: 'READABLE', alignment: 'CENTER', fontScale: 'MEDIUM',
+            fontFamily: 'INHERIT', showHeader: true, headerTitle: 'Комментарии', composerPosition: 'BOTTOM',
+            defaultSort: 'PINNED_FIRST', showSort: true, enabledReactions: ['LIKE', 'LOVE', 'LAUGH', 'WOW'],
+            avatarStyle: 'INITIALS', elevation: 'BORDER', locale: 'RU', commentsTitle: 'Комментарии',
+            composerPlaceholder: 'Напишите комментарий', emptyMessage: 'Комментариев пока нет',
+          };
+          document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+          document.documentElement.style.background = dark ? '#0f172a' : '#f8fafc';
+        }
 
         function createPreviewApi() {
           const now = new Date().toISOString();
@@ -34,8 +48,22 @@
               { type: 'LAUGH', emoji: '😄', label: 'Смешно', count: 1, reactedByCurrentUser: false },
               { type: 'WOW', emoji: '😮', label: 'Удивление', count: 0, reactedByCurrentUser: false },
             ],
-            replyCount: 0, replies: [],
+            replyCount: 1, replies: [{
+              id: '00000000-0000-0000-0000-000000000005', siteId: SITE_ID,
+              pageId: '00000000-0000-0000-0000-000000000003', parentId: '00000000-0000-0000-0000-000000000002',
+              author: { id: '00000000-0000-0000-0000-000000000006', displayName: 'owner@example.test', kind: 'OWNER' },
+              content: 'Спасибо за подробную обратную связь — уже проверяем.', status: 'APPROVED',
+              createdAt: now, updatedAt: now, editedAt: null, pinned: false, ownedByCurrentUser: false,
+              reactions: [], replyCount: 0, replies: [],
+            }],
           };
+          const secondComment = {
+            ...comment, id: '00000000-0000-0000-0000-000000000007',
+            author: { id: '00000000-0000-0000-0000-000000000008', displayName: 'Участник' },
+            content: 'У меня тот же вопрос по интеграции на мобильной версии.', pinned: false,
+            reactions: comment.reactions.map((reaction) => ({ ...reaction, count: 0 })), replyCount: 0, replies: [],
+          };
+          const previewItems = scenario === 'empty' ? [] : [comment, secondComment];
           return {
             getConfig: async () => ({ siteId: SITE_ID, moderationMode: 'POST_MODERATION', style }),
             getConsentRequirements: async () => ({
@@ -44,11 +72,24 @@
             }),
             listComments: async () => {
               if (scenario === 'error') throw new Error('preview error');
-              const items = scenario === 'empty' ? [] : [comment];
-              return { items, page: 1, pageSize: 20, totalItems: items.length, totalPages: items.length ? 1 : 0 };
+              return { items: previewItems, page: 1, pageSize: 20, totalItems: previewItems.length, totalPages: previewItems.length ? 1 : 0 };
             },
             listReplies: async () => ({ items: [], page: 1, pageSize: 20, totalItems: 0, totalPages: 0 }),
-            createComment: unsupported,
+            createComment: async (content, parentId, _token, guestName) => {
+              const created = {
+                ...comment, id: crypto.randomUUID(), parentId,
+                author: { id: null, displayName: guestName || 'Гость' }, content,
+                pinned: false, ownedByCurrentUser: false, reactions: [], replyCount: 0, replies: [],
+              };
+              const parent = previewItems.find((item) => item.id === parentId);
+              if (parent) {
+                parent.replies.push(created);
+                parent.replyCount += 1;
+              } else {
+                previewItems.unshift(created);
+              }
+              return created;
+            },
             updateComment: unsupported,
             deleteComment: unsupported,
             setReaction: unsupported,

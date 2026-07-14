@@ -14,6 +14,9 @@ record CreateCommentRequest(
 
     UUID parentId,
 
+    @Size(max = 80)
+    String guestName,
+
     @NotBlank
     @Size(max = 5_000)
     String content

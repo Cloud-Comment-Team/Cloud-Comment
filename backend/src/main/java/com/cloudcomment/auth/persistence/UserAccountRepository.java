@@ -37,6 +37,15 @@ public interface UserAccountRepository {
 
     RegisteredUser create(String email, String passwordHash, Set<String> roles);
 
+    default RegisteredUser create(
+        String email,
+        String passwordHash,
+        String displayName,
+        Set<String> roles
+    ) {
+        return create(email, passwordHash, roles);
+    }
+
     void createSession(UUID userId, String tokenHash, SessionAudience audience, Instant expiresAt);
 
     default void createSession(

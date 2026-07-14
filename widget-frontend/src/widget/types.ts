@@ -79,7 +79,7 @@ export type CommentReactionsResponse = {
 };
 
 export type CommentAuthor = {
-  id: string;
+  id: string | null;
   displayName: string | null;
   kind?: "VISITOR" | "OWNER";
 };

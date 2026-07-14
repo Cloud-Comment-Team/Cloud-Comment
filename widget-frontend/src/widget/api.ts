@@ -38,6 +38,7 @@ export type ConsentRequirements = {
 };
 
 export type RegisterPayload = {
+  displayName: string;
   email: string;
   password: string;
   acceptedPrivacyPolicy: boolean;
@@ -57,7 +58,12 @@ export type WidgetApiClient = {
   ) => Promise<PaginatedResponse<PublicComment>>;
   listReplies: (commentId: string, page: number, pageSize: number, token?: string | null) => Promise<PaginatedResponse<PublicComment>>;
   locateComment: (commentId: string, sort: PublicCommentSort, pageSize: number, token?: string | null) => Promise<CommentPermalinkLocation>;
-  createComment: (content: string, parentId: string | null, token: string) => Promise<PublicComment>;
+  createComment: (
+    content: string,
+    parentId: string | null,
+    token?: string | null,
+    guestName?: string | null
+  ) => Promise<PublicComment>;
   updateComment: (commentId: string, content: string, token: string) => Promise<PublicComment>;
   deleteComment: (commentId: string, token: string) => Promise<void>;
   setReaction: (
@@ -147,16 +153,17 @@ export function createWidgetApiClient(
         { headers: token ? { Authorization: `Bearer ${token}` } : undefined }
       );
     },
-    createComment: (content, parentId, token) =>
+    createComment: (content, parentId, token, guestName) =>
       request<PublicComment>(`${siteBasePath}/pages/comments`, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${token}`,
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
           pageUrl,
           parentId,
+          guestName,
           content
         })
       }),

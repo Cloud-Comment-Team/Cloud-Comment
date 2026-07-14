@@ -40,6 +40,17 @@ public class RegistrationService {
         RegistrationConsent consent,
         ConsentSource source
     ) {
+        return register(email, password, null, consent, source);
+    }
+
+    @Transactional
+    public RegisteredUser register(
+        String email,
+        String password,
+        String displayName,
+        RegistrationConsent consent,
+        ConsentSource source
+    ) {
         consentService.validate(consent);
 
         String normalizedEmail = normalizeEmail(email);
@@ -49,7 +60,12 @@ public class RegistrationService {
 
         String passwordHash = passwordEncoder.encode(password);
         try {
-            RegisteredUser user = userAccountRepository.create(normalizedEmail, passwordHash, DEFAULT_ROLES);
+            RegisteredUser user = userAccountRepository.create(
+                normalizedEmail,
+                passwordHash,
+                normalizeDisplayName(displayName),
+                DEFAULT_ROLES
+            );
             consentService.recordConsent(user.id(), consent, source);
             return user;
         } catch (DuplicateKeyException exception) {
@@ -59,6 +75,14 @@ public class RegistrationService {
 
     private String normalizeEmail(String email) {
         return email.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private String normalizeDisplayName(String displayName) {
+        if (displayName == null) {
+            return null;
+        }
+        String normalized = displayName.trim().replaceAll("\\s+", " ");
+        return normalized.isEmpty() ? null : normalized;
     }
 
     private ApplicationException emailAlreadyUsed() {

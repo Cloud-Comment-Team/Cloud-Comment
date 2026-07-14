@@ -57,6 +57,7 @@ class PublicWidgetAuthControllerTests {
     private static final String FRAME_ORIGIN = "https://widget.example.net";
     private static final String EMAIL = "visitor@example.com";
     private static final String PASSWORD = "Password123!";
+    private static final String DISPLAY_NAME = "Анна Петрова";
     private static final String CONTEXT_TOKEN = "frame-context-token";
     private static final UUID CONTEXT_ID = UUID.fromString("70753d61-fc78-4cab-8969-d59cc57d6a6e");
 
@@ -137,6 +138,7 @@ class PublicWidgetAuthControllerTests {
         when(registrationService.register(
             eq(EMAIL),
             eq(PASSWORD),
+            eq(DISPLAY_NAME),
             any(RegistrationConsent.class),
             eq(ConsentSource.WIDGET)
         )).thenReturn(user);
@@ -146,7 +148,7 @@ class PublicWidgetAuthControllerTests {
                 .header(WidgetContextService.CONTEXT_HEADER, CONTEXT_TOKEN)
                 .header("X-Forwarded-For", "203.0.113.30, 10.5.0.8")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(ConsentTestSupport.registerRequestJson(EMAIL, PASSWORD))
+                .content(ConsentTestSupport.registerRequestJson(EMAIL, PASSWORD, DISPLAY_NAME))
                 .with(requestBuilder -> {
                     requestBuilder.setRemoteAddr("10.9.0.4");
                     return requestBuilder;
@@ -164,6 +166,7 @@ class PublicWidgetAuthControllerTests {
         verify(registrationService).register(
             eq(EMAIL),
             eq(PASSWORD),
+            eq(DISPLAY_NAME),
             any(RegistrationConsent.class),
             eq(ConsentSource.WIDGET)
         );

@@ -71,6 +71,7 @@ class AuthControllerTests {
         when(registrationService.register(
             eq("User@Example.com"),
             eq("strong-password"),
+            eq(null),
             any(RegistrationConsent.class),
             eq(ConsentSource.ADMIN)
         )).thenReturn(new RegisteredUser(id, "user@example.com", Set.of("COMMENTER"), timestamp, timestamp));
@@ -110,6 +111,7 @@ class AuthControllerTests {
         when(registrationService.register(
             eq("used@example.com"),
             eq("strong-password"),
+            eq(null),
             any(RegistrationConsent.class),
             eq(ConsentSource.ADMIN)
         )).thenThrow(new ApplicationException(ApiErrorCode.EMAIL_ALREADY_USED, "Email is already used"));
