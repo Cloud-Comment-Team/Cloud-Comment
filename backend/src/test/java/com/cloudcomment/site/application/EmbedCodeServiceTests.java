@@ -13,7 +13,7 @@ class EmbedCodeServiceTests {
         EmbedCodeService service = new EmbedCodeService(new EmbedCodeProperties(
             "https://cdn.example.com/widget.js?tenant=<cloud>",
             "https://api.example.com/api?source=<admin>",
-            "https://frame.example.com"
+            "https://frame.example.com/Cloud-Comment"
         ));
         UUID siteId = UUID.randomUUID();
 
@@ -24,11 +24,11 @@ class EmbedCodeServiceTests {
         assertThat(embedCode.dataAttributes())
             .containsEntry("siteId", siteId.toString())
             .containsEntry("apiBaseUrl", "https://api.example.com/api?source=<admin>")
-            .containsEntry("frameBaseUrl", "https://frame.example.com");
+            .containsEntry("frameBaseUrl", "https://frame.example.com/Cloud-Comment");
         assertThat(embedCode.embedCode())
             .contains("tenant=&lt;cloud&gt;")
             .contains("data-site-id=\"" + siteId + "\"")
             .contains("source=&lt;admin&gt;")
-            .contains("data-frame-base-url=\"https://frame.example.com\"");
+            .contains("data-frame-base-url=\"https://frame.example.com/Cloud-Comment\"");
     }
 }

@@ -12,15 +12,69 @@ on:
 
 permissions:
   contents: read
+  pages: write
+  id-token: write
 
 concurrency:
   group: production-deploy
   cancel-in-progress: false
 
 jobs:
+  widget-frame:
+    name: Publish Widget Frame
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: widget-frontend/package-lock.json
+
+      - name: Configure Pages
+        id: pages
+        uses: actions/configure-pages@v6
+        with:
+          enablement: true
+
+      - name: Build isolated frame
+        working-directory: widget-frontend
+        env:
+          VITE_CLOUD_COMMENT_API_BASE_URL: ${{ vars.CLOUD_COMMENT_PUBLIC_BASE_URL }}/api
+        run: |
+          npm ci
+          npm run build:frame
+          mkdir -p dist/pages
+          cp dist/widget/frame.html dist/pages/
+          cp dist/widget/cloud-comment-widget-frame.js dist/pages/
+          cp dist/widget/cloud-comment-widget.css dist/pages/
+          touch dist/pages/.nojekyll
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: widget-frontend/dist/pages
+
+      - name: Deploy Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
+
   deploy:
     name: Deploy Production
     runs-on: ubuntu-latest
+    needs: widget-frame
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
 
     env:
@@ -29,8 +83,7 @@ jobs:
       DEPLOY_USER: ${{ vars.CLOUD_COMMENT_DEPLOY_USER }}
       DEPLOY_PATH: ${{ vars.CLOUD_COMMENT_DEPLOY_PATH }}
       PUBLIC_BASE_URL: ${{ vars.CLOUD_COMMENT_PUBLIC_BASE_URL }}
-      WIDGET_BASE_URL: ${{ vars.CLOUD_COMMENT_WIDGET_BASE_URL }}
-      EDGE_PROXY_CIDRS: ${{ vars.CLOUD_COMMENT_CADDY_TRUSTED_PROXIES }}
+      WIDGET_BASE_URL: ${{ needs.widget-frame.outputs.page_url }}
       DEPLOY_SSH_KEY: ${{ secrets.CLOUD_COMMENT_DEPLOY_SSH_KEY }}
       RELEASE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
       RELEASE_ID: ${{ github.event.workflow_run.head_sha || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
@@ -49,15 +102,30 @@ jobs:
           test -n "$DEPLOY_PATH"
           test -n "$PUBLIC_BASE_URL"
           test -n "$WIDGET_BASE_URL"
-          test -n "$EDGE_PROXY_CIDRS"
           test -n "$DEPLOY_SSH_KEY"
           [[ "$RELEASE_ID" =~ ^[0-9a-f]{40}-[0-9]+-[0-9]+$ ]]
           [[ "$PUBLIC_BASE_URL" =~ ^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?$ ]]
-          [[ "$WIDGET_BASE_URL" =~ ^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?$ ]]
+          [[ "$WIDGET_BASE_URL" =~ ^https://cloud-comment-team\.github\.io/Cloud-Comment/?$ ]]
           test "$WIDGET_BASE_URL" != "$PUBLIC_BASE_URL"
-          for cidr in $EDGE_PROXY_CIDRS; do
-            [[ "$cidr" =~ ^[0-9A-Fa-f:.]+/[0-9]{1,3}$ ]]
+          echo "WIDGET_BASE_URL=${WIDGET_BASE_URL%/}" >> "$GITHUB_ENV"
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          install -m 600 /dev/null ~/.ssh/cloud-comment-deploy
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/cloud-comment-deploy
+          ssh-keyscan -p "$DEPLOY_PORT" "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+
+      - name: Discover trusted edge proxy
+        run: |
+          edge_ip="$(ssh -i ~/.ssh/cloud-comment-deploy -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
+            "getent ahostsv4 traefik | awk 'NR == 1 { print \$1; exit }'")"
+          [[ "$edge_ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]
+          IFS=. read -r a b c d <<< "$edge_ip"
+          for octet in "$a" "$b" "$c" "$d"; do
+            (( octet >= 0 && octet <= 255 ))
           done
+          echo "EDGE_PROXY_CIDRS=$edge_ip/32" >> "$GITHUB_ENV"
 
       - name: Set up Java
         uses: actions/setup-java@v5
@@ -116,15 +184,8 @@ jobs:
           cp -R widget-frontend/dist/widget/. .deploy-package/www/widget/
           cp -R deploy .deploy-package/deploy
           printf 'RELEASE_SHA=%s\nRELEASE_ID=%s\nPUBLIC_BASE_URL=%s\nWIDGET_BASE_URL=%s\nEDGE_PROXY_CIDRS=%s\nWIDGET_PROTOCOL=%s\n' \
-            "$RELEASE_SHA" "$RELEASE_ID" "$PUBLIC_BASE_URL" "$WIDGET_BASE_URL" "$EDGE_PROXY_CIDRS" "frame-v1" \
+            "$RELEASE_SHA" "$RELEASE_ID" "$PUBLIC_BASE_URL" "$WIDGET_BASE_URL" "$EDGE_PROXY_CIDRS" "frame-v2-pages" \
             > .deploy-package/release.env
-
-      - name: Configure SSH
-        run: |
-          mkdir -p ~/.ssh
-          install -m 600 /dev/null ~/.ssh/cloud-comment-deploy
-          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/cloud-comment-deploy
-          ssh-keyscan -p "$DEPLOY_PORT" "$DEPLOY_HOST" >> ~/.ssh/known_hosts
 
       - name: Upload release
         run: |
@@ -167,13 +228,10 @@ jobs:
               && curl -fsS "$PUBLIC_BASE_URL/widget/cloud-comment-widget.js" >/dev/null; then
               main_healthy=true
             fi
-            if curl -fsS "$WIDGET_BASE_URL/widget/cloud-comment-widget.js" >/dev/null \
-              && curl -fsS "$WIDGET_BASE_URL/widget/cloud-comment-widget-frame.js" >/dev/null \
-              && curl -fsS "$WIDGET_BASE_URL/widget/cloud-comment-widget.css" >/dev/null; then
+            if curl -fsS "$WIDGET_BASE_URL/frame.html" >/dev/null \
+              && curl -fsS "$WIDGET_BASE_URL/cloud-comment-widget-frame.js" >/dev/null \
+              && curl -fsS "$WIDGET_BASE_URL/cloud-comment-widget.css" >/dev/null; then
               widget_healthy=true
-            fi
-            if ! curl -fsS "$WIDGET_BASE_URL/api/health" >/dev/null; then
-              widget_healthy=false
             fi
             widget_root_status="$(curl -sS -o /dev/null -w '%{http_code}' "$WIDGET_BASE_URL/")"
             if [ "$widget_root_status" != "404" ]; then
@@ -209,7 +267,7 @@ jobs:
             previous_protocol="$(printf '%s\n' "$previous_metadata" | sed -n 's/^WIDGET_PROTOCOL=//p' | head -n 1)"
           fi
           [[ "$previous_public_base" =~ ^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?$ ]]
-          [[ "$previous_widget_base" =~ ^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?$ ]]
+          [[ "$previous_widget_base" =~ ^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~-]+)*$ ]]
           test -n "$previous_edge_proxy_cidrs"
           for cidr in $previous_edge_proxy_cidrs; do
             [[ "$cidr" =~ ^[0-9A-Fa-f:.]+/[0-9]{1,3}$ ]]
@@ -221,7 +279,18 @@ jobs:
           for _ in {1..30}; do
             recovered=false
             if curl -fsS "$previous_public_base/api/health" >/dev/null; then
-              if [ "$previous_protocol" = "frame-v1" ]; then
+              if [ "$previous_protocol" = "frame-v2-pages" ]; then
+                if curl -fsS "$previous_public_base/widget/cloud-comment-widget.js" >/dev/null \
+                  && curl -fsS "$previous_widget_base/frame.html" >/dev/null \
+                  && curl -fsS "$previous_widget_base/cloud-comment-widget-frame.js" >/dev/null \
+                  && curl -fsS "$previous_widget_base/cloud-comment-widget.css" >/dev/null; then
+                  widget_root_status="$(curl -sS -o /dev/null -w '%{http_code}' "$previous_widget_base/")"
+                  widget_admin_status="$(curl -sS -o /dev/null -w '%{http_code}' "$previous_widget_base/api/auth/csrf")"
+                  if [ "$widget_root_status" = "404" ] && [ "$widget_admin_status" = "404" ]; then
+                    recovered=true
+                  fi
+                fi
+              elif [ "$previous_protocol" = "frame-v1" ]; then
                 if curl -fsS "$previous_public_base/widget/cloud-comment-widget.js" >/dev/null \
                   && curl -fsS "$previous_widget_base/api/health" >/dev/null \
                   && curl -fsS "$previous_widget_base/widget/cloud-comment-widget.js" >/dev/null \

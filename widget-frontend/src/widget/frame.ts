@@ -39,14 +39,15 @@ window.addEventListener("message", (event) => {
     || !isWebOrigin(event.origin)) {
     return;
   }
-  const expectedSiteId = siteIdFromFramePath(window.location.pathname);
-  if (expectedSiteId && expectedSiteId !== event.data.siteId) {
+  const expectedSiteId = siteIdFromFrameLocation(window.location.href);
+  if (expectedSiteId !== event.data.siteId) {
     return;
   }
   if (!isPageForOrigin(event.data.pageUrl, event.origin)) {
     return;
   }
-  if (event.data.apiOrigin === physicalFrameOrigin()) {
+  if (event.data.apiOrigin !== trustedApiOrigin()
+    || event.data.apiOrigin === physicalFrameOrigin()) {
     connected = true;
     const port = event.ports[0];
     port.start();
@@ -234,7 +235,7 @@ async function exchangeAndRender(
     key.fingerprint,
     bootstrap.ticket
   );
-  const apiBaseUrl = `${physicalFrameOrigin()}/api`;
+  const apiBaseUrl = `${trustedApiOrigin()}/api`;
   const response = await fetch(
     `${apiBaseUrl}/public/sites/${encodeURIComponent(connect.siteId)}/widget-context/exchange`,
     {
@@ -293,7 +294,7 @@ async function validatePersistedContext(
 ): Promise<{ reusable: boolean; serverDate: string | null }> {
   try {
     const response = await fetch(
-      `${physicalFrameOrigin()}/api/public/sites/${encodeURIComponent(connect.siteId)}/config`,
+      `${trustedApiOrigin()}/api/public/sites/${encodeURIComponent(connect.siteId)}/config`,
       {
         method: "GET",
         mode: "cors",
@@ -327,7 +328,7 @@ function renderFrame(
   activeInstance?.destroy();
   activeInstance = renderWidget(root, {
     siteId: connect.siteId,
-    apiBaseUrl: `${physicalFrameOrigin()}/api`,
+    apiBaseUrl: `${trustedApiOrigin()}/api`,
     pageUrl,
     initialCommentId: connect.initialCommentId,
     target: root,
@@ -362,7 +363,7 @@ function installLegalLinkPolicy(root: HTMLElement): void {
 function isAllowedFrameLegalUrl(value: string): boolean {
   try {
     const url = new URL(value);
-    return url.origin === physicalFrameOrigin()
+    return url.origin === trustedApiOrigin()
       && (url.protocol === "https:" || url.protocol === "http:")
       && url.pathname.startsWith("/legal/")
       && !url.username
@@ -435,6 +436,21 @@ function physicalFrameOrigin(): string {
   return url.origin;
 }
 
+function trustedApiOrigin(): string {
+  const value = document.querySelector<HTMLMetaElement>(
+    'meta[name="cloud-comment-api-origin"]'
+  )?.content.trim();
+  if (!value) {
+    throw new Error("CloudComment API origin is not configured");
+  }
+  const url = new URL(value);
+  if ((url.protocol !== "https:" && url.protocol !== "http:")
+    || url.origin !== value) {
+    throw new Error("Unsupported CloudComment API origin");
+  }
+  return url.origin;
+}
+
 function isWebOrigin(origin: string): boolean {
   try {
     const url = new URL(origin);
@@ -453,9 +469,16 @@ function isPageForOrigin(pageUrl: string, origin: string): boolean {
   }
 }
 
-function siteIdFromFramePath(pathname: string): string | null {
-  const match = pathname.match(/\/api\/public\/sites\/([0-9a-f-]{36})\/widget-frame\/?$/i);
-  return match?.[1] ?? null;
+function siteIdFromFrameLocation(value: string): string | null {
+  const url = new URL(value);
+  const staticSiteId = new URLSearchParams(url.hash.replace(/^#/u, "")).get("site");
+  if (staticSiteId && /^[0-9a-f-]{36}$/iu.test(staticSiteId)) {
+    return staticSiteId;
+  }
+  const dynamicMatch = url.pathname.match(
+    /\/api\/public\/sites\/([0-9a-f-]{36})\/widget-frame\/?$/iu
+  );
+  return dynamicMatch?.[1] ?? null;
 }
 
 function frameError(instanceId: string, code: string) {

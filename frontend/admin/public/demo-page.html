@@ -226,7 +226,6 @@
         : (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
       const publicBaseUrl = window.location.origin;
       const widgetScriptUrl = `${publicBaseUrl}/widget/cloud-comment-widget.js`;
-      const apiBaseUrl = `${publicBaseUrl}/api`;
 
       input.value = initialSiteId;
       widgetUrl.textContent = widgetScriptUrl;
@@ -268,7 +267,6 @@
         window.history.replaceState(null, "", `${window.location.pathname}?siteId=${encodeURIComponent(siteId)}`);
         window.CloudCommentWidget.init({
           siteId,
-          apiBaseUrl,
           pageUrl: `${window.location.origin}${window.location.pathname}`,
           target: "#comments",
           theme: "auto"

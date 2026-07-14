@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-cloud_comment}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cloud_comment}
     ports:
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql
     healthcheck:
@@ -29,6 +29,9 @@ services:
       CLOUD_COMMENT_DEMO_SEED_ENABLED: ${CLOUD_COMMENT_DEMO_SEED_ENABLED:-true}
       CLOUD_COMMENT_DEMO_ALLOWED_ORIGINS: ${CLOUD_COMMENT_DEMO_ALLOWED_ORIGINS:-http://localhost,http://127.0.0.1,http://127.0.0.1:4173}
       CLOUD_COMMENT_DEMO_PAGE_URL: ${CLOUD_COMMENT_DEMO_PAGE_URL:-http://localhost/demo-page.html}
+      CLOUD_COMMENT_PUBLIC_BASE_URL: ${CLOUD_COMMENT_PUBLIC_BASE_URL:-http://localhost}
+      CLOUD_COMMENT_WIDGET_SCRIPT_URL: ${CLOUD_COMMENT_PUBLIC_BASE_URL:-http://localhost}/widget/cloud-comment-widget.js
+      CLOUD_COMMENT_PUBLIC_API_BASE_URL: ${CLOUD_COMMENT_PUBLIC_BASE_URL:-http://localhost}/api
       CLOUD_COMMENT_WIDGET_BASE_URL: ${CLOUD_COMMENT_WIDGET_BASE_URL:-http://widget.localhost}
       CLOUD_COMMENT_TRUSTED_PROXIES: ${CLOUD_COMMENT_TRUSTED_PROXIES:-172.16.0.0/12}
     depends_on:
@@ -48,6 +51,7 @@ services:
       context: .
       dockerfile: docker/caddy/Dockerfile
       args:
+        VITE_CLOUD_COMMENT_API_BASE_URL: ${CLOUD_COMMENT_PUBLIC_BASE_URL:-http://localhost}/api
         VITE_CLOUD_COMMENT_WIDGET_BASE_URL: ${CLOUD_COMMENT_WIDGET_BASE_URL:-http://widget.localhost}
     image: cloud-comment-web:local
     depends_on:

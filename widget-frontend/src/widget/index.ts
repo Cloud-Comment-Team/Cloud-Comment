@@ -95,7 +95,7 @@ function init(options: CloudCommentWidgetOptions): CloudCommentWidgetInstance {
   const iframe = document.createElement("iframe");
   iframe.title = "Комментарии CloudComment";
   iframe.dataset.cloudCommentInstance = instanceId;
-  iframe.src = `${normalized.frameBaseUrl}/api/public/sites/${encodeURIComponent(normalized.siteId)}/widget-frame`;
+  iframe.src = `${normalized.frameBaseUrl}/frame.html#site=${encodeURIComponent(normalized.siteId)}`;
   iframe.referrerPolicy = "no-referrer";
   iframe.loading = "eager";
   iframe.style.display = "block";
@@ -243,7 +243,7 @@ async function bootstrapFrame(
 ): Promise<void> {
   try {
     const response = await fetch(
-      `${options.frameBaseUrl}/api/public/sites/${encodeURIComponent(options.siteId)}/widget-context/bootstrap`,
+      `${options.apiOrigin}/api/public/sites/${encodeURIComponent(options.siteId)}/widget-context/bootstrap`,
       {
         method: "POST",
         mode: "cors",
