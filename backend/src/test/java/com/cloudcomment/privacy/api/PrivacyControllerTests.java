@@ -70,8 +70,8 @@ class PrivacyControllerTests {
             .andExpect(status().isOk())
             .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "*"))
             .andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS))
-            .andExpect(jsonPath("$.privacyPolicyVersion", is("2026-07-12")))
-            .andExpect(jsonPath("$.termsVersion", is("2026-07-01")))
+            .andExpect(jsonPath("$.privacyPolicyVersion", is("2026-07-14")))
+            .andExpect(jsonPath("$.termsVersion", is("2026-07-14")))
             .andExpect(jsonPath("$.privacyPolicyUrl", is("/legal/privacy-policy.html")))
             .andExpect(jsonPath("$.personalDataNoticeUrl", is("/legal/personal-data-notice.html")))
             .andExpect(jsonPath("$.dataExportInfoUrl", is("/legal/personal-data-notice.html#data-export")));
@@ -100,7 +100,7 @@ class PrivacyControllerTests {
             .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, FRAME_ORIGIN))
             .andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS))
             .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
-            .andExpect(jsonPath("$.privacyPolicyVersion", is("2026-07-12")));
+            .andExpect(jsonPath("$.privacyPolicyVersion", is("2026-07-14")));
     }
 
     @Test
@@ -141,8 +141,8 @@ class PrivacyControllerTests {
 
     private ConsentRequirements requirements() {
         return new ConsentRequirements(
-            "2026-07-12",
-            "2026-07-01",
+            "2026-07-14",
+            "2026-07-14",
             "/legal/privacy-policy.html",
             "/legal/terms.html",
             "/legal/personal-data-notice.html",

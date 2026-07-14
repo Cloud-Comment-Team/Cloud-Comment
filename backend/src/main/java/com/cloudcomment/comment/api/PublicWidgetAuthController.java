@@ -63,6 +63,7 @@ class PublicWidgetAuthController {
         RegisteredUser user = registrationService.register(
             request.email(),
             request.password(),
+            request.displayName(),
             RegistrationConsent.from(request),
             ConsentSource.WIDGET
         );

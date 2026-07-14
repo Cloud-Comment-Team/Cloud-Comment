@@ -201,6 +201,49 @@ class PublicCommentServiceTests {
     }
 
     @Test
+    void createGuestCommentStoresOnlyNormalizedPublicName() {
+        CapturingRepository repository = new CapturingRepository();
+        CapturingEventPublisher eventPublisher = new CapturingEventPublisher();
+        PublicCommentService service = service(repository, ModerationMode.POST_MODERATION, eventPublisher);
+        UUID siteId = UUID.randomUUID();
+
+        CommentView comment = service.createComment(
+            Optional.empty(),
+            siteId,
+            "https://example.com",
+            "https://example.com/page",
+            null,
+            "  Мария   Иванова  ",
+            "Guest comment"
+        );
+
+        assertThat(repository.createdAuthorUserId).isNull();
+        assertThat(repository.createdAuthorEmail).isNull();
+        assertThat(repository.createdAuthorName).isEqualTo("Мария Иванова");
+        assertThat(comment.author().id()).isNull();
+        assertThat(comment.author().email()).isNull();
+        assertThat(comment.author().displayName()).isEqualTo("Мария Иванова");
+        assertThat(eventPublisher.events).singleElement().satisfies(event -> {
+            CommentCreatedEvent createdEvent = (CommentCreatedEvent) event;
+            assertThat(createdEvent.authorUserId()).isNull();
+            assertThat(createdEvent.authorEmail()).isNull();
+        });
+    }
+
+    @Test
+    void createGuestCommentRequiresNonEmailPublicName() {
+        PublicCommentService service = service(new CapturingRepository(), ModerationMode.POST_MODERATION);
+
+        assertThatThrownBy(() -> service.createComment(
+            Optional.empty(), UUID.randomUUID(), "https://example.com", "https://example.com/page",
+            null, "guest@example.com", "Guest comment"
+        ))
+            .isInstanceOf(ApplicationException.class)
+            .extracting("code")
+            .hasToString("VALIDATION_FAILED");
+    }
+
+    @Test
     void createCommentUsesApprovedStatusForPostModerationAndDisabled() {
         CapturingRepository postRepository = new CapturingRepository();
         service(postRepository, ModerationMode.POST_MODERATION).createComment(
@@ -559,6 +602,7 @@ class PublicCommentServiceTests {
         private UUID checkedParentId;
         private UUID createdParentId;
         private UUID createdAuthorUserId;
+        private String createdAuthorName;
         private String createdAuthorEmail;
         private String createdContent;
         private CommentStatus createdStatus;
@@ -629,6 +673,7 @@ class PublicCommentServiceTests {
         ) {
             createdParentId = parentId;
             createdAuthorUserId = authorUserId;
+            createdAuthorName = authorName;
             createdAuthorEmail = authorEmail;
             createdContent = content;
             createdStatus = status;

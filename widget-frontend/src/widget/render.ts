@@ -69,6 +69,7 @@ type WidgetState = {
   authenticating: boolean;
   accountBusy: boolean;
   reactingCommentId: string | null;
+  reactionPickerCommentId: string | null;
   editingComment: EditingComment | null;
   updatingCommentId: string | null;
   deletingCommentId: string | null;
@@ -89,6 +90,7 @@ type WidgetState = {
   authExpanded: boolean;
   profileOpen: boolean;
   composerDraft: string;
+  guestName: string;
   loadingRepliesId: string | null;
   loadingMoreComments: boolean;
   commentsPage: number;
@@ -136,6 +138,7 @@ export function renderWidget(
     authenticating: false,
     accountBusy: false,
     reactingCommentId: null,
+    reactionPickerCommentId: null,
     editingComment: null,
     updatingCommentId: null,
     deletingCommentId: null,
@@ -156,6 +159,7 @@ export function renderWidget(
     authExpanded: false,
     profileOpen: false,
     composerDraft: "",
+    guestName: "",
     loadingRepliesId: null,
     loadingMoreComments: false,
     commentsPage: 0,
@@ -197,7 +201,6 @@ export function renderWidget(
     state.loading = true;
     state.error = null;
     render();
-    let listUnauthorizedHandled = false;
     let commentsRequest: SessionRequest | null = null;
 
     try {
@@ -208,22 +211,22 @@ export function renderWidget(
       applyWidgetStyle(shell, config.style);
       themeController.setConfiguredTheme(config.style.theme);
       commentsRequest = captureSessionRequest();
-      const request = commentsRequest;
+      let request = commentsRequest;
       const queryEpoch = ++commentsQueryEpoch;
       const permalink = options.initialCommentId
         ? await api.locateComment(options.initialCommentId, state.sort, ROOT_PAGE_SIZE, request.token)
           .catch(() => null)
         : null;
       const [comments, consentRequirements] = await Promise.all([
-        api.listComments(state.sort, permalink?.rootPage ?? 1, ROOT_PAGE_SIZE, request.token).catch((error: unknown) => {
-          if (isUnauthorized(error)) {
-            listUnauthorizedHandled = true;
-            if (expireAuthenticatedSession(request)) {
-              state.authError = "Сессия истекла. Войдите снова.";
-              render();
-            }
+        api.listComments(state.sort, permalink?.rootPage ?? 1, ROOT_PAGE_SIZE, request.token).catch(async (error: unknown) => {
+          if (!request.token || !isUnauthorized(error) || !expireAuthenticatedSession(request)) {
+            throw error;
           }
-          throw error;
+          state.notice = "Сессия завершена. Комментарии доступны без входа.";
+          request = captureSessionRequest();
+          commentsRequest = request;
+          render();
+          return api.listComments(state.sort, permalink?.rootPage ?? 1, ROOT_PAGE_SIZE, null);
         }),
         api.getConsentRequirements()
       ]);
@@ -250,9 +253,7 @@ export function renderWidget(
         await loadCurrentUser();
       }
     } catch (error) {
-      if (!isUnauthorized(error) || !listUnauthorizedHandled) {
-        state.error = getErrorMessage(error);
-      }
+      state.error = getErrorMessage(error);
     } finally {
       if (!commentsRequest || isCurrentSessionRequest(commentsRequest)) {
         state.loading = false;
@@ -298,7 +299,12 @@ export function renderWidget(
     }
   }
 
-  async function authenticate(email: string, password: string, consentAccepted: boolean): Promise<void> {
+  async function authenticate(
+    displayName: string,
+    email: string,
+    password: string,
+    consentAccepted: boolean
+  ): Promise<void> {
     state.authenticating = true;
     state.authError = null;
     render();
@@ -314,6 +320,7 @@ export function renderWidget(
           throw new WidgetApiError("Требования согласия ещё загружаются. Попробуйте снова.");
         }
         await api.register({
+          displayName,
           email,
           password,
           acceptedPrivacyPolicy: true,
@@ -333,6 +340,7 @@ export function renderWidget(
       state.userEmail = loginResponse.user.email;
       state.submitting = false;
       state.reactingCommentId = null;
+      state.reactionPickerCommentId = null;
       state.updatingCommentId = null;
       state.deletingCommentId = null;
       state.loadingRepliesId = null;
@@ -551,18 +559,17 @@ export function renderWidget(
     }
   }
 
-  async function submitComment(content: string): Promise<void> {
+  async function submitComment(content: string, guestName: string | null): Promise<void> {
     const request = captureSessionRequest();
-    if (!request.token) {
-      state.authError = "Войдите или зарегистрируйтесь, чтобы оставить комментарий.";
-      render();
-      return;
-    }
-
     const parentId = state.replyingTo?.id ?? null;
     const replyAuthor = state.replyingTo?.authorLabel ?? null;
     const previousComments = state.comments;
-    const optimisticComment = createOptimisticComment(content, parentId);
+    const optimisticComment = createOptimisticComment(
+      content,
+      parentId,
+      request.token ? "Вы" : guestName ?? "Гость",
+      request.token !== null
+    );
     state.comments = parentId
       ? addReplyToRoot(state.comments, parentId, optimisticComment).comments
       : [optimisticComment, ...state.comments];
@@ -573,9 +580,9 @@ export function renderWidget(
 
     let createdComment: PublicComment;
     try {
-      createdComment = await api.createComment(content, parentId, request.token);
+      createdComment = await api.createComment(content, parentId, request.token, guestName);
     } catch (error) {
-      if (isUnauthorized(error)) {
+      if (request.token && isUnauthorized(error)) {
         if (isCurrentAuthenticatedRequest(request)) {
           state.comments = previousComments;
           if (expireAuthenticatedSession(request)) {
@@ -585,7 +592,7 @@ export function renderWidget(
         }
         return;
       }
-      if (!isCurrentAuthenticatedRequest(request)) {
+      if (!isCurrentSessionRequest(request)) {
         return;
       }
       state.comments = previousComments;
@@ -594,7 +601,7 @@ export function renderWidget(
       render();
       return;
     }
-    if (!isCurrentAuthenticatedRequest(request)) {
+    if (!isCurrentSessionRequest(request)) {
       return;
     }
 
@@ -609,7 +616,7 @@ export function renderWidget(
 
     try {
       const refreshedComments = await api.listComments(state.sort, 1, ROOT_PAGE_SIZE, request.token);
-      if (!isCurrentAuthenticatedRequest(request)) {
+      if (!isCurrentSessionRequest(request)) {
         return;
       }
       state.comments = removeCommentFromTree(state.comments, optimisticComment.id);
@@ -628,7 +635,7 @@ export function renderWidget(
         state.replyPages = {};
       }
     } catch (error) {
-      if (isUnauthorized(error)) {
+      if (request.token && isUnauthorized(error)) {
         if (expireAuthenticatedSession(request)) {
           state.authError = "Сессия истекла. Войдите снова.";
           state.error = "Комментарий уже отправлен, но список не удалось обновить. Не отправляйте его повторно.";
@@ -636,11 +643,11 @@ export function renderWidget(
         }
         return;
       }
-      if (isCurrentAuthenticatedRequest(request)) {
+      if (isCurrentSessionRequest(request)) {
         state.error = "Комментарий уже отправлен, но список не удалось обновить. Не отправляйте его повторно.";
       }
     } finally {
-      if (isCurrentAuthenticatedRequest(request)) {
+      if (isCurrentSessionRequest(request)) {
         state.submitting = false;
         render();
       }
@@ -940,6 +947,10 @@ export function renderWidget(
 
   shell.addEventListener("input", (event) => {
     const target = event.target;
+    if (target instanceof HTMLInputElement && target.name === "guestName") {
+      state.guestName = target.value;
+      return;
+    }
     if (!(target instanceof HTMLTextAreaElement)) {
       return;
     }
@@ -960,6 +971,7 @@ export function renderWidget(
     if (form.dataset.cloudCommentForm === "auth") {
       const formData = new FormData(form);
       void authenticate(
+        String(formData.get("displayName") ?? ""),
         String(formData.get("email") ?? ""),
         String(formData.get("password") ?? ""),
         formData.get("consent") === "on"
@@ -976,7 +988,13 @@ export function renderWidget(
         render();
         return;
       }
-      void submitComment(content);
+      const guestName = state.token ? null : String(formData.get("guestName") ?? "").trim();
+      if (!state.token && (guestName === null || guestName.length < 2 || guestName.includes("@"))) {
+        state.error = "Укажите имя, не email.";
+        render();
+        return;
+      }
+      void submitComment(content, guestName);
       return;
     }
 
@@ -1030,14 +1048,6 @@ export function renderWidget(
   shell.addEventListener("click", (event) => {
     const target = event.target;
     if (!(target instanceof Element)) {
-      return;
-    }
-
-    if (!state.token && target.closest("[data-auth-intent='true']")) {
-      state.authExpanded = true;
-      state.authError = null;
-      render();
-      shell.querySelector<HTMLInputElement>("[data-cloud-comment-form='auth'] input[name='email']")?.focus();
       return;
     }
 
@@ -1097,6 +1107,14 @@ export function renderWidget(
       return;
     }
 
+    if (button.dataset.reactionPicker) {
+      state.reactionPickerCommentId = state.reactionPickerCommentId === button.dataset.reactionPicker
+        ? null
+        : button.dataset.reactionPicker;
+      render();
+      return;
+    }
+
     if (button.dataset.replyAction === "cancel") {
       state.replyingTo = null;
       render();
@@ -1104,12 +1122,6 @@ export function renderWidget(
     }
 
     if (button.dataset.replyTo) {
-      if (!state.token) {
-        state.authExpanded = true;
-        state.authError = "Войдите или зарегистрируйтесь, чтобы ответить.";
-        render();
-        return;
-      }
       state.replyingTo = {
         id: button.dataset.replyTo,
         authorLabel: button.dataset.replyAuthor || "комментарий"
@@ -1172,6 +1184,7 @@ export function renderWidget(
     }
 
     if (button.dataset.reactionCommentId && isCommentReactionType(button.dataset.reactionType)) {
+      state.reactionPickerCommentId = null;
       if (!state.token) {
         state.authExpanded = true;
       }
@@ -1424,7 +1437,7 @@ function normalizeThemeName(value: string | undefined): ResolvedWidgetTheme | nu
 }
 
 function renderHeader(
-  options: RenderWidgetOptions,
+  _options: RenderWidgetOptions,
   state: WidgetState
 ): HTMLElement | null {
   const style = state.config?.style;
@@ -1435,23 +1448,42 @@ function renderHeader(
   header.className = "cloud-comment__header";
 
   const titleBlock = document.createElement("div");
-
-  const eyebrow = document.createElement("p");
-  eyebrow.className = "cloud-comment__eyebrow";
-  eyebrow.textContent = "Обсуждение";
+  titleBlock.className = "cloud-comment__heading";
 
   const title = document.createElement("h2");
   title.className = "cloud-comment__title";
   title.textContent = style?.headerTitle ?? "Комментарии";
 
-  titleBlock.append(eyebrow, title);
+  const count = document.createElement("span");
+  count.className = "cloud-comment__count";
+  count.textContent = state.loading ? "" : `· ${state.commentsTotalItems}`;
+  titleBlock.append(title, count);
 
-  const badge = document.createElement("span");
-  badge.className = "cloud-comment__badge";
-  badge.textContent = "CloudComment";
+  const controls = document.createElement("div");
+  controls.className = "cloud-comment__header-controls";
+  if (style?.showSort ?? true) {
+    controls.append(renderCommentSort(state.sort));
+  }
+  controls.append(renderBrand());
 
-  header.append(titleBlock, badge);
+  header.append(titleBlock, controls);
   return header;
+}
+
+function renderBrand(): HTMLElement {
+  const brand = document.createElement("span");
+  brand.className = "cloud-comment__brand";
+  brand.setAttribute("aria-label", "CloudComment");
+
+  const mark = document.createElement("span");
+  mark.className = "cloud-comment__brand-mark";
+  mark.setAttribute("aria-hidden", "true");
+
+  const name = document.createElement("span");
+  name.className = "cloud-comment__brand-name";
+  name.textContent = "CloudComment";
+  brand.append(mark, name);
+  return brand;
 }
 
 function renderBody(state: WidgetState, options: RenderWidgetOptions): HTMLElement {
@@ -1475,9 +1507,6 @@ function renderBody(state: WidgetState, options: RenderWidgetOptions): HTMLEleme
   if (state.loading) {
     body.append(renderMessage("Загружаем комментарии...", "muted"));
   } else {
-    if (style?.showSort ?? true) {
-      body.append(renderCommentSort(state.sort));
-    }
     body.append(renderCommentList(state.comments, state));
     const loadMoreComments = renderLoadMoreComments(state);
     if (loadMoreComments) {
@@ -1573,19 +1602,34 @@ function renderComment(comment: PublicComment, state: WidgetState, depth: number
 
   const avatar = document.createElement("span");
   avatar.className = "cloud-comment__avatar";
+  avatar.dataset.tone = comment.author.kind === "OWNER"
+    ? "owner"
+    : String(stableAuthorTone(comment.author.id ?? comment.author.displayName ?? comment.id));
   avatar.textContent = getInitials(authorLabel);
 
   const author = document.createElement("strong");
+  author.className = "cloud-comment__author";
   author.textContent = authorLabel;
 
+  const identity = document.createElement("span");
+  identity.className = "cloud-comment__identity";
+  identity.append(author);
+  if (comment.ownedByCurrentUser) {
+    const you = document.createElement("span");
+    you.className = "cloud-comment__identity-label";
+    you.textContent = "Вы";
+    identity.append(you);
+  }
+
   const date = document.createElement("time");
+  date.className = "cloud-comment__date";
   date.dateTime = comment.createdAt;
   date.textContent = formatDate(comment.createdAt, state.config?.style.locale);
 
   if (state.config?.style.avatarStyle !== "HIDDEN") {
     header.append(avatar);
   }
-  header.append(author, date);
+  header.append(identity, date);
 
   if (comment.status !== "APPROVED") {
     const status = document.createElement("span");
@@ -1779,16 +1823,48 @@ function renderReactionBar(comment: PublicComment, state: WidgetState): HTMLElem
   bar.className = "cloud-comment__reactions";
 
   const enabled = new Set(state.config?.style.enabledReactions ?? ["LIKE", "LOVE", "LAUGH", "WOW"]);
-  for (const reaction of normalizeReactions(comment.reactions).filter((item) => enabled.has(item.type))) {
+  const reactions = normalizeReactions(comment.reactions).filter((item) => enabled.has(item.type));
+  for (const reaction of reactions.filter((item) => item.count > 0 || item.reactedByCurrentUser)) {
+    bar.append(renderReactionButton(comment.id, reaction, state, false));
+  }
+
+  const pickerButton = document.createElement("button");
+  pickerButton.className = "cloud-comment__reaction-picker-trigger";
+  pickerButton.type = "button";
+  pickerButton.dataset.reactionPicker = comment.id;
+  pickerButton.setAttribute("aria-label", "Добавить реакцию");
+  pickerButton.setAttribute("aria-expanded", String(state.reactionPickerCommentId === comment.id));
+  pickerButton.textContent = "+";
+  bar.append(pickerButton);
+
+  const picker = document.createElement("span");
+  picker.className = "cloud-comment__reaction-picker";
+  picker.hidden = state.reactionPickerCommentId !== comment.id;
+  for (const reaction of reactions) {
+    picker.append(renderReactionButton(comment.id, reaction, state, true));
+  }
+  bar.append(picker);
+  return bar;
+}
+
+function renderReactionButton(
+  commentId: string,
+  reaction: CommentReaction,
+  state: WidgetState,
+  picker: boolean
+): HTMLButtonElement {
     const button = document.createElement("button");
     button.className = reaction.reactedByCurrentUser
       ? "cloud-comment__reaction cloud-comment__reaction--active"
       : "cloud-comment__reaction";
+    if (picker) {
+      button.classList.add("cloud-comment__reaction--picker");
+    }
     button.type = "button";
-    button.dataset.reactionCommentId = comment.id;
+    button.dataset.reactionCommentId = commentId;
     button.dataset.reactionType = reaction.type;
-    button.dataset.focusKey = `reaction:${comment.id}:${reaction.type}`;
-    button.disabled = state.reactingCommentId === comment.id;
+    button.dataset.focusKey = `reaction:${commentId}:${reaction.type}`;
+    button.disabled = state.reactingCommentId === commentId;
     button.setAttribute("aria-label", reaction.label);
 
     const emoji = document.createElement("span");
@@ -1797,13 +1873,10 @@ function renderReactionBar(comment: PublicComment, state: WidgetState): HTMLElem
 
     const count = document.createElement("span");
     count.className = "cloud-comment__reaction-count";
-    count.textContent = String(reaction.count);
+    count.textContent = picker && reaction.count === 0 ? "" : String(reaction.count);
 
     button.append(emoji, count);
-    bar.append(button);
-  }
-
-  return bar;
+    return button;
 }
 
 function renderCommentForm(state: WidgetState): HTMLElement {
@@ -1829,40 +1902,55 @@ function renderCommentForm(state: WidgetState): HTMLElement {
     form.append(replyContext);
   }
 
+  if (!state.token) {
+    const guestName = document.createElement("input");
+    guestName.className = "cloud-comment__input cloud-comment__guest-name";
+    guestName.name = "guestName";
+    guestName.type = "text";
+    guestName.value = state.guestName;
+    guestName.autocomplete = "name";
+    guestName.placeholder = "Ваше публичное имя";
+    guestName.setAttribute("aria-label", "Ваше публичное имя");
+    guestName.required = true;
+    guestName.minLength = 2;
+    guestName.maxLength = 80;
+    guestName.disabled = state.submitting;
+    form.append(guestName);
+  }
+
   const textarea = document.createElement("textarea");
   textarea.className = "cloud-comment__textarea";
   textarea.name = "comment";
   textarea.dataset.focusKey = "composer";
   textarea.value = state.composerDraft;
-  textarea.placeholder = state.token
-    ? state.config?.style.composerPlaceholder ?? "Напишите комментарий"
-    : "Войдите, чтобы написать комментарий";
+  textarea.placeholder = state.config?.style.composerPlaceholder ?? "Напишите комментарий";
   textarea.setAttribute("aria-label", "Написать комментарий");
   if (state.replyingTo) {
     textarea.placeholder = "Напишите ответ";
   }
   textarea.maxLength = 5000;
   textarea.disabled = state.submitting;
-  textarea.readOnly = !state.token;
-  if (!state.token) {
-    textarea.dataset.authIntent = "true";
-  }
 
   const actions = document.createElement("div");
   actions.className = "cloud-comment__actions";
 
   const meta = document.createElement("span");
   meta.className = "cloud-comment__meta";
-  meta.textContent = state.userEmail ? `Вы вошли как ${state.userEmail}` : state.token ? "Вы авторизованы" : "";
+  meta.textContent = state.userEmail
+    ? `Вы вошли как ${state.userEmail}`
+    : state.token
+      ? "Вы авторизованы"
+      : "Без регистрации · имя увидят все";
 
   const button = document.createElement("button");
   button.className = "cloud-comment__button";
   button.type = "button";
   button.dataset.cloudCommentSubmit = "comment";
-  button.disabled = state.submitting || !state.token;
+  button.disabled = state.submitting;
   button.textContent = state.submitting ? "Отправляем..." : "Отправить";
 
-  actions.append(meta, button);
+  actions.append(meta);
+  actions.append(button);
   form.append(textarea, actions);
   return form;
 }
@@ -1969,7 +2057,7 @@ function renderAuthSection(state: WidgetState, options: RenderWidgetOptions): HT
     expand.className = "cloud-comment__auth-expand";
     expand.dataset.authAction = "expand";
     expand.dataset.focusKey = "auth-expand";
-    expand.textContent = "Войти, чтобы участвовать";
+    expand.textContent = "Войти в аккаунт";
     section.append(expand);
     return section;
   }
@@ -2012,6 +2100,20 @@ function renderAuthSection(state: WidgetState, options: RenderWidgetOptions): HT
   password.required = true;
   password.minLength = 8;
   password.maxLength = 72;
+
+  if (state.authMode === "register") {
+    const displayName = document.createElement("input");
+    displayName.className = "cloud-comment__input";
+    displayName.name = "displayName";
+    displayName.type = "text";
+    displayName.dataset.focusKey = "auth-display-name";
+    displayName.autocomplete = "name";
+    displayName.placeholder = "Публичное имя";
+    displayName.required = true;
+    displayName.maxLength = 120;
+    form.append(displayName);
+  }
+  form.append(email, password);
 
   if (state.authMode === "register") {
     const consentLabel = document.createElement("label");
@@ -2065,7 +2167,7 @@ function renderAuthSection(state: WidgetState, options: RenderWidgetOptions): HT
       ? "Войти"
       : "Создать аккаунт";
 
-  form.append(email, password, submit);
+  form.append(submit);
   section.append(tabs);
 
   if (state.authError) {
@@ -2092,7 +2194,26 @@ export function getPublicAuthorLabel(author: CommentAuthor): string {
     return "Автор сайта";
   }
   const displayName = author.displayName?.trim();
-  return !displayName || displayName.includes("@") ? "Участник" : displayName;
+  return !displayName || displayName.includes("@") || displayName === "Участник" || displayName === "Participant"
+    ? author.id ? `Участник ${stableAuthorCode(author.id)}` : "Гость"
+    : displayName;
+}
+
+function stableAuthorCode(id: string): string {
+  return stableAuthorHash(id).toString(36).toUpperCase().padStart(3, "0").slice(-3);
+}
+
+function stableAuthorTone(id: string): number {
+  return stableAuthorHash(id) % 4;
+}
+
+function stableAuthorHash(id: string): number {
+  let hash = 2166136261;
+  for (const character of id) {
+    hash ^= character.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
 }
 
 function mergeCreatedReply(
@@ -2145,7 +2266,9 @@ function normalizeWidgetStyle(style: WidgetStyle): WidgetStyle {
 
 function createOptimisticComment(
   content: string,
-  parentId: string | null
+  parentId: string | null,
+  authorName: string,
+  ownedByCurrentUser: boolean
 ): PublicComment {
   const now = new Date().toISOString();
   return {
@@ -2153,14 +2276,14 @@ function createOptimisticComment(
     siteId: "",
     pageId: "",
     parentId,
-    author: { id: "", displayName: "Вы", kind: "VISITOR" },
+    author: { id: null, displayName: authorName, kind: "VISITOR" },
     content,
     status: "PENDING",
     createdAt: now,
     updatedAt: now,
     editedAt: null,
     pinned: false,
-    ownedByCurrentUser: true,
+    ownedByCurrentUser,
     reactions: normalizeReactions([]),
     replyCount: 0,
     replies: []
@@ -2463,12 +2586,16 @@ function getInitials(value: string): string {
   if (!normalized) {
     return "CC";
   }
-  return normalized.slice(0, 2).toUpperCase();
+  const participant = /^Участник\s+([A-Z0-9]+)/i.exec(normalized);
+  if (participant) {
+    return participant[1].slice(0, 2).toUpperCase();
+  }
+  const words = normalized.split(/\s+/).filter(Boolean);
+  return words.slice(0, 2).map((word) => word[0]).join("").toUpperCase();
 }
 
 const ENGLISH_WIDGET_COPY: Record<string, string> = {
   "Комментарии CloudComment": "CloudComment comments",
-  "Обсуждение": "Discussion",
   "Комментарии": "Comments",
   "Сортировка": "Sort",
   "Сортировка комментариев": "Sort comments",
@@ -2497,8 +2624,11 @@ const ENGLISH_WIDGET_COPY: Record<string, string> = {
   "Да, удалить": "Yes, delete",
   "Напишите комментарий": "Write a comment",
   "Написать комментарий": "Write a comment",
+  "Ваше публичное имя": "Your public name",
+  "Без регистрации · имя увидят все": "No account · your name is public",
+  "Публичное имя": "Public name",
+  "Добавить реакцию": "Add reaction",
   "Напишите ответ": "Write a reply",
-  "Войдите, чтобы написать комментарий": "Sign in to write a comment",
   "Вы авторизованы": "Signed in",
   "Отправляем...": "Sending...",
   "Отправить": "Send",
@@ -2513,7 +2643,7 @@ const ENGLISH_WIDGET_COPY: Record<string, string> = {
   "Персональные данные": "Personal data",
   "Мы отправим письмо с одноразовой ссылкой и кодом. Аккаунт удалится только после подтверждения.": "We will email a one-time link and code. Your account will be deleted only after confirmation.",
   "Отправить письмо": "Send email",
-  "Войти, чтобы участвовать": "Sign in to join",
+  "Войти в аккаунт": "Sign in to your account",
   "Войти": "Sign in",
   "Регистрация": "Register",
   "Пароль": "Password",
@@ -2524,7 +2654,7 @@ const ENGLISH_WIDGET_COPY: Record<string, string> = {
   "Подождите...": "Please wait...",
   "Создать аккаунт": "Create account",
   "Автор сайта": "Site owner",
-  "Участник": "Participant",
+  "Гость": "Guest",
   "Вы": "You",
   "Нравится": "Like",
   "Люблю": "Love",
@@ -2548,11 +2678,11 @@ const ENGLISH_WIDGET_COPY: Record<string, string> = {
   "Ссылка на комментарий скопирована.": "The comment link was copied.",
   "Не удалось скопировать ссылку на комментарий.": "Could not copy the comment link.",
   "Напишите комментарий перед отправкой.": "Write a comment before sending.",
+  "Укажите имя, не email.": "Enter a name, not an email.",
   "Комментарий не может быть пустым.": "The comment cannot be empty.",
   "Сессия истекла. Войдите снова.": "Your session has expired. Sign in again.",
+  "Сессия завершена. Комментарии доступны без входа.": "Your session ended. Comments remain available without signing in.",
   "Сессия истекла. Войдите снова, чтобы поставить реакцию.": "Your session has expired. Sign in again to react.",
-  "Войдите или зарегистрируйтесь, чтобы оставить комментарий.": "Sign in or register to leave a comment.",
-  "Войдите или зарегистрируйтесь, чтобы ответить.": "Sign in or register to reply.",
   "Войдите или зарегистрируйтесь, чтобы поставить реакцию.": "Sign in or register to react.",
   "Войдите, чтобы редактировать свой комментарий.": "Sign in to edit your comment.",
   "Войдите, чтобы удалить свой комментарий.": "Sign in to delete your comment.",
@@ -2573,6 +2703,7 @@ function translateEnglishWidgetText(value: string): string {
     [/^Показать ещё ответы \((\d+)\)$/, "Show more replies ($1)"],
     [/^Ответ для (.+)$/, "Replying to $1"],
     [/^Вы вошли как (.+)$/, "Signed in as $1"],
+    [/^Участник ([A-Z0-9]+)$/, "Participant $1"],
     [/^Ответ для (.+) отправлен на проверку\.$/, "Reply to $1 sent for review."],
     [/^Письмо для подтверждения удаления отправлено на (.+)\. Код действует до (.+)\.$/, "A deletion confirmation email was sent to $1. The code is valid until $2."],
     [/^Согласен\(на\) на обработку ПДн \((.+)\)$/, "I consent to personal data processing ($1)"],

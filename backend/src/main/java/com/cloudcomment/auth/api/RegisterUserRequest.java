@@ -30,6 +30,9 @@ public record RegisterUserRequest(
 
     @NotBlank
     @Size(max = 64)
-    String termsVersion
+    String termsVersion,
+
+    @Size(max = 120)
+    String displayName
 ) {
 }

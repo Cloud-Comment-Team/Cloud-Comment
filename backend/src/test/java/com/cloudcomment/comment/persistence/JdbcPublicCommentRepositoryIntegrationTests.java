@@ -48,6 +48,31 @@ class JdbcPublicCommentRepositoryIntegrationTests {
     private AutoModerationPolicyRepository autoModerationPolicyRepository;
 
     @Test
+    void createsAndReadsGuestCommentWithoutAccount() {
+        UUID ownerId = insertUser("guest-comment-owner", "Owner");
+        UUID siteId = insertSite(
+            ownerId, "guest-comments.example.com", "https://guest-comments.example.com",
+            ModerationMode.POST_MODERATION, true
+        );
+        UUID pageId = repository.findOrCreatePage(siteId, "https://guest-comments.example.com/article");
+
+        CommentView created = repository.createComment(
+            siteId, pageId, null, null, "Мария", null, "Без регистрации", CommentStatus.APPROVED
+        );
+
+        assertThat(created.author().id()).isNull();
+        assertThat(created.author().email()).isNull();
+        assertThat(created.author().displayName()).isEqualTo("Мария");
+        assertThat(repository.findApprovedComments(
+            siteId, pageId, 1, 20, PublicCommentSort.OLDEST, Optional.empty()
+        ).items()).singleElement().satisfies(comment -> {
+            assertThat(comment.author().id()).isNull();
+            assertThat(comment.author().displayName()).isEqualTo("Мария");
+            assertThat(comment.ownedByCurrentUser()).isFalse();
+        });
+    }
+
+    @Test
     void resolvesActiveSiteAllowedOriginsAndCreatesPageCommentsTransactionally() {
         UUID ownerId = insertUser("owner", "Owner Name");
         UUID visitorId = insertUser("visitor", "Visitor Name");
@@ -81,7 +106,7 @@ class JdbcPublicCommentRepositoryIntegrationTests {
             pageId,
             null,
             visitorId,
-            "Visitor Name",
+            "visitor@example.com",
             "visitor@example.com",
             "Pending root",
             CommentStatus.PENDING
@@ -96,6 +121,7 @@ class JdbcPublicCommentRepositoryIntegrationTests {
             "Approved root",
             CommentStatus.APPROVED
         );
+        assertThat(approvedRoot.author().displayName()).isEqualTo("Visitor Name");
         repository.createComment(
             siteId,
             pageId,

@@ -38,6 +38,7 @@ class RegistrationServiceTests {
         RegisteredUser user = service.register(
             " User@Example.COM ",
             "strong-password",
+            "  Анна   Петрова  ",
             ConsentTestSupport.validConsent(),
             ConsentSource.ADMIN
         );
@@ -45,6 +46,7 @@ class RegistrationServiceTests {
         assertThat(user.email()).isEqualTo("user@example.com");
         assertThat(user.roles()).containsExactly("COMMENTER");
         assertThat(repository.createdEmail).isEqualTo("user@example.com");
+        assertThat(repository.createdDisplayName).isEqualTo("Анна Петрова");
         assertThat(consentRepository.savedUserId).isEqualTo(user.id());
         assertThat(consentRepository.savedSource).isEqualTo(ConsentSource.ADMIN);
         assertThat(consentRepository.savedPrivacyVersion).isEqualTo(ConsentTestSupport.PRIVACY_POLICY_VERSION);
@@ -142,6 +144,7 @@ class RegistrationServiceTests {
 
         private String createdEmail;
         private String createdPasswordHash;
+        private String createdDisplayName;
         private Set<String> createdRoles;
         private boolean throwDuplicateOnCreate;
 
@@ -170,11 +173,17 @@ class RegistrationServiceTests {
 
         @Override
         public RegisteredUser create(String email, String passwordHash, Set<String> roles) {
+            return create(email, passwordHash, null, roles);
+        }
+
+        @Override
+        public RegisteredUser create(String email, String passwordHash, String displayName, Set<String> roles) {
             if (throwDuplicateOnCreate) {
                 throw new DuplicateKeyException("duplicate email");
             }
             createdEmail = email;
             createdPasswordHash = passwordHash;
+            createdDisplayName = displayName;
             createdRoles = Set.copyOf(roles);
             Instant timestamp = Instant.parse("2026-06-23T12:00:00Z");
             return new RegisteredUser(UUID.randomUUID(), email, roles, timestamp, timestamp);

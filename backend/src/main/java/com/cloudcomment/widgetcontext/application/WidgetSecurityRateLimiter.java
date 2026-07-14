@@ -60,6 +60,10 @@ public class WidgetSecurityRateLimiter {
         check(Operation.REGISTER, siteId, origin, remoteAddress, normalizeEmail(email));
     }
 
+    public void checkComment(UUID siteId, String origin, String remoteAddress) {
+        check(Operation.COMMENT, siteId, origin, remoteAddress, "");
+    }
+
     int bucketCount() {
         return buckets.size();
     }
@@ -160,7 +164,8 @@ public class WidgetSecurityRateLimiter {
         BOOTSTRAP(240, 240.0 / 60.0),
         EXCHANGE(600, 600.0 / 60.0),
         LOGIN(8, 8.0 / 300.0),
-        REGISTER(5, 5.0 / 3600.0);
+        REGISTER(5, 5.0 / 3600.0),
+        COMMENT(12, 12.0 / 300.0);
 
         private final int capacity;
         private final double tokensPerSecond;

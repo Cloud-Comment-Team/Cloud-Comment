@@ -57,6 +57,12 @@ class WidgetSecurityRateLimiterTests {
         clock.advance(Duration.ofMinutes(12));
         assertThatCode(() -> limiter.checkRegister(SITE_ID, ORIGIN, REMOTE_ADDRESS, "new@example.com"))
             .doesNotThrowAnyException();
+
+        consume(12, () -> limiter.checkComment(SITE_ID, ORIGIN, REMOTE_ADDRESS));
+        assertRateLimited(() -> limiter.checkComment(SITE_ID, ORIGIN, REMOTE_ADDRESS));
+        clock.advance(Duration.ofSeconds(25));
+        assertThatCode(() -> limiter.checkComment(SITE_ID, ORIGIN, REMOTE_ADDRESS))
+            .doesNotThrowAnyException();
     }
 
     @Test

@@ -32,8 +32,13 @@ function comment(id: string, replies: PublicComment[] = [], replyCount = replies
 
 describe("адаптивный виджет", () => {
   it("не использует email-подобное значение как публичное имя", () => {
-    expect(getPublicAuthorLabel({ id: "user", displayName: null })).toBe("Участник");
-    expect(getPublicAuthorLabel({ id: "user", displayName: "visitor@example.com" })).toBe("Участник");
+    expect(getPublicAuthorLabel({ id: "user", displayName: null })).toMatch(/^Участник [A-Z0-9]{3}$/);
+    expect(getPublicAuthorLabel({ id: "user", displayName: "visitor@example.com" }))
+      .toBe(getPublicAuthorLabel({ id: "user", displayName: null }));
+    expect(getPublicAuthorLabel({ id: "user", displayName: "Участник" }))
+      .toBe(getPublicAuthorLabel({ id: "user", displayName: null }));
+    expect(getPublicAuthorLabel({ id: "another-user", displayName: null }))
+      .not.toBe(getPublicAuthorLabel({ id: "user", displayName: null }));
     expect(getPublicAuthorLabel({ id: "user", displayName: "  Анна  " })).toBe("Анна");
   });
 

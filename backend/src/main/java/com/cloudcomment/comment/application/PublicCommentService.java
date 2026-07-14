@@ -191,10 +191,29 @@ public class PublicCommentService {
         UUID parentId,
         String content
     ) {
+        return createComment(
+            Optional.of(currentUser), siteId, origin, pageUrl, parentId, null, content
+        );
+    }
+
+    @Transactional
+    public CommentView createComment(
+        Optional<AuthenticatedUser> currentUser,
+        UUID siteId,
+        String origin,
+        String pageUrl,
+        UUID parentId,
+        String guestName,
+        String content
+    ) {
         WidgetSiteAccess access = domainPolicyService.validate(siteId, origin);
         String normalizedPageUrl = normalizePageUrl(pageUrl);
         assertSameOrigin(normalizedPageUrl, access.origin());
         String normalizedContent = normalizeContent(content);
+        UUID authorUserId = currentUser.map(AuthenticatedUser::id).orElse(null);
+        String authorEmail = currentUser.map(AuthenticatedUser::email).orElse(null);
+        String authorName = currentUser.map(AuthenticatedUser::email)
+            .orElseGet(() -> normalizeGuestName(guestName));
         UUID pageId = publicCommentRepository.findOrCreatePage(access.siteId(), normalizedPageUrl);
         if (parentId != null && !publicCommentRepository.existsApprovedRootCommentOnPage(pageId, parentId)) {
             throw notFound();
@@ -217,9 +236,9 @@ public class PublicCommentService {
             access.siteId(),
             pageId,
             parentId,
-            currentUser.id(),
-            currentUser.email(),
-            currentUser.email(),
+            authorUserId,
+            authorName,
+            authorEmail,
             normalizedContent,
             effectiveStatus,
             moderationReason,
@@ -230,9 +249,9 @@ public class PublicCommentService {
             comment.pageId(),
             comment.id(),
             comment.parentId(),
-            currentUser.id(),
+            authorUserId,
             false,
-            currentUser.email(),
+            authorEmail,
             comment.content(),
             comment.status(),
             comment.createdAt()
@@ -330,6 +349,17 @@ public class PublicCommentService {
             throw new ApplicationException(ApiErrorCode.BAD_REQUEST, "Comment content must not be blank");
         }
         return normalizedContent;
+    }
+
+    private String normalizeGuestName(String guestName) {
+        String normalized = guestName == null ? "" : guestName.strip().replaceAll("\\s+", " ");
+        if (normalized.length() < 2 || normalized.length() > 80 || normalized.contains("@")) {
+            throw new ApplicationException(
+                ApiErrorCode.VALIDATION_FAILED,
+                "Public name must contain 2 to 80 characters and must not be an email"
+            );
+        }
+        return normalized;
     }
 
     private CommentStatus initialStatus(ModerationMode moderationMode) {

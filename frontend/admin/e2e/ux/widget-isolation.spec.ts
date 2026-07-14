@@ -28,6 +28,7 @@ type WidgetServerState = {
   requestedPageUrls: string[]
   requestedCommentPages: Array<{ sort: string; page: number }>
   postedPageUrl: string | null
+  postedGuestNames: string[]
   contextlessRequests: string[]
   accountRequests: string[]
   commenterAuthorization: string[]
@@ -51,6 +52,7 @@ async function setupWidgetServer(page: Page, options: WidgetServerOptions = {}):
     requestedPageUrls: [],
     requestedCommentPages: [],
     postedPageUrl: null,
+    postedGuestNames: [],
     contextlessRequests: [],
     accountRequests: [],
     commenterAuthorization: [],
@@ -177,9 +179,22 @@ async function setupWidgetServer(page: Page, options: WidgetServerOptions = {}):
           await fulfillJson(route, { error: { message: 'Сервер не сохранил комментарий' } }, 500)
           return
         }
-        const body = request.postDataJSON() as { content: string; parentId: string | null; pageUrl: string }
+        const body = request.postDataJSON() as {
+          content: string
+          parentId: string | null
+          pageUrl: string
+          guestName?: string | null
+        }
         expect(body.pageUrl).toBe(pageUrlHeader)
-        const comment = createComment(comments.length + 100, { content: body.content, parentId: body.parentId })
+        if (body.guestName) state.postedGuestNames.push(body.guestName)
+        const guest = !request.headers().authorization
+        const comment = createComment(comments.length + 100, {
+          content: body.content,
+          parentId: body.parentId,
+          authorDisplayName: guest ? body.guestName ?? 'Гость' : 'Анна',
+          authorId: guest ? null : undefined,
+          ownedByCurrentUser: !guest,
+        })
         comments.unshift(comment)
         await fulfillJson(route, comment, 201)
         return
@@ -289,7 +304,7 @@ async function mountWidget(
 }
 
 async function loginInFrame(frame: FrameLocator): Promise<void> {
-  await frame.getByRole('button', { name: 'Войти, чтобы участвовать' }).click()
+  await frame.getByRole('button', { name: 'Войти в аккаунт' }).click()
   await frame.locator("form[data-cloud-comment-form='auth'] input[name='email']").fill('author@example.test')
   await frame.locator("form[data-cloud-comment-form='auth'] input[name='password']").fill('password-123')
   await frame.locator("form[data-cloud-comment-form='auth'] button[data-cloud-comment-submit]").click()
@@ -350,6 +365,26 @@ test('manual init использует один canonical pageUrl для GET и 
   expect(await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }))).not.toContain(COMMENTER_BEARER)
 })
 
+test('гость публикует комментарий без регистрации и bearer', async ({ page }, testInfo) => {
+  test.skip(!isPrimaryBrowser(testInfo), 'Гостевую публикацию достаточно проверить в основном Chromium-профиле')
+  const state = await setupWidgetServer(page)
+  await page.goto('/login')
+  await page.evaluate(() => { document.body.innerHTML = '<div id="comments"></div>' })
+  const frame = await mountWidget(page, `${new URL(page.url()).origin}/article`)
+
+  await expect(frame.getByText('Пока нет комментариев. Будьте первым, кто начнет обсуждение.')).toBeVisible()
+  await frame.getByRole('textbox', { name: 'Написать комментарий' }).fill('Комментарий гостя')
+  const guestName = frame.getByRole('textbox', { name: 'Ваше публичное имя' })
+  await guestName.fill('Мария')
+  await expect(guestName).toHaveValue('Мария')
+  await frame.getByRole('button', { name: 'Отправить' }).click()
+
+  await expect.poll(() => state.postedGuestNames).toEqual(['Мария'])
+  expect(state.commenterAuthorization).toEqual([])
+  await expect(frame.getByText('Мария').first()).toBeVisible()
+  await expect(frame.getByText('Комментарий гостя')).toBeVisible()
+})
+
 test('навигация A→B сохраняет site bearer, но другой parent origin его не видит', async ({ page }) => {
   const state = await setupWidgetServer(page)
   await page.goto('/login')
@@ -383,8 +418,9 @@ test('навигация A→B сохраняет site bearer, но другой
   })
   await page.goto('https://other-parent.example/article')
   const otherFrame = await mountWidget(page, 'https://other-parent.example/article', '#comments-other')
-  await expect(otherFrame.getByRole('button', { name: 'Войти, чтобы участвовать' })).toBeVisible()
-  await expect(otherFrame.locator("[data-cloud-comment-form='comment'] textarea")).toHaveAttribute('readonly', '')
+  await expect(otherFrame.getByRole('button', { name: 'Войти в аккаунт' })).toBeVisible()
+  await expect(otherFrame.locator("[data-cloud-comment-form='comment'] textarea")).not.toHaveAttribute('readonly')
+  await expect(otherFrame.getByRole('textbox', { name: 'Ваше публичное имя' })).toBeVisible()
   expect(state.loginCount).toBe(1)
   expect(state.meCount).toBe(1)
   expect(state.exchangeCount).toBe(3)
@@ -399,7 +435,7 @@ test('dedicated iframe изолирует стили, наследует тол�
   })
   const frame = await mountWidget(page, `${new URL(page.url()).origin}/article`)
   const iframe = page.locator('#comments iframe')
-  await expect(frame.getByRole('button', { name: 'Войти, чтобы участвовать' })).toBeVisible()
+  await expect(frame.getByRole('button', { name: 'Войти в аккаунт' })).toBeVisible()
   await expect(iframe).toHaveAttribute('sandbox', 'allow-scripts allow-same-origin allow-popups')
   expect((await iframe.getAttribute('sandbox'))?.split(' ')).not.toContain('allow-popups-to-escape-sandbox')
   expect(await page.locator('#comments').evaluate((element) => Boolean(element.shadowRoot))).toBe(false)
@@ -410,14 +446,14 @@ test('dedicated iframe изолирует стили, наследует тол�
   }))
   expect(presentation.fontFamily.replace(/["']/gu, '')).toBe('Brand Sans, Arial, sans-serif')
   expect(presentation.colorScheme).toBe('light')
-  const buttonStyle = await frame.getByRole('button', { name: 'Войти, чтобы участвовать' }).evaluate((button) => ({
+  const buttonStyle = await frame.getByRole('button', { name: 'Войти в аккаунт' }).evaluate((button) => ({
     position: getComputedStyle(button).position,
     color: getComputedStyle(button).color,
   }))
   expect(buttonStyle.position).not.toBe('fixed')
   expect(buttonStyle.color).not.toBe('rgb(255, 0, 0)')
 
-  await frame.getByRole('button', { name: 'Войти, чтобы участвовать' }).click()
+  await frame.getByRole('button', { name: 'Войти в аккаунт' }).click()
   await frame.getByRole('button', { name: 'Регистрация' }).click()
   const policyLink = frame.getByRole('link', { name: 'политика' })
   await expect(policyLink).toHaveAttribute('target', '_blank')
@@ -564,7 +600,8 @@ test('frame bundle сохраняет draft, focus и selection при пере�
   const textarea = frame.locator("[data-cloud-comment-form='comment'] textarea")
   await textarea.fill(draft)
 
-  const reaction = frame.locator("[data-reaction-type='LIKE']")
+  await frame.locator('[data-reaction-picker]').click()
+  const reaction = frame.locator("[data-reaction-type='LIKE']:visible")
   await reaction.focus()
   await reaction.click()
   await expect(reaction).toContainText('1')
@@ -601,6 +638,7 @@ function createComment(index: number, overrides: {
   content?: string
   parentId?: string | null
   authorDisplayName?: string
+  authorId?: string | null
   ownedByCurrentUser?: boolean
 } = {}) {
   const timestamp = '2026-07-13T10:00:00Z'
@@ -609,7 +647,10 @@ function createComment(index: number, overrides: {
     siteId: SITE_ID,
     pageId: '00000000-0000-0000-0000-000000000002',
     parentId: overrides.parentId ?? null,
-    author: { id: '00000000-0000-0000-0000-000000000003', displayName: overrides.authorDisplayName ?? 'Анна' },
+    author: {
+      id: overrides.authorId === undefined ? '00000000-0000-0000-0000-000000000003' : overrides.authorId,
+      displayName: overrides.authorDisplayName ?? 'Анна',
+    },
     content: overrides.content ?? `Комментарий ${index}`,
     status: 'APPROVED',
     createdAt: timestamp,

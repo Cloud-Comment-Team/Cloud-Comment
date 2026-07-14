@@ -17,10 +17,10 @@ public record PrivacyProperties(
 
     public PrivacyProperties {
         if (privacyPolicyVersion == null || privacyPolicyVersion.isBlank()) {
-            privacyPolicyVersion = "2026-07-12";
+            privacyPolicyVersion = "2026-07-14";
         }
         if (termsVersion == null || termsVersion.isBlank()) {
-            termsVersion = "2026-07-01";
+            termsVersion = "2026-07-14";
         }
         if (privacyPolicyUrl == null || privacyPolicyUrl.isBlank()) {
             privacyPolicyUrl = "/legal/privacy-policy.html";

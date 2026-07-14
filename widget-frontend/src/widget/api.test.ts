@@ -73,6 +73,26 @@ describe("изолированный transport виджета", () => {
     expect(new Headers(init?.headers).get(WIDGET_PAGE_URL_HEADER)).toBe(pageUrl);
   });
 
+  it("отправляет гостевой комментарий без bearer с публичным именем", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({ id: "guest-comment" }), {
+      status: 201,
+      headers: { "Content-Type": "application/json" }
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const api = createWidgetApiClient("https://widget.example/api", siteId, pageUrl, "frame-context");
+
+    await api.createComment("Гостевой текст", null, null, "Мария");
+
+    const [, init] = fetchMock.mock.calls[0];
+    expect(new Headers(init?.headers).get("Authorization")).toBeNull();
+    expect(JSON.parse(String(init?.body))).toMatchObject({
+      pageUrl,
+      parentId: null,
+      guestName: "Мария",
+      content: "Гостевой текст"
+    });
+  });
+
   it("выполняет account-операции только через site-scoped context", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({
       requestId: "00000000-0000-0000-0000-000000000002",
